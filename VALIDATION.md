@@ -1,0 +1,66 @@
+# Analytics Validity
+
+This project is a reproducible NBA data engineering pipeline, not a packaged
+forecasting product. Gold outputs are useful analytical tables, but their
+interpretation depends on the loaded warehouse scope and on whether the metric is
+descriptive, heuristic, or research-oriented.
+
+## Verification Status
+
+The repository is verified with deterministic offline fixture smoke runs,
+quality checks, artifact-policy checks, and wheel packaging checks. Live runs use
+the same registered warehouse graph, but they depend on public NBA endpoint
+availability, response shapes, and rate limits.
+
+## Output Tiers
+
+- **Descriptive marts** summarize loaded games without claiming model validity.
+  Examples: player game stats, team game stats, team-season four factors,
+  clutch summaries, starter/bench summaries, opponent scouting, timeout
+  analysis, and ATO team stats.
+- **Transparent heuristics** are simple calculations with readable assumptions.
+  Examples: Elo ratings/projections and BPM/VORP-style approximations.
+- **Rule-based analytics** use deterministic rules or hardcoded
+  baselines. Examples: play-type classification and heuristic shot quality.
+- **Research-oriented analytics** combine several derived signals into
+  exploratory outputs such as MVP-style rankings, feature matrices, embeddings,
+  similarity tables, RAPM, and trained win-probability artifacts. They are
+  produced by the pipeline, but they should be interpreted as transparent
+  analysis aids rather than calibrated or externally validated predictive
+  models.
+
+## Scope Metadata
+
+Scoped runs are valid for pipeline verification and team-level exploration. They
+are not evidence for full-league conclusions.
+
+Tables with percentile or ranking fields include `comparison_scope` metadata
+where supported. `full_league` means the loaded season includes 30 NBA teams for
+that comparison. `loaded_sample` means the comparison was computed over only the
+rows present in the local warehouse. The scope flag applies to all `_pct`
+percentile columns in that row.
+
+`comparison_team_count` and `comparison_player_count` record the denominator
+used for the comparison. A warehouse can be full league for one season and a
+loaded sample for another.
+
+## Approximation Labels
+
+`bpm_approx` and `vorp_approx` are box-score impact approximations. They are not
+parity-tested against Basketball-Reference metrics. Downstream tables that use
+these columns inherit the same approximation caveat unless this document says
+otherwise.
+
+`expected_fg_pct_heuristic` and `quality_delta_heuristic` come from hardcoded
+shot-quality baselines and adjustments. The trained shot-quality table uses
+separate trained-model column names and should be interpreted as a local model
+artifact, not a validated shot-making model.
+
+RAPM and win-probability artifacts are research-oriented local models. They are
+useful for reproducible experimentation, but they are not calibrated forecasts
+and have not been externally validated against production betting, tracking, or
+league systems.
+
+Elo outputs are transparent rating heuristics. Projection fields are only
+populated when the loaded season has full-team coverage; scoped samples keep
+ratings and current records but do not present season projections as complete.

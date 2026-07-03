@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    description: Raw NBA-shaped source payloads loaded by Dagster Python assets.
+    tables:
+      - name: schedule
+      - name: rosters
+      - name: coaches
+      - name: boxscores
+      - name: play_by_play
+      - name: shot_charts
+      - name: standings
+      - name: tracking_stats
+      - name: hustle
+      - name: matchups
+      - name: defense
+      - name: game_detail
+      - name: tracking
+      - name: injuries
+
+  - name: gold_runtime
+    schema: gold
+    description: Gold tables produced outside dbt by side-effectful Python assets.
+    tables:
+      - name: player_season_embeddings
+      - name: player_season_rapm

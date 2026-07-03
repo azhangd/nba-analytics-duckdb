@@ -1,0 +1,8 @@
+nba_duckdb:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('NBA_DUCKDB_PATH', 'data/warehouse/nba.duckdb') }}"
+      schema: main
+      threads: 1

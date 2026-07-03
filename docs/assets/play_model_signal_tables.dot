@@ -1,0 +1,62 @@
+digraph play_model_signal_diagram {
+  graph [rankdir=LR, bgcolor=white, pad=0.25, nodesep=0.35, ranksep=0.65, splines=polyline];
+  node [shape=plain, fontname=Helvetica];
+  edge [fontname=Helvetica, fontsize=8, color="#64748b", arrowsize=0.55];
+  label="Play, model, and signal tables\nPlay-level events, shot-quality estimates, model artifacts, and off-court covariates.";
+  labelloc=t;
+  fontsize=22;
+  fontname=Helvetica;
+  subgraph cluster_gold_play {
+    label="Play gold";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#39715a";
+    style="rounded";
+    "gold__lineup_season_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>lineup_season_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: lineup, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_on_off_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_on_off_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, team, season</FONT></TD></TR></TABLE>>];
+    "gold__player_zone_season_shot_quality" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_zone_season_shot_quality</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, zone, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_play_type_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_play_type_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season, play type</FONT></TD></TR></TABLE>>];
+    "gold__team_season_play_type_splits" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_play_type_splits</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, play type, split</FONT></TD></TR></TABLE>>];
+    "gold__player_combo_season_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_combo_season_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player combo, season</FONT></TD></TR></TABLE>>];
+    "gold__game_flow_snapshots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>game_flow_snapshots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game, time snapshot</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_gold_model {
+    label="Models and signals";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#39715a";
+    style="rounded";
+    "gold__player_zone_season_shot_quality_trained" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_zone_season_shot_quality_trained</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, zone, season</FONT></TD></TR></TABLE>>];
+    "gold__model_artifacts" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>model_artifacts</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: model, season</FONT></TD></TR></TABLE>>];
+    "gold__player_pageviews_daily" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_pageviews_daily</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, date</FONT></TD></TR></TABLE>>];
+    "gold__player_media_mentions_daily" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_media_mentions_daily</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, date</FONT></TD></TR></TABLE>>];
+    "gold__player_jersey_rank_snapshots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_jersey_rank_snapshots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, snapshot</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_context {
+    label="Context";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#8a8f98";
+    style="rounded";
+    "silver__dim_player_external_identities" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>dim_player_external_identities</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: player</FONT></TD></TR></TABLE>>];
+    "silver__fct_lineups" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_lineups</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: lineup stint</FONT></TD></TR></TABLE>>];
+    "silver__fct_play_by_play" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_play_by_play</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: play event</FONT></TD></TR></TABLE>>];
+    "silver__fct_possessions" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_possessions</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: possession</FONT></TD></TR></TABLE>>];
+    "silver__fct_shots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_shots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: shot attempt</FONT></TD></TR></TABLE>>];
+  }
+  "silver__fct_lineups" -> "gold__lineup_season_stats" [label="lineup, season"];
+  "silver__fct_lineups" -> "gold__player_season_on_off_stats" [label="player_id, season"];
+  "silver__fct_shots" -> "gold__player_zone_season_shot_quality" [label="player_id, zone"];
+  "silver__fct_shots" -> "gold__player_zone_season_shot_quality_trained" [label="player_id, zone"];
+  "silver__fct_possessions" -> "gold__team_season_play_type_stats" [label="team_id, play"];
+  "silver__fct_possessions" -> "gold__team_season_play_type_splits" [label="team_id, play"];
+  "silver__fct_play_by_play" -> "gold__game_flow_snapshots" [label="game_id"];
+  "silver__fct_lineups" -> "gold__player_combo_season_stats" [label="player combo"];
+  "silver__fct_play_by_play" -> "gold__model_artifacts" [label="model training"];
+  "silver__dim_player_external_identities" -> "gold__player_pageviews_daily" [label="player_id"];
+  "silver__dim_player_external_identities" -> "gold__player_media_mentions_daily" [label="player_id"];
+  "silver__dim_player_external_identities" -> "gold__player_jersey_rank_snapshots" [label="player_id"];
+}

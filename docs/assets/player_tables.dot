@@ -1,0 +1,58 @@
+digraph player_diagram {
+  graph [rankdir=LR, bgcolor=white, pad=0.25, nodesep=0.35, ranksep=0.65, splines=polyline];
+  node [shape=plain, fontname=Helvetica];
+  edge [fontname=Helvetica, fontsize=8, color="#64748b", arrowsize=0.55];
+  label="Player gold tables\nPlayer-level game logs, season summaries, splits, embeddings, and feature matrices.";
+  labelloc=t;
+  fontsize=22;
+  fontname=Helvetica;
+  subgraph cluster_gold_player {
+    label="Player gold";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#39715a";
+    style="rounded";
+    "gold__player_game_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_game_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, game</FONT></TD></TR></TABLE>>];
+    "gold__player_season_stats_base" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_stats_base</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_clutch_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_clutch_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_load_management" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_load_management</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_archetypes" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_archetypes</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_rapm" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_rapm</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_mvp_ladder" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_mvp_ladder</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_embeddings" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_embeddings</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_similarity" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_similarity</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player pair, season</FONT></TD></TR></TABLE>>];
+    "gold__player_game_rolling_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_game_rolling_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, game</FONT></TD></TR></TABLE>>];
+    "gold__player_season_split_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_split_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season, split</FONT></TD></TR></TABLE>>];
+    "gold__player_season_feature_matrix" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_feature_matrix</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season</FONT></TD></TR></TABLE>>];
+    "gold__player_season_shot_profile" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>player_season_shot_profile</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, season, shot bucket</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_context {
+    label="Context";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#8a8f98";
+    style="rounded";
+    "silver__fct_boxscores" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_boxscores</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: player, game</FONT></TD></TR></TABLE>>];
+    "silver__fct_play_by_play" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_play_by_play</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: play event</FONT></TD></TR></TABLE>>];
+    "silver__fct_shots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_shots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: shot attempt</FONT></TD></TR></TABLE>>];
+  }
+  "silver__fct_boxscores" -> "gold__player_game_stats" [label="player_id, game_id"];
+  "gold__player_game_stats" -> "gold__player_season_stats_base" [label="player_id, season"];
+  "gold__player_season_stats_base" -> "gold__player_season_stats" [label="player_id, season"];
+  "silver__fct_shots" -> "gold__player_season_shot_profile" [label="player_id, season"];
+  "silver__fct_play_by_play" -> "gold__player_season_clutch_stats" [label="player_id, season"];
+  "silver__fct_boxscores" -> "gold__player_season_load_management" [label="player_id, season"];
+  "gold__player_season_stats" -> "gold__player_season_archetypes" [label="player_id, season"];
+  "gold__player_season_stats" -> "gold__player_season_rapm" [label="player_id, season"];
+  "gold__player_season_stats" -> "gold__player_season_mvp_ladder" [label="player_id, season"];
+  "gold__player_game_stats" -> "gold__player_game_rolling_stats" [label="player_id, game"];
+  "gold__player_game_stats" -> "gold__player_season_split_stats" [label="player_id, season"];
+  "gold__player_season_shot_profile" -> "gold__player_season_embeddings" [label="player_id, season"];
+  "gold__player_season_stats" -> "gold__player_season_similarity" [label="player_id, season"];
+  "gold__player_season_embeddings" -> "gold__player_season_feature_matrix" [label="player_id, season"];
+  "gold__player_game_rolling_stats" -> "gold__player_season_feature_matrix" [label="player_id, season"];
+  "gold__player_season_rapm" -> "gold__player_season_feature_matrix" [label="player_id, season"];
+}

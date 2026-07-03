@@ -1,0 +1,50 @@
+name: Proposal
+description: Propose an analysis, metric or mart, pipeline source, docs update, or other improvement.
+title: "[Proposal]: "
+labels: ["proposal"]
+body:
+  - type: dropdown
+    id: proposal-type
+    attributes:
+      label: Proposal type
+      options:
+        - Analysis example
+        - Metric or mart
+        - Pipeline source or transform
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What question, workflow, or gap does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Describe the intended data sources, tables, outputs, and validation path.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and interpretation
+      description: Note whether this is fixture-only, team-scoped, partial-season, full-league, descriptive, heuristic, or research-oriented.
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Testing or reproduction idea
+      description: How could this be tested with synthetic fixtures or mocked sources?
+  - type: checkboxes
+    id: data-policy
+    attributes:
+      label: Data policy
+      options:
+        - label: This proposal does not require committing live NBA data, raw payloads, DuckDB files, generated exports, or model artifacts.
+          required: true

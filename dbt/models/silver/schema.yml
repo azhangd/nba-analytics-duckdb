@@ -1,0 +1,116 @@
+version: 2
+
+models:
+  - name: dim_teams
+    description: One row per NBA team loaded into the warehouse.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_players
+    description: One row per player currently known from rosters or boxscores.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_coaches
+    description: One row per coach loaded from roster payloads.
+    columns:
+      - name: coach_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_player_external_identities
+    description: Deterministic local identity hints for optional external signal joins.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_injuries
+    description: One row per injury-report athlete entry after deterministic deduping.
+    columns:
+      - name: athlete_espn_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: fct_team_coach_seasons
+    description: One row per team, season, and coach assignment.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+      - name: coach_id
+        data_tests:
+          - not_null
+
+  - name: fct_games
+    description: One row per game.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+          - unique
+
+  - name: fct_boxscores
+    description: One row per player-game boxscore.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: player_id
+        data_tests:
+          - not_null
+
+  - name: fct_play_by_play
+    description: One row per play-by-play action.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: fct_possessions
+    description: One row per parsed possession.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: fct_shots
+    description: One row per shot-chart attempt.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: fct_lineups
+    description: One row per lineup stint.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: fct_hustle
+    description: One row per player hustle-stat line.
+
+  - name: fct_tracking
+    description: One row per player and tracking-stat category.
+
+  - name: fct_matchups
+    description: One row per offensive and defensive player matchup.
+
+  - name: fct_defense_play_types
+    description: One row per Synergy-style defensive play-type stat line.
+
+  - name: fct_game_detail
+    description: One row per game and team detail payload.

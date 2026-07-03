@@ -1,0 +1,23 @@
+name: nba_duckdb
+version: "0.1.0"
+config-version: 2
+
+profile: nba_duckdb
+
+model-paths: ["dbt/models"]
+macro-paths: ["dbt/macros"]
+test-paths: ["dbt/tests"]
+clean-targets:
+  - "dbt/target"
+  - "dbt/dbt_packages"
+
+models:
+  nba_duckdb:
+    silver:
+      +materialized: table
+      +schema: silver
+      +tags: ["silver"]
+    gold:
+      +materialized: table
+      +schema: gold
+      +tags: ["gold"]

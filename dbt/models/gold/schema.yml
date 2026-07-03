@@ -1,0 +1,314 @@
+version: 2
+
+models:
+  - name: player_game_stats
+    description: One row per player and game, with shot-bucket enrichments.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: player_id
+        data_tests:
+          - not_null
+
+  - name: team_game_stats
+    description: One row per team and game.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_elo
+    description: Transparent team-season Elo rating heuristic.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_game_elo_history
+    description: One row per team and game Elo update.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: player_season_stats
+    description: Final player-season table combining the dbt base mart with transparent adjustments.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_game_rolling_stats
+    description: Player-game rolling form windows and trend flags.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: player_season_split_stats
+    description: Player-season splits by home/away, result, score context, month, and rest.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+      - name: split_type
+        data_tests:
+          - not_null
+      - name: split_value
+        data_tests:
+          - not_null
+
+  - name: player_season_archetypes
+    description: Player-season offensive archetype classifier output.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_season_on_off_stats
+    description: Player-season lineup on/off differential summary.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_combo_season_stats
+    description: Two-player and three-player lineup combination summaries.
+    columns:
+      - name: season
+        data_tests:
+          - not_null
+      - name: team_id
+        data_tests:
+          - not_null
+
+  - name: lineup_season_stats
+    description: Team-season five-player lineup summaries.
+    columns:
+      - name: season
+        data_tests:
+          - not_null
+      - name: team_id
+        data_tests:
+          - not_null
+
+  - name: player_season_mvp_ladder
+    description: Research-oriented MVP-style player-season composite.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_season_feature_matrix
+    description: Wide player-season feature matrix for downstream analysis, built after runtime gold inputs such as embeddings and RAPM are available.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_feature_matrix
+    description: Wide team-season feature matrix built from core dbt warehouse marts.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: game_flow_snapshots
+    description: Score and win-probability snapshots derived from play-by-play.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+
+  - name: player_zone_season_shot_quality
+    description: Player-season shot-quality heuristic by shot zone.
+    columns:
+      - name: season
+        data_tests:
+          - not_null
+      - name: player_id
+        data_tests:
+          - not_null
+
+  - name: team_season_play_type_stats
+    description: Team-season Synergy-style rule-based play-type summary.
+    columns:
+      - name: season
+        data_tests:
+          - not_null
+      - name: offense_team_id
+        data_tests:
+          - not_null
+
+  - name: team_season_play_type_splits
+    description: Team-season play-type splits by period, margin, context, and clutch state.
+    columns:
+      - name: season
+        data_tests:
+          - not_null
+      - name: offense_team_id
+        data_tests:
+          - not_null
+
+  - name: player_season_stats_base
+    description: Base player-season summary built from player game logs.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_four_factors
+    description: Team-season four factors and possession summary.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_percentile_ranks
+    description: Team-season percentile ranks scoped to the loaded warehouse sample.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_starter_bench_stats
+    description: Team-season starter and bench splits.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_season_load_management
+    description: Player-season workload and minutes summary.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_clutch_stats
+    description: Team-season clutch possession summary.
+    columns:
+      - name: offense_team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_opponent_scouting
+    description: Team-season opponent matchup summary.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_timeout_stats
+    description: Team-season timeout usage summary.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_ato_stats
+    description: Team-season after-timeout possession summary.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_season_clutch_stats
+    description: Player-season clutch scoring summary.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: team_season_shot_profile
+    description: Team-season shot profile by zone bucket.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null
+
+  - name: player_season_shot_profile
+    description: Player-season shot profile by zone bucket.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+      - name: season
+        data_tests:
+          - not_null

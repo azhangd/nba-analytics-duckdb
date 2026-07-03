@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible problem with the pipeline, CLI, docs, or examples.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include commands, environment variables, and the smallest scope that reproduces the issue.
+      placeholder: |
+        make install-full
+        make smoke
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the relevant error text or output. Do not paste raw NBA payloads or private data.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Python and OS
+      placeholder: "Python 3.11 on macOS 15"
+  - type: checkboxes
+    id: data-policy
+    attributes:
+      label: Data policy
+      options:
+        - label: I did not attach raw NBA payloads, DuckDB files, generated exports, or private data.
+          required: true

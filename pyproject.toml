@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nba-analytics-duckdb"
+version = "0.1.0"
+description = "Unofficial NBA analytics pipeline built with Dagster, dbt, and DuckDB."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "dagster>=1.11",
+  "dagster-dbt>=0.27",
+  "dagster-duckdb>=0.27",
+  "dagster-webserver>=1.11",
+  "dbt-core>=1.10",
+  "dbt-duckdb>=1.10",
+  "duckdb>=1.1.0",
+  "grpcio<1.82",
+  "grpcio-health-checking<1.82",
+  "httpx>=0.28",
+  "numpy>=2.0",
+  "pyarrow>=16.0",
+  "polars>=1.20",
+  "pydantic>=2.8.0",
+  "pydantic-settings>=2.4.0",
+]
+
+[project.optional-dependencies]
+ml = [
+  "joblib>=1.4",
+  "scikit-learn>=1.5",
+  "scipy>=1.13",
+  "umap-learn>=0.5",
+  "xgboost>=2.1",
+]
+live = [
+  "nba-api>=1.11",
+  "pdfplumber>=0.11.9",
+]
+full = [
+  "joblib>=1.4",
+  "nba-api>=1.11",
+  "pdfplumber>=0.11.9",
+  "scikit-learn>=1.5",
+  "scipy>=1.13",
+  "umap-learn>=0.5",
+  "xgboost>=2.1",
+]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.8.0",
+]
+
+[project.scripts]
+nba-duckdb = "nba_duckdb.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nba_duckdb"]
+exclude = [
+  "dbt/.user.yml",
+  "dbt/target/**",
+  "dbt/dbt_packages/**",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"dbt_project.yml" = "nba_duckdb/dbt_project.yml"
+"dbt" = "nba_duckdb/dbt"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B905", "UP017"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/nba_duckdb/utils/nba_client.py" = ["E402", "I001"]

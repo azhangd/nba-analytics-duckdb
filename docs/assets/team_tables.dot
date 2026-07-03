@@ -1,0 +1,58 @@
+digraph team_diagram {
+  graph [rankdir=LR, bgcolor=white, pad=0.25, nodesep=0.35, ranksep=0.65, splines=polyline];
+  node [shape=plain, fontname=Helvetica];
+  edge [fontname=Helvetica, fontsize=8, color="#64748b", arrowsize=0.55];
+  label="Team gold tables\nTeam-level game logs, season summaries, Elo ratings, scouting, and feature matrices.";
+  labelloc=t;
+  fontsize=22;
+  fontname=Helvetica;
+  subgraph cluster_gold_team {
+    label="Team gold";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#39715a";
+    style="rounded";
+    "gold__team_game_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_game_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, game</FONT></TD></TR></TABLE>>];
+    "gold__team_season_four_factors" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_four_factors</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_percentile_ranks" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_percentile_ranks</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_starter_bench_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_starter_bench_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season, role</FONT></TD></TR></TABLE>>];
+    "gold__team_season_clutch_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_clutch_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_opponent_scouting" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_opponent_scouting</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, opponent, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_timeout_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_timeout_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_ato_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_ato_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_elo" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_elo</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_game_elo_history" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_game_elo_history</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, game</FONT></TD></TR></TABLE>>];
+    "gold__team_season_feature_matrix" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_feature_matrix</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season</FONT></TD></TR></TABLE>>];
+    "gold__team_season_shot_profile" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#39715a" BGCOLOR="#fbfffd"><TR><TD><B>team_season_shot_profile</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season, shot bucket</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_context {
+    label="Context";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#8a8f98";
+    style="rounded";
+    "gold__team_season_play_type_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>team_season_play_type_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: team, season, play type</FONT></TD></TR></TABLE>>];
+    "silver__fct_boxscores" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_boxscores</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: player, game</FONT></TD></TR></TABLE>>];
+    "silver__fct_games" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_games</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: game</FONT></TD></TR></TABLE>>];
+    "silver__fct_play_by_play" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_play_by_play</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: play event</FONT></TD></TR></TABLE>>];
+    "silver__fct_possessions" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_possessions</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: possession</FONT></TD></TR></TABLE>>];
+    "silver__fct_shots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#8a8f98" BGCOLOR="#fafafa"><TR><TD><B>fct_shots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">context: shot attempt</FONT></TD></TR></TABLE>>];
+  }
+  "silver__fct_games" -> "gold__team_game_stats" [label="game_id"];
+  "silver__fct_boxscores" -> "gold__team_season_four_factors" [label="team_id, season"];
+  "silver__fct_games" -> "gold__team_game_elo_history" [label="team_id, game_id"];
+  "gold__team_season_four_factors" -> "gold__team_season_percentile_ranks" [label="team_id, season"];
+  "gold__team_season_four_factors" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "silver__fct_shots" -> "gold__team_season_shot_profile" [label="team_id, season"];
+  "gold__team_season_shot_profile" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "gold__team_season_elo" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "gold__team_season_starter_bench_stats" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "gold__team_season_clutch_stats" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "gold__team_season_play_type_stats" -> "gold__team_season_feature_matrix" [label="team_id, season"];
+  "silver__fct_possessions" -> "gold__team_season_clutch_stats" [label="team_id, season"];
+  "silver__fct_play_by_play" -> "gold__team_season_timeout_stats" [label="team_id, season"];
+  "silver__fct_play_by_play" -> "gold__team_season_ato_stats" [label="team_id, season"];
+  "silver__fct_games" -> "gold__team_season_opponent_scouting" [label="team_id, opponent"];
+}

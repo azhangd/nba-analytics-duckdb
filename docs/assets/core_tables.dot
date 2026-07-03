@@ -1,0 +1,83 @@
+digraph core_diagram {
+  graph [rankdir=LR, bgcolor=white, pad=0.25, nodesep=0.35, ranksep=0.65, splines=polyline];
+  node [shape=plain, fontname=Helvetica];
+  edge [fontname=Helvetica, fontsize=8, color="#64748b", arrowsize=0.55];
+  label="Bronze to silver\nRaw NBA source records and derived silver facts and dimensions.";
+  labelloc=t;
+  fontsize=22;
+  fontname=Helvetica;
+  subgraph cluster_bronze {
+    label="Bronze";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#9a6a16";
+    style="rounded";
+    "bronze__schedule" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>schedule</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game</FONT></TD></TR></TABLE>>];
+    "bronze__rosters" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>rosters</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, team, season</FONT></TD></TR></TABLE>>];
+    "bronze__coaches" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>coaches</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: coach, team, season</FONT></TD></TR></TABLE>>];
+    "bronze__boxscores" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>boxscores</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game payload</FONT></TD></TR></TABLE>>];
+    "bronze__play_by_play" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>play_by_play</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game payload</FONT></TD></TR></TABLE>>];
+    "bronze__shot_charts" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>shot_charts</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game, team payload</FONT></TD></TR></TABLE>>];
+    "bronze__standings" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>standings</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season payload</FONT></TD></TR></TABLE>>];
+    "bronze__tracking_stats" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>tracking_stats</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season, category, level</FONT></TD></TR></TABLE>>];
+    "bronze__hustle" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>hustle</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season, level payload</FONT></TD></TR></TABLE>>];
+    "bronze__matchups" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>matchups</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season, team, direction</FONT></TD></TR></TABLE>>];
+    "bronze__defense" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>defense</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season, play type, grouping</FONT></TD></TR></TABLE>>];
+    "bronze__game_detail" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>game_detail</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game payload</FONT></TD></TR></TABLE>>];
+    "bronze__tracking" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>tracking</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: season payload</FONT></TD></TR></TABLE>>];
+    "bronze__injuries" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#9a6a16" BGCOLOR="#fffdf8"><TR><TD><B>injuries</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: fetch date payload</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_silver_dim {
+    label="Silver dimensions";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#4b6f93";
+    style="rounded";
+    "silver__dim_teams" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>dim_teams</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team</FONT></TD></TR></TABLE>>];
+    "silver__dim_players" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>dim_players</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player</FONT></TD></TR></TABLE>>];
+    "silver__dim_coaches" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>dim_coaches</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: coach</FONT></TD></TR></TABLE>>];
+    "silver__dim_player_external_identities" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>dim_player_external_identities</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player</FONT></TD></TR></TABLE>>];
+    "silver__dim_injuries" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>dim_injuries</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: injured athlete</FONT></TD></TR></TABLE>>];
+  }
+  subgraph cluster_silver_fct {
+    label="Silver facts";
+    labelloc=t;
+    fontsize=16;
+    fontname=Helvetica;
+    color="#4b6f93";
+    style="rounded";
+    "silver__fct_games" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_games</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: game</FONT></TD></TR></TABLE>>];
+    "silver__fct_boxscores" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_boxscores</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player, game</FONT></TD></TR></TABLE>>];
+    "silver__fct_shots" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_shots</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: shot attempt</FONT></TD></TR></TABLE>>];
+    "silver__fct_play_by_play" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_play_by_play</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: play event</FONT></TD></TR></TABLE>>];
+    "silver__fct_possessions" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_possessions</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: possession</FONT></TD></TR></TABLE>>];
+    "silver__fct_lineups" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_lineups</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: lineup stint</FONT></TD></TR></TABLE>>];
+    "silver__fct_hustle" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_hustle</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player/team hustle row</FONT></TD></TR></TABLE>>];
+    "silver__fct_tracking" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_tracking</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: tracking stat row</FONT></TD></TR></TABLE>>];
+    "silver__fct_matchups" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_matchups</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: player matchup</FONT></TD></TR></TABLE>>];
+    "silver__fct_defense_play_types" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_defense_play_types</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: defense play-type row</FONT></TD></TR></TABLE>>];
+    "silver__fct_game_detail" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_game_detail</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, game detail</FONT></TD></TR></TABLE>>];
+    "silver__fct_team_coach_seasons" [label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" COLOR="#4b6f93" BGCOLOR="#fbfdff"><TR><TD><B>fct_team_coach_seasons</B></TD></TR><TR><TD><FONT POINT-SIZE="9">row: team, season, coach</FONT></TD></TR></TABLE>>];
+  }
+  "bronze__schedule" -> "silver__dim_teams" [label="team_id"];
+  "bronze__rosters" -> "silver__dim_players" [label="player_id"];
+  "bronze__coaches" -> "silver__dim_coaches" [label="coach_id"];
+  "bronze__schedule" -> "silver__fct_games" [label="game_id"];
+  "bronze__boxscores" -> "silver__fct_boxscores" [label="game_id"];
+  "bronze__play_by_play" -> "silver__fct_play_by_play" [label="game_id"];
+  "bronze__shot_charts" -> "silver__fct_shots" [label="game_id, team_id"];
+  "bronze__game_detail" -> "silver__fct_game_detail" [label="game_id"];
+  "bronze__tracking_stats" -> "silver__fct_tracking" [label="season, category"];
+  "bronze__hustle" -> "silver__fct_hustle" [label="season"];
+  "bronze__matchups" -> "silver__fct_matchups" [label="season, team"];
+  "bronze__defense" -> "silver__fct_defense_play_types" [label="season, play type"];
+  "bronze__injuries" -> "silver__dim_injuries" [label="athlete"];
+  "silver__fct_games" -> "silver__fct_boxscores" [label="game_id"];
+  "silver__fct_games" -> "silver__fct_play_by_play" [label="game_id"];
+  "silver__fct_play_by_play" -> "silver__fct_possessions" [label="game_id"];
+  "silver__fct_play_by_play" -> "silver__fct_lineups" [label="game_id"];
+  "silver__dim_players" -> "silver__dim_player_external_identities" [label="player_id"];
+  "bronze__coaches" -> "silver__fct_team_coach_seasons" [label="coach_id"];
+}
