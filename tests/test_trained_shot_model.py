@@ -2,6 +2,11 @@
 
 import numpy as np
 import polars as pl
+import pytest
+
+pytest.importorskip("joblib")
+pytest.importorskip("sklearn")
+pytest.importorskip("xgboost")
 
 from nba_duckdb.modeling.trained_shot_model import build_features, chronological_game_split
 
