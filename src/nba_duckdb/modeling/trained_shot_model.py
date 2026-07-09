@@ -1,7 +1,7 @@
 """Trained shot difficulty model.
 
-XGBoost binary classifier trained on shot-level data with spatial,
-temporal, action, and player-prior features. Predicts P(make) per shot.
+XGBoost binary classifier trained on shot-level data with spatial, temporal,
+action, context, and zone features. Predicts P(make) per shot.
 
 Replaces hardcoded zone-based expected FG% with data-driven estimates.
 """
@@ -24,6 +24,7 @@ from nba_duckdb.modeling.artifact_paths import artifact_dir
 
 logger = logging.getLogger("nba_duckdb.modeling.trained_shot_model")
 SHOT_MODEL_N_JOBS = int(os.environ.get("SHOT_MODEL_N_JOBS", "1"))
+SHOT_MODEL_FEATURE_CONTRACT_VERSION = 2
 
 # Top action types (rest → "Other")
 TOP_ACTION_TYPES = [
@@ -45,6 +46,39 @@ SHOT_CONTEXTS = ["pull_up", "catch_and_shoot", "off_dribble", "other"]
 ARTIFACT_DIR = artifact_dir("shot_model")
 
 
+def chronological_game_split(
+    game_ids: np.ndarray,
+    game_dates: np.ndarray,
+    *,
+    train_fraction: float = 0.7,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return chronological, game-disjoint train and test row indices."""
+    game_ids = np.asarray(game_ids).astype(str)
+    game_dates = np.asarray(game_dates).astype(str)
+    if len(game_ids) != len(game_dates):
+        raise ValueError("game_ids and game_dates must have the same length")
+    if not 0.0 < train_fraction < 1.0:
+        raise ValueError("train_fraction must be between zero and one")
+
+    date_by_game: dict[str, str] = {}
+    for game_id, game_date in zip(game_ids, game_dates, strict=True):
+        previous = date_by_game.get(game_id)
+        if previous is None or game_date < previous:
+            date_by_game[game_id] = game_date
+    ordered_games = sorted(date_by_game, key=lambda game_id: (date_by_game[game_id], game_id))
+    if len(ordered_games) < 2:
+        raise ValueError("at least two games are required for a train/test split")
+
+    train_game_count = min(
+        max(int(len(ordered_games) * train_fraction), 1),
+        len(ordered_games) - 1,
+    )
+    train_games = set(ordered_games[:train_game_count])
+    train_idx = np.flatnonzero(np.isin(game_ids, list(train_games)))
+    test_idx = np.flatnonzero(~np.isin(game_ids, list(train_games)))
+    return train_idx, test_idx
+
+
 def artifact_dir_for_season(
     season: str | None = None,
     *,
@@ -61,7 +95,6 @@ def artifact_dir_for_season(
 
 def build_features(
     shots_df: pl.DataFrame,
-    tracking_df: pl.DataFrame | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Build feature matrix from shot-level data.
 
@@ -70,28 +103,6 @@ def build_features(
     feature_rows = []
     targets = []
     feature_names = None
-
-    # Build tracking prior lookup: {(player_id, season): {metric: value}}
-    tracking_lookup: dict[tuple, dict] = {}
-    if tracking_df is not None and not tracking_df.is_empty():
-        for row in tracking_df.iter_rows(named=True):
-            pid = row.get("player_id")
-            season = row.get("season")
-            cat = row.get("category", "")
-            stats = row.get("stats")
-            if not pid or not stats:
-                continue
-            key = (pid, season)
-            if key not in tracking_lookup:
-                tracking_lookup[key] = {}
-            if isinstance(stats, str):
-                try:
-                    stats = json.loads(stats)
-                except Exception:
-                    continue
-            if isinstance(stats, dict):
-                for k, v in stats.items():
-                    tracking_lookup[key][f"{cat}_{k}"] = v
 
     # Action type encoding
     action_to_idx = {a: i for i, a in enumerate(TOP_ACTION_TYPES)}
@@ -138,14 +149,6 @@ def build_features(
             1 if "3" in zone or "Above" in zone else 0,
         ]
 
-        # Player tracking priors
-        pid = row.get("player_id")
-        season = row.get("season")
-        priors = tracking_lookup.get((pid, season), {})
-        catch_shoot_fg = float(priors.get("CatchShoot_fg_pct", 0) or 0)
-        pullup_fg = float(priors.get("PullUpShot_fg_pct", 0) or 0)
-        drive_freq = float(priors.get("Drives_drives", 0) or 0)
-
         features = [
             loc_x / 250.0,  # normalize to [-1, 1]
             loc_y / 470.0,
@@ -160,9 +163,6 @@ def build_features(
             float(action_idx) / float(n_action_types),
             *context_vec,
             *zone_features,
-            catch_shoot_fg,
-            pullup_fg,
-            drive_freq / 20.0,  # normalize
         ]
 
         feature_rows.append(features)
@@ -177,7 +177,6 @@ def build_features(
         "shot_type_3pt", "action_type_enc",
         "ctx_pull_up", "ctx_catch_and_shoot", "ctx_off_dribble", "ctx_other",
         "zone_restricted", "zone_paint", "zone_midrange", "zone_three",
-        "prior_catch_shoot_fg", "prior_pullup_fg", "prior_drive_freq",
     ]
 
     return np.array(feature_rows, dtype=np.float32), np.array(targets, dtype=np.int32), feature_names
@@ -209,16 +208,7 @@ def train_shot_model(
     for params in param_grid:
         fold_aucs = []
         for train_idx, test_idx in gkf.split(X, y, groups=game_ids):
-            model = xgb.XGBClassifier(
-                objective="binary:logistic",
-                eval_metric="logloss",
-                tree_method="hist",
-                random_state=42,
-                verbosity=0,
-                n_jobs=SHOT_MODEL_N_JOBS,
-                **params,
-            )
-            model.fit(X[train_idx], y[train_idx])
+            model = fit_shot_model(X[train_idx], y[train_idx], params)
             preds = model.predict_proba(X[test_idx])[:, 1]
             auc = roc_auc_score(y[test_idx], preds)
             fold_aucs.append(auc)
@@ -231,16 +221,9 @@ def train_shot_model(
             best_params = params
 
     # Refit on all data with best params
-    best_model = xgb.XGBClassifier(
-        objective="binary:logistic",
-        eval_metric="logloss",
-        tree_method="hist",
-        random_state=42,
-        verbosity=0,
-        n_jobs=SHOT_MODEL_N_JOBS,
-        **best_params,
-    )
-    best_model.fit(X, y)
+    if best_params is None:
+        raise ValueError("Could not select shot-model parameters from grouped cross-validation")
+    best_model = fit_shot_model(X, y, best_params)
 
     metadata = {
         "best_params": best_params,
@@ -250,6 +233,25 @@ def train_shot_model(
     }
 
     return best_model, metadata
+
+
+def fit_shot_model(
+    X: np.ndarray,
+    y: np.ndarray,
+    params: dict,
+) -> xgb.XGBClassifier:
+    """Fit one production shot model with an already selected parameter set."""
+    model = xgb.XGBClassifier(
+        objective="binary:logistic",
+        eval_metric="logloss",
+        tree_method="hist",
+        random_state=42,
+        verbosity=0,
+        n_jobs=SHOT_MODEL_N_JOBS,
+        **params,
+    )
+    model.fit(X, y)
+    return model
 
 
 def evaluate_shot_model(

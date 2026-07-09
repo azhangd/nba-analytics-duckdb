@@ -109,6 +109,7 @@ def test_registry_declares_clear_player_season_stats_ownership():
         "gold.player_season_embeddings",
     )
     assert tasks["dbt_build_feature_matrices"].outputs == (
+        "gold.game_flow_snapshots",
         "gold.player_season_feature_matrix",
     )
     assert "bronze.boxscores" in tasks["dbt_build_warehouse"].inputs

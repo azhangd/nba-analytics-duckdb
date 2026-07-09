@@ -24,5 +24,6 @@ sources:
     schema: gold
     description: Gold tables produced outside dbt by side-effectful Python assets.
     tables:
+      - name: model_artifacts
       - name: player_season_embeddings
       - name: player_season_rapm

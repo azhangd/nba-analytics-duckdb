@@ -98,6 +98,67 @@ def test_build_training_data_produces_rows():
     assert set(labels).issubset({0, 1})
 
 
+def test_build_training_data_uses_pregame_elo_and_orients_possession_to_home_team():
+    """Training features must use information available for that game only."""
+    games = pl.DataFrame([
+        {
+            "game_id": "002A",
+            "game_date": "2025-10-01",
+            "home_team_id": 1,
+            "away_team_id": 2,
+            "home_score": 110,
+            "away_score": 100,
+        },
+        {
+            "game_id": "002B",
+            "game_date": "2026-04-01",
+            "home_team_id": 1,
+            "away_team_id": 2,
+            "home_score": 90,
+            "away_score": 100,
+        },
+    ])
+    events = []
+    for game_id, acting_team, home_score, away_score in (
+        ("002A", 1, 2, 0),
+        ("002B", 2, 0, 2),
+    ):
+        for offset in range(5):
+            events.append({
+                "game_id": game_id,
+                "period": 1,
+                "clock_seconds_remaining": 700.0 - offset,
+                "score_home": home_score,
+                "score_away": away_score,
+                "action_type": "turnover",
+                "team_id": acting_team,
+            })
+    elo_history = pl.DataFrame([
+        {
+            "game_id": "002A",
+            "team_id": 1,
+            "elo_before": 1550.0,
+            "opp_elo_before": 1450.0,
+            "is_home": True,
+        },
+        {
+            "game_id": "002B",
+            "team_id": 1,
+            "elo_before": 1450.0,
+            "opp_elo_before": 1550.0,
+            "is_home": True,
+        },
+    ])
+
+    rows = build_training_data(pl.DataFrame(events), games, elo_history).to_dicts()
+    by_game = {row["game_id"]: row for row in rows}
+
+    assert by_game["002A"]["elo_diff"] == pytest.approx(1.0)
+    assert by_game["002A"]["possession_flag"] == -1.0
+    assert by_game["002B"]["elo_diff"] == pytest.approx(-1.0)
+    assert by_game["002B"]["possession_flag"] == 1.0
+
+
 def test_build_training_data_empty_input():
     """Should handle empty PBP gracefully."""
     empty_pbp = pl.DataFrame(schema={

@@ -12,7 +12,11 @@ import logging
 
 import polars as pl
 
-from nba_duckdb.modeling.win_probability import predict_from_coefficients, probit_baseline
+from nba_duckdb.modeling.win_probability import (
+    infer_home_possession_flag,
+    predict_from_coefficients,
+    probit_baseline,
+)
 
 logger = logging.getLogger("nba_duckdb.analytics.game_flow")
 
@@ -80,12 +84,13 @@ def _win_probability(
     season: str | None = None,
     home_has_ball: bool | None = None,
     elo_diff: float = 0.0,
+    coefficients: dict | None = None,
 ) -> float:
     """Estimate win probability for the home team.
 
     Uses trained logistic regression if available, else probit baseline.
     """
-    coefficients = _load_trained_coefficients(season=season)
+    coefficients = coefficients or _load_trained_coefficients(season=season)
     if coefficients is not None:
         poss_flag = 0.0
         if home_has_ball is True:
@@ -105,6 +110,10 @@ def compute_game_flow(
     game_id: str,
     *,
     season: str | None = None,
+    home_team_id: int | None = None,
+    away_team_id: int | None = None,
+    pregame_elo_diff: float = 0.0,
+    coefficients: dict | None = None,
 ) -> pl.DataFrame:
     """Compute score margin at each event for game flow visualization.
 
@@ -153,7 +162,20 @@ def compute_game_flow(
             total_remaining = clock  # OT
 
         margin = home - away
-        win_prob = _win_probability(margin, total_remaining, season=season)
+        possession_flag = infer_home_possession_flag(
+            row,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+        )
+        home_has_ball = True if possession_flag > 0 else False if possession_flag < 0 else None
+        win_prob = _win_probability(
+            margin,
+            total_remaining,
+            season=season,
+            home_has_ball=home_has_ball,
+            elo_diff=pregame_elo_diff,
+            coefficients=coefficients,
+        )
 
         flow_points.append({
             "game_id": game_id,

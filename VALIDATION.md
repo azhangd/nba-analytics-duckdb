@@ -61,6 +61,27 @@ useful for reproducible experimentation, but they are not calibrated forecasts
 and have not been externally validated against production betting, tracking, or
 league systems.
 
+## Model Evaluation Controls
+
+The trained win-probability model uses a chronological game split. Elo features
+come from each team's rating before that game in `gold.team_game_elo_history`,
+not from the season-final rating. Possession is oriented from the home team's
+perspective for events that identify a clear post-event possession; ambiguous
+events use a neutral value. `gold.game_flow_snapshots` consumes that same feature
+contract and the model artifact for the matching season.
+
+The trained shot-quality model also evaluates on a chronological, whole-game
+holdout: no game can appear in both its training and evaluation partitions.
+Same-season aggregate tracking statistics are excluded because they would expose
+later-season information to earlier held-out games. After evaluation, the
+production artifact is refit on all eligible loaded shots. Its metadata records
+the evaluation partition sizes, production training size, feature-contract
+version, and exclusion of same-season priors.
+
+These controls make the local holdout metrics reproducible and prevent the known
+same-season leakage paths. They do not turn either model into an externally
+calibrated forecast; the research-oriented interpretation above still applies.
+
 Elo outputs are transparent rating heuristics. Projection fields are only
 populated when the loaded season has full-team coverage; scoped samples keep
 ratings and current records but do not present season projections as complete.
