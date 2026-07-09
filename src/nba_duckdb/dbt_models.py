@@ -1,6 +1,7 @@
 """dbt-owned warehouse model metadata."""
 
 DBT_FEATURE_MODEL_NAMES = (
+    "game_flow_snapshots",
     "player_season_feature_matrix",
 )
 
@@ -54,7 +55,6 @@ DBT_GOLD_MODEL_NAMES = (
     "player_zone_season_shot_quality",
     "team_season_play_type_stats",
     "team_season_play_type_splits",
-    "game_flow_snapshots",
     "team_season_feature_matrix",
     *DBT_FEATURE_MODEL_NAMES,
 )
@@ -123,6 +123,9 @@ DBT_FEATURE_INPUTS = (
     "gold.player_season_clutch_stats",
     "gold.player_game_stats",
     "silver.fct_games",
+    "silver.fct_play_by_play",
+    "gold.team_game_elo_history",
+    "gold.model_artifacts",
 )
 
 DBT_FEATURE_TASK_DEF = {

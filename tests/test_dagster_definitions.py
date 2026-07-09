@@ -54,6 +54,14 @@ def test_dagster_dbt_assets_use_manifest_lineage():
         "gold.player_season_rapm",
     }
 
+    game_flow = asset_graph.get(AssetKey(["gold", "game_flow_snapshots"]))
+    assert {
+        "silver.fct_play_by_play",
+        "silver.fct_games",
+        "gold.team_game_elo_history",
+        "gold.model_artifacts",
+    } <= {".".join(parent.path) for parent in game_flow.parent_keys}
+
     team_features = asset_graph.get(AssetKey(["gold", "team_season_feature_matrix"]))
     team_feature_parents = {".".join(parent.path) for parent in team_features.parent_keys}
     assert {

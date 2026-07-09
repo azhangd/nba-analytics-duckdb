@@ -20,7 +20,7 @@ logger = logging.getLogger("nba_duckdb.modeling.win_probability")
 def build_training_data(
     pbp_df: pl.DataFrame,
     games_df: pl.DataFrame,
-    elo_df: pl.DataFrame | None = None,
+    elo_history_df: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Build features + labels from play-by-play data.
 
@@ -41,14 +41,19 @@ def build_training_data(
         (pl.col("home_score") > pl.col("away_score")).cast(pl.Int8).alias("home_wins"),
     )
 
-    # Build Elo lookup
-    elo_lookup: dict[int, float] = {}
-    if elo_df is not None and not elo_df.is_empty():
-        for row in elo_df.iter_rows(named=True):
-            tid = row.get("team_id")
-            elo = row.get("elo") or row.get("current_elo") or row.get("elo_rating")
-            if tid and elo:
-                elo_lookup[tid] = float(elo)
+    # Use the rating that was known before each game. Season-final ratings would
+    # leak later outcomes into a chronological holdout.
+    pregame_elo_diffs: dict[tuple[str, int], float] = {}
+    if elo_history_df is not None and not elo_history_df.is_empty():
+        for row in elo_history_df.iter_rows(named=True):
+            game_id = row.get("game_id")
+            team_id = row.get("team_id")
+            elo_before = row.get("elo_before")
+            opp_elo_before = row.get("opp_elo_before")
+            if game_id and team_id and elo_before is not None and opp_elo_before is not None:
+                pregame_elo_diffs[(str(game_id), int(team_id))] = (
+                    float(elo_before) - float(opp_elo_before)
+                ) / 100.0
 
     # Process PBP events
     rows = []
@@ -83,25 +88,22 @@ def build_training_data(
 
         margin = home - away
 
-        # Infer possession from action type
-        action = str(row.get("action_type", "") or "").lower()
-        poss_flag = 0.0
-        if "turnover" in action:
-            poss_flag = -1.0  # opponent gets ball
-        elif "made" in action or "free throw" in action:
-            poss_flag = -1.0  # opponent gets ball after make
-        elif "rebound" in action:
-            if "defensive" in action or "def" in action.split():
-                poss_flag = 1.0  # home gets ball on defensive rebound
-            else:
-                poss_flag = 1.0  # offensive rebound, same team keeps ball
+        poss_flag = infer_home_possession_flag(
+            row,
+            home_team_id=outcome.get("home_team_id"),
+            away_team_id=outcome.get("away_team_id"),
+        )
 
         # Elo diff
         home_tid = outcome.get("home_team_id")
         away_tid = outcome.get("away_team_id")
-        home_elo = elo_lookup.get(home_tid, 1500.0) if home_tid else 1500.0
-        away_elo = elo_lookup.get(away_tid, 1500.0) if away_tid else 1500.0
-        elo_diff = (home_elo - away_elo) / 100.0
+        elo_diff = 0.0
+        if home_tid:
+            elo_diff = pregame_elo_diffs.get((str(gid), int(home_tid)), 0.0)
+        if not elo_diff and away_tid:
+            away_diff = pregame_elo_diffs.get((str(gid), int(away_tid)))
+            if away_diff is not None:
+                elo_diff = -away_diff
 
         # Normalize time for numerical stability
         time_norm = seconds_remaining / 2880.0  # fraction of regulation
@@ -131,6 +133,56 @@ def build_training_data(
     df = df.filter(pl.col("idx") % 5 == 0).drop("idx")
 
     return df
+
+
+def infer_home_possession_flag(
+    event: dict,
+    *,
+    home_team_id: int | None,
+    away_team_id: int | None,
+) -> float:
+    """Infer post-event possession from the acting team when the event is decisive.
+
+    Unknown or ambiguous events deliberately return zero rather than inventing a
+    possession. The sign is always from the home team's perspective.
+    """
+    acting_team = event.get("team_id")
+    if not acting_team or not home_team_id or not away_team_id:
+        return 0.0
+
+    acting_team = int(acting_team)
+    home_team_id = int(home_team_id)
+    away_team_id = int(away_team_id)
+    if acting_team not in {home_team_id, away_team_id}:
+        return 0.0
+
+    action = str(event.get("action_type") or "").lower()
+    description = str(event.get("description") or "").lower()
+    shot_result = str(event.get("shot_result") or "").lower()
+    is_field_goal = bool(event.get("is_field_goal"))
+
+    acting_team_keeps_ball: bool | None = None
+    if "turnover" in action or "turnover" in description:
+        acting_team_keeps_ball = False
+    elif "rebound" in action or "rebound" in description:
+        acting_team_keeps_ball = True
+    elif "jump ball" in action or "jump ball" in description or "steal" in action:
+        acting_team_keeps_ball = True
+    elif (
+        (is_field_goal and shot_result == "made")
+        or ("made" in action and "free throw" not in action)
+        or ("makes" in description and "free throw" not in description)
+    ):
+        acting_team_keeps_ball = False
+
+    if acting_team_keeps_ball is None:
+        return 0.0
+    possessing_team = (
+        acting_team
+        if acting_team_keeps_ball
+        else away_team_id if acting_team == home_team_id else home_team_id
+    )
+    return 1.0 if possessing_team == home_team_id else -1.0
 
 
 def train_model(

@@ -121,7 +121,10 @@ def test_runtime_dependent_models_are_second_dbt_phase_models():
     )
 
     assert runtime_models == set(DBT_FEATURE_MODEL_NAMES)
-    assert set(DBT_FEATURE_MODEL_NAMES) == {"player_season_feature_matrix"}
+    assert set(DBT_FEATURE_MODEL_NAMES) == {
+        "game_flow_snapshots",
+        "player_season_feature_matrix",
+    }
     assert core_task.dbt_selector == DBT_TRANSFORM_SELECTOR
     assert core_task.dbt_exclude == DBT_RUNTIME_DEPENDENT_SELECTOR
     assert feature_task.dbt_selector == DBT_FEATURE_SELECTOR
@@ -153,6 +156,7 @@ def test_dbt_tag_selectors_partition_registered_models():
     assert core_models.isdisjoint(feature_models)
     assert core_models | feature_models == set(DBT_MODEL_NAMES)
     assert "team_season_feature_matrix" in core_models
+    assert "game_flow_snapshots" in feature_models
     assert "player_season_feature_matrix" in feature_models
 
 

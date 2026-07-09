@@ -10,9 +10,12 @@ import polars as pl
 
 from nba_duckdb.db import delete_where, insert_rows, read_table, upsert_rows
 from nba_duckdb.modeling.trained_shot_model import (
+    SHOT_MODEL_FEATURE_CONTRACT_VERSION,
     artifact_dir_for_season,
     build_features,
+    chronological_game_split,
     evaluate_shot_model,
+    fit_shot_model,
     load_latest_model,
     save_model,
     train_shot_model,
@@ -36,9 +39,19 @@ def _model_is_stale(season: str) -> bool:
         version = f.read().strip()
     try:
         model_date = datetime.strptime(version, "%Y-%m-%d")
+        metadata_path = os.path.join(
+            artifact_dir_for_season(season),
+            f"metadata_{version}.json",
+        )
+        if not os.path.exists(metadata_path):
+            return True
+        with open(metadata_path) as metadata_file:
+            metadata = json.load(metadata_file)
+        if metadata.get("feature_contract_version") != SHOT_MODEL_FEATURE_CONTRACT_VERSION:
+            return True
         age_days = (datetime.now() - model_date).days
         return age_days >= RETRAIN_DAYS
-    except ValueError:
+    except (json.JSONDecodeError, OSError, ValueError):
         return True
 
 
@@ -85,8 +98,6 @@ def run(**kwargs):
 
     # 1. Read data
     shots = read_table("silver", "fct_shots")
-    tracking = read_table("silver", "fct_tracking")
-
     if shots.is_empty():
         logger.warning("No shot data — cannot compute trained shot quality")
         return {"status": "skipped", "seasons": target_seasons}
@@ -108,14 +119,8 @@ def run(**kwargs):
         if scoped_shots.is_empty():
             continue
 
-        scoped_tracking = (
-            tracking.filter(pl.col("season") == season_value)
-            if not tracking.is_empty() and "season" in tracking.columns
-            else tracking
-        )
-
         # 2. Build features
-        X, y, feature_names = build_features(scoped_shots, scoped_tracking)
+        X, y, feature_names = build_features(scoped_shots)
         if len(X) == 0:
             logger.warning("No shot-quality features built for %s", season_value)
             continue
@@ -128,9 +133,12 @@ def run(**kwargs):
         )
 
         # 3. Get game_ids for CV
-        game_ids = scoped_shots.filter(pl.col("shot_made").is_not_null())["game_id"].to_numpy()
+        shot_rows = scoped_shots.filter(pl.col("shot_made").is_not_null())
+        game_ids = shot_rows["game_id"].to_numpy()
+        game_dates = shot_rows["game_date"].fill_null("").to_numpy()
         if len(game_ids) > len(X):
             game_ids = game_ids[:len(X)]
+            game_dates = game_dates[:len(X)]
         if len(np.unique(game_ids)) < 2:
             logger.info(
                 "Skipping trained shot model for %s: at least two games are required for cross-validation",
@@ -139,41 +147,70 @@ def run(**kwargs):
             continue
 
         # 4. Check if model needs training
-        model, version = load_latest_model(season=season_value)
-        if model is None or _model_is_stale(season_value):
+        model = None
+        version = None
+        if not _model_is_stale(season_value):
+            model, version = load_latest_model(season=season_value)
+        if model is None:
             logger.info("Training new shot model for %s", season_value)
 
-            train_X, train_y, train_game_ids = _cap_training_sample(X, y, game_ids)
-            if len(train_X) < len(X):
-                logger.info(
-                    "Capped shot model training set for %s to %d/%d shots across %d games",
+            train_idx, test_idx = chronological_game_split(game_ids, game_dates)
+            evaluation_train_X = X[train_idx]
+            evaluation_train_y = y[train_idx]
+            evaluation_train_game_ids = game_ids[train_idx]
+            evaluation_test_X = X[test_idx]
+            evaluation_test_y = y[test_idx]
+            evaluation_test_game_ids = game_ids[test_idx]
+            if len(np.unique(evaluation_train_y)) < 2 or len(np.unique(evaluation_test_y)) < 2:
+                logger.warning(
+                    "Skipping trained shot model for %s: train/test outcomes need both classes",
                     season_value,
-                    len(train_X),
-                    len(X),
-                    len(np.unique(train_game_ids)),
+                )
+                continue
+
+            evaluation_train_X, evaluation_train_y, evaluation_train_game_ids = (
+                _cap_training_sample(
+                    evaluation_train_X,
+                    evaluation_train_y,
+                    evaluation_train_game_ids,
+                )
+            )
+            if len(evaluation_train_X) < len(train_idx):
+                logger.info(
+                    "Capped shot model evaluation training set for %s to %d/%d shots across %d games",
+                    season_value,
+                    len(evaluation_train_X),
+                    len(train_idx),
+                    len(np.unique(evaluation_train_game_ids)),
                 )
 
-            # Split: first 70% of sampled shots for train, rest for test
-            n_train = min(max(int(len(train_X) * 0.7), 1), max(len(train_X) - 1, 1))
-            X_train, X_test = train_X[:n_train], train_X[n_train:]
-            y_train, y_test = train_y[:n_train], train_y[n_train:]
-            gids_train = train_game_ids[:n_train]
-
-            model, meta = train_shot_model(X_train, y_train, gids_train)
-
-            eval_metrics = (
-                evaluate_shot_model(model, X_test, y_test, feature_names)
-                if len(X_test) > 0
-                else {
-                    "auc_roc": None,
-                    "log_loss": None,
-                    "calibration": {"predicted": [], "actual": []},
-                    "feature_importance": [],
-                }
+            evaluation_model, meta = train_shot_model(
+                evaluation_train_X,
+                evaluation_train_y,
+                evaluation_train_game_ids,
             )
+            eval_metrics = evaluate_shot_model(
+                evaluation_model,
+                evaluation_test_X,
+                evaluation_test_y,
+                feature_names,
+            )
+            production_X, production_y, production_game_ids = _cap_training_sample(
+                X,
+                y,
+                game_ids,
+            )
+            model = fit_shot_model(production_X, production_y, meta["best_params"])
             meta["evaluation"] = eval_metrics
-            meta["train_sample_size"] = int(len(train_X))
-            meta["train_sample_games"] = int(len(np.unique(train_game_ids)))
+            meta["feature_contract_version"] = SHOT_MODEL_FEATURE_CONTRACT_VERSION
+            meta["evaluation_split"] = "chronological_game_holdout"
+            meta["evaluation_train_samples"] = int(len(evaluation_train_X))
+            meta["evaluation_test_samples"] = int(len(evaluation_test_X))
+            meta["evaluation_train_games"] = int(len(np.unique(evaluation_train_game_ids)))
+            meta["evaluation_test_games"] = int(len(np.unique(evaluation_test_game_ids)))
+            meta["production_train_samples"] = int(len(production_X))
+            meta["production_train_games"] = int(len(np.unique(production_game_ids)))
+            meta["same_season_tracking_priors"] = "excluded"
 
             version = save_model(model, meta, season=season_value)
 
@@ -195,7 +232,6 @@ def run(**kwargs):
         y_pred = model.predict_proba(X)[:, 1]
 
         # 6. Build per-shot results and aggregate to player × zone
-        shot_rows = scoped_shots.filter(pl.col("shot_made").is_not_null())
         if len(shot_rows) > len(y_pred):
             shot_rows = shot_rows.head(len(y_pred))
 
@@ -266,7 +302,7 @@ def run(**kwargs):
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {'layer': 'gold',
  'task_type': 'gold',
- 'inputs': ('silver.fct_shots', 'silver.fct_tracking'),
+ 'inputs': ('silver.fct_shots',),
  'optional_inputs': (),
  'outputs': ('gold.player_zone_season_shot_quality_trained',),
  'mutates': (),

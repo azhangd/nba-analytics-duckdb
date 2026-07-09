@@ -24,7 +24,7 @@ def run(**kwargs):
     # 1. Read data
     pbp = read_table("silver", "fct_play_by_play")
     games = read_table("silver", "fct_games")
-    elo = read_table("gold", "team_season_elo")
+    elo_history = read_table("gold", "team_game_elo_history")
 
     if pbp.is_empty() or games.is_empty():
         logger.warning("No PBP or games data — cannot train win probability model")
@@ -53,10 +53,10 @@ def run(**kwargs):
 
         game_ids = set(season_games["game_id"].to_list())
         pbp_filtered = pbp.filter(pl.col("game_id").is_in(game_ids))
-        elo_scoped = (
-            elo.filter(pl.col("season") == season_value)
-            if not elo.is_empty() and "season" in elo.columns
-            else elo
+        elo_history_scoped = (
+            elo_history.filter(pl.col("season") == season_value)
+            if not elo_history.is_empty() and "season" in elo_history.columns
+            else elo_history
         )
 
         logger.info(
@@ -67,7 +67,7 @@ def run(**kwargs):
         )
 
         # 2. Build training data
-        data = build_training_data(pbp_filtered, season_games, elo_scoped)
+        data = build_training_data(pbp_filtered, season_games, elo_history_scoped)
         if data.is_empty():
             logger.warning("No win-prob training data built for %s", season_value)
             continue
@@ -156,7 +156,7 @@ def run(**kwargs):
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {'layer': 'gold',
  'task_type': 'gold',
- 'inputs': ('silver.fct_play_by_play', 'silver.fct_games', 'gold.team_season_elo'),
+ 'inputs': ('silver.fct_play_by_play', 'silver.fct_games', 'gold.team_game_elo_history'),
  'optional_inputs': (),
  'outputs': ('gold.model_artifacts',),
  'mutates': (),
