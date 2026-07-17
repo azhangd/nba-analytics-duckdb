@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: bronze
     schema: bronze
-    description: Raw NBA-shaped source payloads loaded by Dagster Python assets.
+    description: Raw NBA-shaped source payloads loaded by registered Python tasks.
     tables:
       - name: schedule
       - name: rosters
@@ -22,7 +22,7 @@ sources:
 
   - name: gold_runtime
     schema: gold
-    description: Gold tables produced outside dbt by side-effectful Python assets.
+    description: Gold tables produced outside dbt by side-effectful Python tasks.
     tables:
       - name: model_artifacts
       - name: player_season_embeddings

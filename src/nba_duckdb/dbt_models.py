@@ -96,7 +96,7 @@ DBT_TRANSFORM_INPUTS = (
 )
 
 # Compatibility metadata for the local run ledger while the CLI wraps dbt as one
-# build phase. Model-level lineage is owned by the dbt manifest and Dagster.
+# build phase. Airflow/Cosmos render the same manifest at model granularity.
 DBT_TRANSFORM_TASK_DEF = {
     "name": "dbt_build_warehouse",
     "dbt_selector": DBT_TRANSFORM_SELECTOR,

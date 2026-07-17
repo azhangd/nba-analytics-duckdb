@@ -561,7 +561,7 @@ def build_parser() -> argparse.ArgumentParser:
     datasets_list_parser.set_defaults(func=list_datasets)
     datasets_graph_parser = datasets_subparsers.add_parser(
         "graph",
-        help="Emit dataset lineage from asset metadata and dbt refs.",
+        help="Emit dataset lineage from task metadata and dbt refs.",
     )
     datasets_graph_parser.add_argument("--quick", action="store_true")
     datasets_graph_parser.add_argument(
