@@ -2,10 +2,10 @@
 
 Build a local NBA analytics warehouse in DuckDB.
 
-The repo includes collectors, Dagster asset definitions, dbt models, schema,
-quality checks, and smoke-test fixtures. It does not redistribute official
-league, team, player, or game data. It is not affiliated with, authorized by,
-sponsored by, or endorsed by the NBA.
+The repo includes collectors, Airflow 3 DAGs, Cosmos-rendered dbt models,
+schema, quality checks, and smoke-test fixtures. It does not redistribute
+official league, team, player, or game data. It is not affiliated with,
+authorized by, sponsored by, or endorsed by the NBA.
 
 ## What It Does
 
@@ -79,12 +79,25 @@ If you want live collection and the ML-derived tables, use the full install:
 make install-full
 ```
 
+To use Airflow's scheduler and UI, install the separate operational extra:
+
+```bash
+make install-airflow
+make airflow-prepare
+make airflow-dev
+```
+
+The local Airflow deployment starts with every DAG paused and live schedules
+disabled. See [docs/AIRFLOW.md](docs/AIRFLOW.md) for the DAG inventory,
+concurrency contract, scheduling configuration, and production guidance.
+
 With a regular virtual environment, the equivalent installs are:
 
 ```bash
 python -m pip install -e ".[dev,ml]"
 python -m pip install -e ".[dev,live]"
 python -m pip install -e ".[dev,full]"
+python -m pip install -e ".[dev,full,airflow]"
 ```
 
 The full smoke path uses synthetic fixtures and writes to
@@ -157,20 +170,24 @@ The warehouse has four schemas:
 - `gold`: player tables, team tables, feature tables, and model artifacts.
 - `ops`: run history, task attempts, and item-level ingestion progress.
 
-Dagster is the execution and lineage surface. The CLI runs Dagster jobs
-in-process, so normal smoke and live runs do not need a daemon. If you want the
-UI, start Dagster locally:
+Airflow 3 is the scheduled execution, retry, and operational-history surface.
+Cosmos expands the dbt manifest into one Airflow task per model. The full DAG
+runs core silver/gold models, then the Python/ML artifact tasks, then the two
+runtime-dependent feature models and the quality gate. The CLI executes the
+same framework-neutral task registry directly as a lightweight local harness;
+it does not hide an entire Airflow DAG behind one task.
 
-```bash
-dagster dev -m nba_duckdb.definitions
-```
+All warehouse writers use a global one-slot Airflow pool because DuckDB does
+not support automatic writes from multiple processes. Full DAGs also limit
+active tasks and runs to one. Airflow Params provide typed season, team, game,
+date, and full-refresh controls for manual runs and backfills.
 
 dbt owns the warehouse transformations that are deterministic tables: silver
 facts/dimensions and set-based or dataframe-style gold models. Python owns raw
 NBA collection, fixture loading, item-level resume state, quality gates, and the
 remaining model/artifact tasks that have side effects or heavier ML behavior.
 DuckDB is the local warehouse. Polars is used inside dbt Python models and
-Python assets when dataframe code is clearer than row-by-row Python.
+Python tasks when dataframe code is clearer than row-by-row Python.
 
 Bronze stores raw NBA source records. dbt derives the silver facts and
 dimensions that the gold marts reuse.
@@ -178,9 +195,9 @@ dimensions that the gold marts reuse.
 ![Bronze to silver](docs/assets/core_tables.png)
 
 For the rest of the table diagrams, see [docs/DIAGRAMS.md](docs/DIAGRAMS.md).
-Those views are curated for readability and checked against dbt/Dagster
-lineage. Dagster gives the browsable asset graph; the CLI can also write a
-small static lineage file:
+Those views are curated for readability and checked against dbt manifest and
+task-registry lineage. Airflow/Cosmos provide the browsable operational graph;
+the CLI can also write a small static lineage file:
 
 ```bash
 uv run nba-duckdb datasets graph --format html --output data/lineage.html
@@ -202,13 +219,15 @@ as live data. Those IDs are identifiers for validation only, not real results.
 
 ## Does It Pick Up New Games Each Night?
 
-Not automatically. This is a local pipeline, not a hosted scheduler. Re-run the
-same `run-live` command after new games are available. Collectors upsert source
-responses, downstream tables refresh the requested scope, and the ops ledger
-helps the runner skip or resume completed work.
+Only after you opt into an Airflow schedule. The repository ships live DAGs
+paused and unscheduled so a clone cannot accidentally call public endpoints.
+Set `NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE` or
+`NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE`, run Airflow, verify the manual DAG, and
+then unpause it. Collectors upsert source responses and retain item-level state
+for resumable high-volume sources.
 
-For nightly automation, call the CLI from cron, launchd, GitHub Actions, or
-another scheduler outside the repo.
+Without Airflow, re-run the same `run-live` CLI command after new games are
+available. The CLI remains useful for local development and recovery.
 
 ## Resume And Backfill
 
@@ -260,7 +279,8 @@ NBA_DUCKDB_NBA_API_RATE_PER_SECOND=1.0
 NBA_DUCKDB_NBA_API_BURST=1
 NBA_DUCKDB_LIVE_TIMEOUT_SECONDS=30
 NBA_DUCKDB_LOG_LEVEL=WARNING
-NBA_DUCKDB_DAGSTER_LOG_LEVEL=WARNING
+NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE=
+NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE=
 ```
 
 Use a temporary warehouse for experiments:
@@ -279,6 +299,10 @@ make install-full
 make smoke
 make quality
 make test
+make install-airflow
+make airflow-check
+make airflow-smoke
+make airflow-dev
 make check-artifacts
 make diagrams
 make clean

@@ -9,22 +9,22 @@ scope-aware, and safe to publish.
 
 ### Pipeline and Mart Code
 
-Use this lane for source collectors, dbt silver/gold models, Dagster Python
-assets, quality checks, and runner fixes.
+Use this lane for source collectors, dbt silver/gold models, Airflow DAG tasks,
+quality checks, and runner fixes.
 
 Expected bar:
 
 - Put reusable payload parsing and dataframe aggregation under
   `src/nba_duckdb/transforms/`. Put basketball-stat logic under
   `src/nba_duckdb/analytics/` and trained models or artifact helpers under
-  `src/nba_duckdb/modeling/`. Keep bronze collectors and Python asset modules
+  `src/nba_duckdb/modeling/`. Keep bronze collectors and Python task modules
   focused on scope, source access, and materialization.
 - Add or update tests that prove the public behavior, preferably from synthetic
   fixtures or mocked live sources.
 - Keep long live collectors resumable with item-level state before adding them
   to the public runner.
-- Prefer dbt models for deterministic warehouse tables. Use Dagster Python
-  assets for live collection, item-level resume state, external calls,
+- Prefer dbt models for deterministic warehouse tables. Use registered Python
+  tasks for live collection, item-level resume state, external calls,
   model-artifact side effects, or ML work that is clearer outside dbt.
 - Update `VALIDATION.md` when the output is scoped, approximate, heuristic, or
   research-oriented.
@@ -36,7 +36,7 @@ First decide who should own it.
 Use dbt when the table is a deterministic warehouse transform:
 
 1. Add a model under `dbt/models/silver/` or `dbt/models/gold/`.
-2. Use `ref()` and `source()` for inputs so dbt and Dagster can show lineage.
+2. Use `ref()` and `source()` for inputs so dbt and Cosmos can show lineage.
 3. If the model is Python, keep the dbt file as a small adapter: config,
    explicit refs/sources, and one call into `src/nba_duckdb/transforms/`.
 4. Put reusable parsing, dataframe, and metric logic in `transforms/`; do not
@@ -46,20 +46,20 @@ Use dbt when the table is a deterministic warehouse transform:
 7. Add fixture-backed tests and quality checks when the table is part of the
    full smoke path.
 
-Use a Dagster Python asset when the table needs live API access, item-level
+Use a registered Python task when the table needs live API access, item-level
 resume state, external calls, model artifacts, or heavier ML side effects:
 
 1. Add DDL only for Python-owned tables under `src/nba_duckdb/sql/schema/`.
    dbt-owned silver and gold tables do not belong in schema SQL.
 2. Add or update one module under `src/nba_duckdb/tasks/` that produces the
    table.
-3. Declare the asset metadata in that module so Dagster, the CLI, quality
+3. Declare `TASK_DEF` metadata in that module so Airflow, the CLI, quality
    checks, and diagrams can find it.
 4. Materialize rows through the dataset helpers when the task refreshes a
    scoped table.
 5. Add deterministic fixture or mocked-source coverage.
-6. Run `dagster dev -m nba_duckdb.definitions` or
-   `uv run nba-duckdb datasets graph` to confirm the table and lineage appear.
+6. Run `make airflow-check` or `uv run nba-duckdb datasets graph` to confirm the
+   task and lineage appear.
 
 For either path, update `VALIDATION.md` if the table introduces scoped,
 approximate, heuristic, or research-oriented interpretation.
@@ -86,7 +86,7 @@ SQL or as a single-output dbt Python model:
    `dbt/models/sources.yml`.
 7. Add quality checks for the table's grain and fixture-backed coverage.
 8. Run `uv run dbt build --project-dir . --profiles-dir dbt --target-path dbt/target`
-   and inspect the asset in `dagster dev -m nba_duckdb.definitions`.
+   and inspect the model task with `make airflow-check` or `make airflow-dev`.
 
 ### Reproducible Analysis Examples
 
@@ -176,6 +176,15 @@ make quality
 
 If you update an example, also run its documented command against a
 fixture-backed warehouse.
+
+If you change DAG construction, task metadata, dbt selection, or orchestration
+boundaries, also run:
+
+```bash
+make install-airflow
+make airflow-check
+make airflow-smoke
+```
 
 `make diagrams` and `make check-diagrams` validate curated diagrams against the
 dbt manifest, the registry, and schema metadata. When the manifest is missing
