@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import logging
 import os
@@ -33,6 +32,7 @@ from nba_duckdb.orchestration import (
     prepare_run,
     run_steps,
 )
+from nba_duckdb.task_runner import run_task
 
 DEFAULT_GRAPH = registry.DEFAULT_GRAPH
 QUICK_GRAPH = registry.QUICK_GRAPH
@@ -137,12 +137,6 @@ def _source_name(value: str | None = None) -> str:
     return value or os.environ.get("NBA_DUCKDB_SOURCE", "fixtures")
 
 
-def _run_module(module_path: str, **kwargs: Any) -> dict[str, Any]:
-    module = importlib.import_module(module_path)
-    result = module.run(**kwargs)
-    return result if isinstance(result, dict) else {"result": result}
-
-
 def _python_task(
     module_path: str,
     scope: dict[str, Any],
@@ -154,43 +148,36 @@ def _python_task(
     return TaskSpec(
         name=task_name,
         task_type=task_type,
-        action=lambda module_path=module_path, task_scope=task_scope: _run_module(
-            module_path, **task_scope
+        action=lambda module_path=module_path, task_scope=task_scope: _run_registered_module_task(
+            module_path, task_scope
         ),
         required=required,
     )
 
 
-def _dagster_pipeline_task(
+def _run_registered_module_task(module_path: str, scope: dict[str, Any]) -> dict[str, Any]:
+    task = next(task for task in registry.TASK_DEFS if task.module_path == module_path)
+    return run_task(task, scope=scope)
+
+
+def _registry_task(
+    task: registry.TaskDef,
     *,
-    graph: str,
-    mode: str,
     scope: dict[str, Any],
     fixtures_dir: Path | None = None,
     source_name: str | None = None,
-    offline_smoke: bool = False,
-    job_name: str,
 ) -> TaskSpec:
     task_scope = dict(scope)
-
-    def action() -> dict[str, Any]:
-        from nba_duckdb.definitions import execute_dagster_job
-
-        return execute_dagster_job(
-            graph=graph,
-            mode=mode,
+    return TaskSpec(
+        name=task.name,
+        task_type=task.task_type,
+        action=lambda: run_task(
+            task,
             scope=task_scope,
             fixtures_dir=fixtures_dir,
             source_name=source_name,
-            offline_smoke=offline_smoke,
-            job_name=job_name,
-        )
-
-    return TaskSpec(
-        name=job_name,
-        task_type="dagster",
-        action=action,
-        required=True,
+        ),
+        required=task.required,
     )
 
 
@@ -202,26 +189,20 @@ def _offline_smoke_steps(
     source_name: str,
 ) -> list[TaskSpec]:
     return [
-        _dagster_pipeline_task(
-            graph=graph,
-            mode=registry.FIXTURE_MODE,
+        _registry_task(
+            task,
             scope=scope,
             fixtures_dir=fixtures_dir,
             source_name=source_name,
-            offline_smoke=True,
-            job_name="smoke_job" if graph == DEFAULT_GRAPH else "smoke_quick_job",
         )
+        for task in registry.task_defs_for(graph, registry.FIXTURE_MODE)
     ]
 
 
 def _live_steps(graph: str, scope: dict[str, Any]) -> list[TaskSpec]:
     return [
-        _dagster_pipeline_task(
-            graph=graph,
-            mode=registry.LIVE_MODE,
-            scope=scope,
-            job_name="live_job" if graph == DEFAULT_GRAPH else "live_quick_job",
-        )
+        _registry_task(task, scope=scope)
+        for task in registry.task_defs_for(graph, registry.LIVE_MODE)
     ]
 
 

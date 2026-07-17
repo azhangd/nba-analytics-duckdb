@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 from pathlib import Path
 from typing import Any
@@ -10,7 +9,7 @@ from typing import Any
 import dagster as dg
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, DbtProject, dbt_assets
 
-from nba_duckdb import config, db, registry
+from nba_duckdb import registry
 from nba_duckdb.dbt_manifest import dbt_manifest_node_dataset, ensure_dbt_manifest
 from nba_duckdb.dbt_models import (
     DBT_FEATURE_SELECTOR,
@@ -20,6 +19,7 @@ from nba_duckdb.dbt_models import (
 )
 from nba_duckdb.dbt_runner import dbt_project_dir
 from nba_duckdb.fixtures.generate_synthetic_fixtures import SEASON as SYNTHETIC_SEASON
+from nba_duckdb.task_runner import run_task
 
 
 def _asset_key(dataset: str) -> dg.AssetKey:
@@ -90,27 +90,6 @@ def _ensure_dbt_manifest() -> Path:
 DBT_MANIFEST = _ensure_dbt_manifest()
 
 
-def _run_task_inner(
-    task: registry.TaskDef,
-    *,
-    scope: dict[str, Any],
-    fixtures_dir: Path | None = None,
-    source_name: str | None = None,
-) -> dict[str, Any]:
-    if task.name == "load_synthetic_fixtures":
-        from nba_duckdb.tasks.bronze import load_synthetic_fixtures
-
-        db.init_schema()
-        return load_synthetic_fixtures.run(
-            source_name=source_name or os.environ.get("NBA_DUCKDB_SOURCE", "fixtures"),
-            fixtures_dir=fixtures_dir or config.fixtures_dir(None),
-        )
-
-    module = importlib.import_module(task.module_path)
-    result = module.run(**scope)
-    return result if isinstance(result, dict) else {"result": result}
-
-
 def _run_task(
     task: registry.TaskDef,
     *,
@@ -121,7 +100,7 @@ def _run_task(
 ) -> dict[str, Any]:
     previous_offline = _set_offline_smoke_env() if offline_smoke else None
     try:
-        return _run_task_inner(
+        return run_task(
             task,
             scope=scope,
             fixtures_dir=fixtures_dir,
