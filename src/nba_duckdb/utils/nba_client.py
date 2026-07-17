@@ -581,9 +581,18 @@ def get_win_probability(game_id: str, max_retries: int = 1) -> dict:
 # --- Game rotations ---
 
 
-def get_game_rotation(game_id: str, max_retries: int = 5) -> dict:
+def get_game_rotation(
+    game_id: str,
+    max_retries: int = 5,
+    timeout: int = 30,
+) -> dict:
     """Fetch official rotation data (stint times, player pts, +/-, USG%)."""
-    return _call_with_rate_limit(GameRotation, max_retries=max_retries, timeout=30, game_id=game_id)
+    return _call_with_rate_limit(
+        GameRotation,
+        max_retries=max_retries,
+        timeout=timeout,
+        game_id=game_id,
+    )
 
 
 # --- Shot detail with filters ---
