@@ -201,6 +201,15 @@ def _discover_task_defs() -> tuple[TaskDef, ...]:
 TASK_DEFS: tuple[TaskDef, ...] = _discover_task_defs()
 
 
+def task_def_named(name: str) -> TaskDef:
+    """Return one registered task by its stable orchestration name."""
+
+    try:
+        return next(task for task in TASK_DEFS if task.name == name)
+    except StopIteration as exc:
+        raise KeyError(f"Unknown pipeline task: {name}") from exc
+
+
 @lru_cache(maxsize=1)
 def _dbt_manifest_lineage_edges() -> frozenset[tuple[str, str]]:
     from nba_duckdb.dbt_manifest import dbt_manifest_edges, load_dbt_manifest

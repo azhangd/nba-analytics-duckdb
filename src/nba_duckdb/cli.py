@@ -17,7 +17,10 @@ from nba_duckdb.dependencies import (
     MissingRequiredDependencyError,
     require_optional_groups,
 )
-from nba_duckdb.exceptions import PipelineStateNotInitializedError
+from nba_duckdb.exceptions import (
+    PipelineStateNotInitializedError,
+    SyntheticDataInLiveWarehouseError,
+)
 from nba_duckdb.fixtures.generate_synthetic_fixtures import (
     SEASON as SYNTHETIC_SEASON,
 )
@@ -33,6 +36,7 @@ from nba_duckdb.orchestration import (
     run_steps,
 )
 from nba_duckdb.task_runner import run_task
+from nba_duckdb.warehouse_guard import assert_no_synthetic_rows
 
 DEFAULT_GRAPH = registry.DEFAULT_GRAPH
 QUICK_GRAPH = registry.QUICK_GRAPH
@@ -43,10 +47,6 @@ BACKFILL_SOURCES = {
     "shot-charts": ("shot-charts", "nba_duckdb.tasks.bronze.ingest_shot_charts", False),
     "shots": ("shot-charts", "nba_duckdb.tasks.bronze.ingest_shot_charts", False),
 }
-
-
-class SyntheticDataInLiveWarehouseError(RuntimeError):
-    """Raised when a live run points at a warehouse that contains smoke fixtures."""
 
 
 class SmokeWarehouseIsolationError(RuntimeError):
@@ -232,79 +232,6 @@ def generate_test_fixtures(args: argparse.Namespace) -> dict[str, Any]:
     return {"fixtures_dir": str(output_dir), "files": [str(path) for path in files]}
 
 
-def _raise_if_synthetic_rows_present() -> None:
-    from nba_duckdb import db
-
-    database_path = _duckdb_path_from_url(db.get_database_url())
-    if not database_path.exists():
-        raise PipelineStateNotInitializedError(
-            "Pipeline tables not found; run `nba-duckdb init` first"
-        )
-
-    table_rows = db.execute(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM information_schema.tables
-        WHERE table_schema = 'bronze'
-          AND table_name = 'schedule'
-        """,
-        read_only=True,
-    )
-    if not table_rows or int(table_rows[0]["row_count"] or 0) == 0:
-        raise PipelineStateNotInitializedError(
-            "Pipeline tables not found; run `nba-duckdb init` first"
-        )
-
-    column_rows = db.execute(
-        """
-        SELECT table_schema, table_name, column_name
-        FROM information_schema.columns
-        WHERE table_schema IN ('bronze', 'silver', 'gold')
-          AND column_name IN ('season', 'game_id')
-        ORDER BY table_schema, table_name, column_name
-        """,
-        read_only=True,
-    )
-    table_columns: dict[tuple[str, str], set[str]] = {}
-    for row in column_rows:
-        table_key = (str(row["table_schema"]), str(row["table_name"]))
-        table_columns.setdefault(table_key, set()).add(str(row["column_name"]))
-
-    polluted_tables = []
-    for (schema, table), columns in table_columns.items():
-        predicates = []
-        params = []
-        if "season" in columns:
-            predicates.append(f"{db._quote_ident('season')} = %s")
-            params.append(SYNTHETIC_SEASON)
-        if "game_id" in columns:
-            predicates.append(f"{db._quote_ident('game_id')} LIKE '002SYN%'")
-        if not predicates:
-            continue
-        row = db.execute(
-            f"""
-            SELECT COUNT(*) AS row_count
-            FROM {db._quote_ident(schema)}.{db._quote_ident(table)}
-            WHERE {" OR ".join(predicates)}
-            """,
-            params,
-            read_only=True,
-        )[0]
-        if int(row["row_count"] or 0):
-            polluted_tables.append(f"{schema}.{table}")
-
-    if not polluted_tables:
-        return
-
-    raise SyntheticDataInLiveWarehouseError(
-        "This warehouse contains synthetic smoke fixture rows "
-        f"(season {SYNTHETIC_SEASON} / 002SYN game IDs) in "
-        f"{', '.join(polluted_tables)}. Smoke runs default to "
-        f"{config.smoke_warehouse_path()}; use a clean live warehouse for run-live, "
-        "or set NBA_DUCKDB_PATH to another DuckDB file."
-    )
-
-
 def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
     graph = QUICK_GRAPH if getattr(args, "quick", False) else DEFAULT_GRAPH
     previous_warehouse_env = _use_smoke_warehouse_unless_explicit(
@@ -391,7 +318,7 @@ def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.init_schema:
         db.init_schema()
-    _raise_if_synthetic_rows_present()
+    assert_no_synthetic_rows()
 
     seasons = [args.season] if args.season else None
     run_scope: dict[str, Any] = {
