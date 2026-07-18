@@ -12,6 +12,36 @@ from nba_duckdb.tasks.bronze.ingest_schedule import (
 )
 
 
+def _summer_schedule(league_id: str, game_id: str, label: str) -> dict:
+    return {
+        "leagueSchedule": {
+            "seasonYear": "2026-27",
+            "leagueId": league_id,
+            "gameDates": [
+                {
+                    "gameDate": "07/09/2026 00:00:00",
+                    "games": [
+                        {
+                            "gameId": game_id,
+                            "gameStatus": 3,
+                            "gameStatusText": "Final",
+                            "gameLabel": label,
+                            "homeTeam": {
+                                "teamId": 1610612737,
+                                "teamTricode": "ATL",
+                            },
+                            "awayTeam": {
+                                "teamId": 1610612738,
+                                "teamTricode": "BOS",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+
 def test_date_range_from_values_handles_single_date_and_reversed_bounds():
     assert _date_range_from_values("2025-04-13", None) == {date(2025, 4, 13)}
     assert _date_range_from_values(None, "2025-04-13") == {date(2025, 4, 13)}
@@ -103,3 +133,72 @@ def test_current_season_cold_load_prefers_cdn_schedule(tmp_path, monkeypatch):
     assert result["rows_written"] == 1
     assert result["used_cached_schedule"] is False
     assert result["used_scoreboard_fallback"] is False
+
+
+def test_summer_league_run_ingests_each_official_competition(tmp_path, monkeypatch):
+    from nba_duckdb import db
+    from nba_duckdb.tasks.bronze import ingest_schedule
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
+    db.init_schema()
+    payloads = {
+        "13": _summer_schedule("13", "1322600001", "California Classic Summer League"),
+        "15": _summer_schedule("15", "1522600001", "2026 NBA Summer League"),
+        "16": _summer_schedule("16", "1622600001", "Salt Lake City Summer League"),
+    }
+    calls = []
+
+    def fake_get_schedule(*, season, league_id, max_retries):
+        calls.append((season, league_id, max_retries))
+        return payloads[league_id]
+
+    monkeypatch.setattr(ingest_schedule.nba_client, "get_schedule", fake_get_schedule)
+
+    result = run(
+        season="2026-27",
+        competitions=[
+            "summer_league_california",
+            "summer_league_vegas",
+            "summer_league_salt_lake_city",
+        ],
+    )
+
+    assert result == {
+        "rows_written": 3,
+        "seasons": ["2026-27"],
+        "competitions": [
+            "summer_league_california",
+            "summer_league_vegas",
+            "summer_league_salt_lake_city",
+        ],
+        "full_refresh": False,
+    }
+    assert calls == [
+        ("2026-27", "13", 4),
+        ("2026-27", "15", 4),
+        ("2026-27", "16", 4),
+    ]
+    rows = db.execute_sql(
+        """
+        SELECT game_id, league_id, competition
+        FROM bronze.schedule
+        ORDER BY league_id
+        """
+    )
+    assert rows == [
+        {
+            "game_id": "1322600001",
+            "league_id": "13",
+            "competition": "summer_league_california",
+        },
+        {
+            "game_id": "1522600001",
+            "league_id": "15",
+            "competition": "summer_league_vegas",
+        },
+        {
+            "game_id": "1622600001",
+            "league_id": "16",
+            "competition": "summer_league_salt_lake_city",
+        },
+    ]

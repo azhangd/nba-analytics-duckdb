@@ -145,6 +145,14 @@ def _has_v3_boxscore_payload(result: dict[str, Any] | None, payload_key: str) ->
     return bool(payload.get("homeTeam")) and bool(payload.get("awayTeam"))
 
 
+def _has_schedule_payload(result: dict[str, Any] | None) -> bool:
+    if not result:
+        return False
+    schedule = result.get("leagueSchedule", result.get("LeagueSchedule", {}))
+    game_dates = schedule.get("gameDates", schedule.get("GameDates"))
+    return isinstance(game_dates, list) and bool(game_dates)
+
+
 def _is_transient_stats_error(exc: Exception) -> bool:
     message = str(exc)
     if exc.__class__.__name__ == "JSONDecodeError":
@@ -216,9 +224,32 @@ def _call_live_endpoint(
     return {}
 
 
-def get_schedule(season: str, max_retries: int = 5) -> dict:
-    """Fetch full season schedule."""
-    return _call_with_rate_limit(ScheduleLeagueV2, season=season, max_retries=max_retries)
+def get_schedule(
+    season: str,
+    league_id: str = "00",
+    max_retries: int = 5,
+) -> dict:
+    """Fetch and validate one official NBA-operated league schedule."""
+    result = _call_with_rate_limit(
+        ScheduleLeagueV2,
+        season=season,
+        league_id=str(league_id),
+        max_retries=max_retries,
+        result_validator=_has_schedule_payload,
+    )
+    schedule = result.get("leagueSchedule", result.get("LeagueSchedule", {}))
+    response_season = schedule.get("seasonYear", schedule.get("SeasonYear"))
+    response_league_id = str(schedule.get("leagueId", schedule.get("LeagueID", "")))
+    if response_season != season:
+        raise ValueError(
+            f"NBA schedule response is for {response_season!r}, not requested season {season!r}"
+        )
+    if response_league_id != str(league_id):
+        raise ValueError(
+            "NBA schedule response is for league "
+            f"{response_league_id!r}, not requested league {str(league_id)!r}"
+        )
+    return result
 
 
 def get_current_schedule_from_cdn(season: str) -> dict:

@@ -3,6 +3,8 @@
 SELECT
     CAST(game_id AS TEXT) AS game_id,
     season,
+    COALESCE(league_id, '00') AS league_id,
+    COALESCE(competition, 'nba') AS competition,
     game_date,
     CAST(home_team_id AS INTEGER) AS home_team_id,
     CAST(away_team_id AS INTEGER) AS away_team_id,
@@ -16,6 +18,7 @@ SELECT
         ELSE 'Scheduled'
     END AS status,
     CASE
+        WHEN COALESCE(competition, 'nba') LIKE 'summer_league_%' THEN 'summer_league'
         WHEN CAST(game_id AS TEXT) LIKE '004%' THEN 'playoffs'
         WHEN CAST(game_id AS TEXT) LIKE '005%' THEN 'play_in'
         WHEN CAST(game_id AS TEXT) LIKE '006%' THEN 'nba_cup'

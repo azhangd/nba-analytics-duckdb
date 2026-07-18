@@ -6,6 +6,11 @@ import os
 import time
 from datetime import date, datetime, timedelta
 
+from nba_duckdb.competitions import (
+    NBA,
+    Competition,
+    competitions_for_slugs,
+)
 from nba_duckdb.db import get_conn, upsert_rows
 from nba_duckdb.defaults import get_seasons
 from nba_duckdb.season_utils import normalize_requested_seasons
@@ -14,15 +19,23 @@ from nba_duckdb.utils import nba_client
 logger = logging.getLogger("nba_duckdb.tasks.bronze.schedule")
 
 
-def _existing_schedule_count(season: str) -> int:
+def _existing_schedule_count(season: str, competition: Competition = NBA) -> int:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS cnt FROM bronze.schedule WHERE season = %s", [season])
+            cur.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM bronze.schedule
+                WHERE season = %s
+                  AND competition = %s
+                """,
+                [season, competition.slug],
+            )
             row = cur.fetchone()
     return int(row["cnt"]) if row else 0
 
 
-def _latest_final_date(season: str) -> date | None:
+def _latest_final_date(season: str, competition: Competition = NBA) -> date | None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -30,9 +43,10 @@ def _latest_final_date(season: str) -> date | None:
                 SELECT MAX(to_date(game_date, 'MM/DD/YYYY HH24:MI:SS')) AS latest_final
                 FROM bronze.schedule
                 WHERE season = %s
+                  AND competition = %s
                   AND game_status = 3
                 """,
-                [season],
+                [season, competition.slug],
             )
             row = cur.fetchone()
     if not row or row["latest_final"] is None:
@@ -45,7 +59,12 @@ def _latest_final_date(season: str) -> date | None:
     return _parse_iso_date(str(latest_final).split(" ")[0])
 
 
-def _build_schedule_row(game: dict, season: str, game_date: str) -> dict:
+def _build_schedule_row(
+    game: dict,
+    season: str,
+    game_date: str,
+    competition: Competition = NBA,
+) -> dict:
     home = game.get("homeTeam", game.get("HomeTeam", {})) or {}
     away = game.get("awayTeam", game.get("AwayTeam", {})) or {}
     return {
@@ -58,6 +77,8 @@ def _build_schedule_row(game: dict, season: str, game_date: str) -> dict:
         "game_status": game.get("gameStatus", game.get("GameStatus", 0)),
         "game_status_text": game.get("gameStatusText", game.get("GameStatusText", "")),
         "season": season,
+        "league_id": competition.league_id,
+        "competition": competition.slug,
         "raw_json": json.dumps(game),
     }
 
@@ -126,7 +147,14 @@ def _ingest_season_from_scoreboard(season: str) -> int:
         games = raw.get("scoreboard", {}).get("games", [])
         game_date = f"{current.strftime('%m/%d/%Y')} 00:00:00"
         for game in games:
-            rows.append(_build_schedule_row(game, season=season, game_date=game_date))
+            rows.append(
+                _build_schedule_row(
+                    game,
+                    season=season,
+                    game_date=game_date,
+                    competition=NBA,
+                )
+            )
         current += timedelta(days=1)
 
     if not rows:
@@ -142,7 +170,7 @@ def _ingest_season_from_scoreboard(season: str) -> int:
 
 
 def _refresh_recent_statuses(season: str) -> int:
-    latest_final = _latest_final_date(season)
+    latest_final = _latest_final_date(season, NBA)
     if latest_final is None:
         return 0
 
@@ -158,7 +186,14 @@ def _refresh_recent_statuses(season: str) -> int:
         games = raw.get("scoreboard", {}).get("games", [])
         game_date = f"{current.strftime('%m/%d/%Y')} 00:00:00"
         for game in games:
-            rows.append(_build_schedule_row(game, season=season, game_date=game_date))
+            rows.append(
+                _build_schedule_row(
+                    game,
+                    season=season,
+                    game_date=game_date,
+                    competition=NBA,
+                )
+            )
         current += timedelta(days=1)
 
     if not rows:
@@ -209,7 +244,14 @@ def _refresh_specific_games(
             game_id = game.get("gameId", game.get("GameID", ""))
             if game_id not in remaining:
                 continue
-            rows.append(_build_schedule_row(game, season=season, game_date=game_date))
+            rows.append(
+                _build_schedule_row(
+                    game,
+                    season=season,
+                    game_date=game_date,
+                    competition=NBA,
+                )
+            )
             remaining.discard(game_id)
 
     if not rows:
@@ -219,7 +261,7 @@ def _refresh_specific_games(
 
 
 def _ingest_season(season: str, is_current: bool) -> dict:
-    existing_rows = _existing_schedule_count(season)
+    existing_rows = _existing_schedule_count(season, NBA)
 
     rows: list[dict] = []
     used_scoreboard_fallback = False
@@ -240,7 +282,11 @@ def _ingest_season(season: str, is_current: bool) -> dict:
         # incremental refreshes quick when cached season rows already exist.
         if raw is None:
             schedule_retries = 2 if existing_rows > 0 else 4
-            raw = nba_client.get_schedule(season=season, max_retries=schedule_retries)
+            raw = nba_client.get_schedule(
+                season=season,
+                league_id=NBA.league_id,
+                max_retries=schedule_retries,
+            )
     except ValueError as exc:
         if "Empty resultSets" not in str(exc):
             raise
@@ -273,7 +319,14 @@ def _ingest_season(season: str, is_current: bool) -> dict:
         for date_entry in game_dates:
             game_date = date_entry.get("gameDate", date_entry.get("GameDate", ""))
             for game in date_entry.get("games", date_entry.get("Games", [])):
-                rows.append(_build_schedule_row(game, season=season, game_date=game_date))
+                rows.append(
+                    _build_schedule_row(
+                        game,
+                        season=season,
+                        game_date=game_date,
+                        competition=NBA,
+                    )
+                )
 
     count = upsert_rows("bronze", "schedule", rows, conflict_cols=["game_id"]) if rows else 0
     # Only poll for recent game status changes on the current/active season.
@@ -288,6 +341,56 @@ def _ingest_season(season: str, is_current: bool) -> dict:
     }
 
 
+def _ingest_competition_season(
+    season: str,
+    competition: Competition,
+    *,
+    game_ids: set[str] | None = None,
+) -> dict:
+    if competition == NBA:
+        raise ValueError("NBA schedule ingestion must use _ingest_season")
+
+    raw = nba_client.get_schedule(
+        season=season,
+        league_id=competition.league_id,
+        max_retries=4,
+    )
+    schedule = raw.get("leagueSchedule", raw.get("LeagueSchedule", {}))
+    game_dates = schedule.get("gameDates", schedule.get("GameDates", []))
+    rows: list[dict] = []
+    for date_entry in game_dates:
+        game_date = date_entry.get("gameDate", date_entry.get("GameDate", ""))
+        for game in date_entry.get("games", date_entry.get("Games", [])):
+            game_id = str(game.get("gameId", game.get("GameID", "")))
+            if game_ids and game_id not in game_ids:
+                continue
+            rows.append(
+                _build_schedule_row(
+                    game,
+                    season=season,
+                    game_date=game_date,
+                    competition=competition,
+                )
+            )
+
+    if not rows and not game_ids:
+        raise ValueError(
+            f"Official {competition.display_name} schedule returned no games for {season}"
+        )
+    count = upsert_rows("bronze", "schedule", rows, conflict_cols=["game_id"]) if rows else 0
+    logger.info(
+        "Upserted %d schedule rows for %s (%s)",
+        count,
+        competition.display_name,
+        season,
+    )
+    return {
+        "rows_written": count,
+        "competition": competition.slug,
+        "league_id": competition.league_id,
+    }
+
+
 def run(
     season: str | None = None,
     seasons: list[str] | None = None,
@@ -297,30 +400,54 @@ def run(
 ):
     default_season = os.environ.get("NBA_DUCKDB_DEFAULT_SEASON", "2025-26")
     target_seasons = normalize_requested_seasons(seasons) or ([season] if season else get_seasons())
+    target_competitions = competitions_for_slugs(kwargs.get("competitions"))
 
     if game_ids:
         explicit_seasons = normalize_requested_seasons(seasons) or ([season] if season else [])
         if len(explicit_seasons) != 1:
             raise ValueError("Refreshing specific game_ids requires exactly one explicit season")
         target_season = explicit_seasons[0]
-        rows_written = _refresh_specific_games(
-            [str(game_id) for game_id in game_ids],
-            target_season,
-            start_date=kwargs.get("start_date"),
-            end_date=kwargs.get("end_date"),
-        )
+        requested_game_ids = {str(game_id) for game_id in game_ids}
+        rows_written = 0
+        for competition in target_competitions:
+            if competition == NBA:
+                rows_written += _refresh_specific_games(
+                    sorted(requested_game_ids),
+                    target_season,
+                    start_date=kwargs.get("start_date"),
+                    end_date=kwargs.get("end_date"),
+                )
+            else:
+                rows_written += _ingest_competition_season(
+                    target_season,
+                    competition,
+                    game_ids=requested_game_ids,
+                )["rows_written"]
         return {
             "rows_written": rows_written,
             "game_ids": [str(game_id) for game_id in game_ids],
+            "competitions": [competition.slug for competition in target_competitions],
             "full_refresh": full_refresh,
         }
 
     total_rows = 0
     for target_season in target_seasons:
-        result = _ingest_season(target_season, is_current=(target_season == default_season))
-        total_rows += result["rows_written"]
+        for competition in target_competitions:
+            if competition == NBA:
+                result = _ingest_season(
+                    target_season,
+                    is_current=(target_season == default_season),
+                )
+            else:
+                result = _ingest_competition_season(target_season, competition)
+            total_rows += result["rows_written"]
 
-    return {"rows_written": total_rows, "seasons": target_seasons, "full_refresh": full_refresh}
+    return {
+        "rows_written": total_rows,
+        "seasons": target_seasons,
+        "competitions": [competition.slug for competition in target_competitions],
+        "full_refresh": full_refresh,
+    }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {'layer': 'bronze',
