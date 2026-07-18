@@ -37,14 +37,16 @@ jobs:
   airflow:
     runs-on: ubuntu-latest
     env:
-      AIRFLOW_HOME: ${{ runner.temp }}/airflow
       AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/dags
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__OPENLINEAGE__NAMESPACE: nba-analytics-duckdb
       AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI: "True"
-      NBA_DUCKDB_SMOKE_PATH: ${{ runner.temp }}/airflow-smoke.duckdb
     steps:
+      - name: Configure runtime paths
+        run: |
+          echo "AIRFLOW_HOME=${RUNNER_TEMP}/airflow" >> "${GITHUB_ENV}"
+          echo "NBA_DUCKDB_SMOKE_PATH=${RUNNER_TEMP}/airflow-smoke.duckdb" >> "${GITHUB_ENV}"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
