@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
 from nba_duckdb.defaults import ALL_TEAM_IDS
-from nba_duckdb.season_utils import requested_or_default_seasons
+from nba_duckdb.season_utils import (
+    filter_frame_to_competitions,
+    requested_or_default_seasons,
+)
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.boxscores")
@@ -51,6 +54,7 @@ def run(**kwargs):
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
+    target_competitions = kwargs.get("competitions")
     team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS)
     team_ids = {int(t.strip()) for t in team_ids_raw.split(",")}
 
@@ -64,6 +68,7 @@ def run(**kwargs):
 
         if target_seasons and "season" in schedule.columns:
             schedule = schedule.filter(pl.col("season").is_in(target_seasons))
+        schedule = filter_frame_to_competitions(schedule, target_competitions)
         team_games = schedule.filter(
             pl.col("home_team_id").is_in(team_ids) | pl.col("away_team_id").is_in(team_ids)
         )
@@ -136,7 +141,12 @@ def run(**kwargs):
         )
     _assert_target_games_written([str(game_id) for game_id in game_ids])
     logger.info("Upserted box scores for %d games", total_written)
-    return {"rows_written": total_written, "game_ids": todo, "seasons": target_seasons}
+    return {
+        "rows_written": total_written,
+        "game_ids": todo,
+        "seasons": target_seasons,
+        "competitions": list(target_competitions or []),
+    }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {'layer': 'bronze',
@@ -145,7 +155,7 @@ TASK_DEF = {'layer': 'bronze',
  'optional_inputs': (),
  'outputs': ('bronze.boxscores',),
  'mutates': (),
- 'graphs': ('default', 'quick'),
+ 'graphs': ('default', 'quick', 'summer_league'),
  'modes': ('live',),
  'required': True,
  'quality_outputs': ('bronze.boxscores',),

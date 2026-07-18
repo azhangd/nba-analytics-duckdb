@@ -5,6 +5,13 @@ DBT_FEATURE_MODEL_NAMES = (
     "player_season_feature_matrix",
 )
 
+DBT_SUMMER_LEAGUE_MODEL_NAMES = (
+    "summer_league_games",
+    "summer_league_boxscores",
+    "summer_league_play_by_play",
+    "summer_league_shots",
+)
+
 DBT_RUNTIME_DEPENDENT_SELECTOR = "tag:requires_gold_runtime"
 
 DBT_SILVER_MODEL_NAMES = (
@@ -62,8 +69,13 @@ DBT_GOLD_MODEL_NAMES = (
 DBT_MODEL_DATASETS = (
     *(f"silver.{model}" for model in DBT_SILVER_MODEL_NAMES),
     *(f"gold.{model}" for model in DBT_GOLD_MODEL_NAMES),
+    *(f"silver.{model}" for model in DBT_SUMMER_LEAGUE_MODEL_NAMES),
 )
-DBT_MODEL_NAMES = (*DBT_SILVER_MODEL_NAMES, *DBT_GOLD_MODEL_NAMES)
+DBT_MODEL_NAMES = (
+    *DBT_SILVER_MODEL_NAMES,
+    *DBT_GOLD_MODEL_NAMES,
+    *DBT_SUMMER_LEAGUE_MODEL_NAMES,
+)
 DBT_CORE_MODEL_NAMES = (
     *DBT_SILVER_MODEL_NAMES,
     *(model for model in DBT_GOLD_MODEL_NAMES if model not in DBT_FEATURE_MODEL_NAMES),
@@ -73,12 +85,16 @@ DBT_CORE_MODEL_DATASETS = tuple(
     for model in DBT_CORE_MODEL_NAMES
 )
 DBT_FEATURE_MODEL_DATASETS = tuple(f"gold.{model}" for model in DBT_FEATURE_MODEL_NAMES)
+DBT_SUMMER_LEAGUE_MODEL_DATASETS = tuple(
+    f"silver.{model}" for model in DBT_SUMMER_LEAGUE_MODEL_NAMES
+)
 
 DBT_TRANSFORM_SELECTOR = "tag:silver tag:gold"
 # The core build exclude and the feature build selector are two sides of the
 # same orchestration boundary: models that require runtime gold artifacts.
 DBT_TRANSFORM_EXCLUDE = DBT_RUNTIME_DEPENDENT_SELECTOR
 DBT_FEATURE_SELECTOR = DBT_RUNTIME_DEPENDENT_SELECTOR
+DBT_SUMMER_LEAGUE_SELECTOR = "tag:summer_league"
 
 DBT_TRANSFORM_INPUTS = (
     "bronze.schedule",
@@ -140,4 +156,23 @@ DBT_FEATURE_TASK_DEF = {
     "quality_outputs": DBT_FEATURE_MODEL_DATASETS,
     "live_order": 700,
     "fixture_order": 560,
+}
+
+DBT_SUMMER_LEAGUE_TASK_DEF = {
+    "name": "dbt_build_summer_league",
+    "dbt_selector": DBT_SUMMER_LEAGUE_SELECTOR,
+    "dbt_models": DBT_SUMMER_LEAGUE_MODEL_NAMES,
+    "inputs": (
+        "bronze.schedule",
+        "bronze.boxscores",
+        "bronze.play_by_play",
+        "bronze.shot_charts",
+    ),
+    "outputs": DBT_SUMMER_LEAGUE_MODEL_DATASETS,
+    "graphs": ("summer_league",),
+    "modes": ("live",),
+    "required": True,
+    "regular_season_only": False,
+    "quality_outputs": DBT_SUMMER_LEAGUE_MODEL_DATASETS,
+    "live_order": 100,
 }

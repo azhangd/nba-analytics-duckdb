@@ -20,6 +20,7 @@ def _scope():
         "season": "2025-26",
         "seasons": ["2025-26"],
         "game_ids": None,
+        "competitions": ["nba"],
         "full_refresh": False,
         "start_date": None,
         "end_date": None,
@@ -74,12 +75,30 @@ def test_run_live_quick_keeps_small_iteration_graph():
     assert {step.task_type for step in cli._live_steps("quick", _scope())} == {"bronze"}
 
 
+def test_summer_league_command_uses_dedicated_graph():
+    from nba_duckdb import cli
+
+    names = _flatten_step_names(
+        cli._live_steps(cli.SUMMER_LEAGUE_GRAPH, _scope())
+    )
+
+    assert names == [
+        "ingest_schedule",
+        "ingest_boxscores",
+        "ingest_play_by_play",
+        "ingest_shot_charts",
+        "dbt_build_summer_league",
+        "validate_summer_league",
+    ]
+
+
 def test_public_cli_uses_current_command_names():
     from nba_duckdb.cli import build_parser
 
     help_text = build_parser().format_help()
 
     assert "run-smoke" in help_text
+    assert "run-summer-league" in help_text
     assert "generate-test-fixtures" in help_text
     assert "quality" in help_text
     assert "runs" in help_text
@@ -98,12 +117,19 @@ def test_runner_retry_defaults_match_command_purpose():
     live_args = parser.parse_args(["run-live"])
     smoke_args = parser.parse_args(["run-smoke"])
     quick_args = parser.parse_args(["run-live", "--quick"])
+    summer_args = parser.parse_args(["run-summer-league", "--season", "2026-27"])
 
     assert live_args.retries == 2
     assert live_args.retry_delay_seconds == 120.0
     assert smoke_args.retries == 0
     assert smoke_args.retry_delay_seconds == 0.0
     assert quick_args.quick is True
+    assert summer_args.competitions == [
+        "summer_league_california",
+        "summer_league_vegas",
+        "summer_league_salt_lake_city",
+    ]
+    assert summer_args.retries == 2
 
 
 def _hide_optional_modules(monkeypatch, missing_modules):

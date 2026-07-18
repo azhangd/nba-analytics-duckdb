@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: summer_league_games
+    description: One row per NBA-operated Summer League game with explicit competition provenance.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+          - unique
+      - name: season
+        data_tests:
+          - not_null
+      - name: league_id
+        data_tests:
+          - not_null
+      - name: competition
+        data_tests:
+          - not_null
+
+  - name: summer_league_boxscores
+    description: One row per Summer League player-game box score.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: player_id
+        data_tests:
+          - not_null
+
+  - name: summer_league_play_by_play
+    description: One row per official Summer League play-by-play action.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: action_id
+        data_tests:
+          - not_null
+
+  - name: summer_league_shots
+    description: One row per official Summer League shot-chart attempt.
+    columns:
+      - name: game_id
+        data_tests:
+          - not_null
+      - name: game_event_id
+        data_tests:
+          - not_null

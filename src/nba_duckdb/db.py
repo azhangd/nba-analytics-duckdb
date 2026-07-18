@@ -56,6 +56,26 @@ LIGHTWEIGHT_MIGRATIONS = (
         "play_by_play",
         "ALTER TABLE bronze.play_by_play ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'unknown'",
     ),
+    (
+        "bronze",
+        "schedule",
+        "ALTER TABLE bronze.schedule ADD COLUMN IF NOT EXISTS league_id TEXT DEFAULT '00'",
+    ),
+    (
+        "bronze",
+        "schedule",
+        "ALTER TABLE bronze.schedule ALTER COLUMN league_id SET NOT NULL",
+    ),
+    (
+        "bronze",
+        "schedule",
+        "ALTER TABLE bronze.schedule ADD COLUMN IF NOT EXISTS competition TEXT DEFAULT 'nba'",
+    ),
+    (
+        "bronze",
+        "schedule",
+        "ALTER TABLE bronze.schedule ALTER COLUMN competition SET NOT NULL",
+    ),
 )
 
 

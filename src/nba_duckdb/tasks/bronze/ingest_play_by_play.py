@@ -21,7 +21,10 @@ from nba_duckdb.ingestion_state import (
     summarize_items,
 )
 from nba_duckdb.orchestration import heartbeat_current_task
-from nba_duckdb.season_utils import requested_or_default_seasons
+from nba_duckdb.season_utils import (
+    filter_frame_to_competitions,
+    requested_or_default_seasons,
+)
 from nba_duckdb.utils import nba_client
 from nba_duckdb.utils.env import positive_int
 
@@ -69,6 +72,7 @@ def run(**kwargs):
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
+    target_competitions = kwargs.get("competitions")
     team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS)
     team_ids = {int(t.strip()) for t in team_ids_raw.split(",")}
 
@@ -79,6 +83,7 @@ def run(**kwargs):
 
         if target_seasons and "season" in schedule.columns:
             schedule = schedule.filter(pl.col("season").is_in(target_seasons))
+        schedule = filter_frame_to_competitions(schedule, target_competitions)
 
         team_games = schedule.filter(
             pl.col("home_team_id").is_in(team_ids) | pl.col("away_team_id").is_in(team_ids)
@@ -232,6 +237,7 @@ def run(**kwargs):
         "rows_written": total_written,
         "game_ids": [item["game_id"] for item in todo_items],
         "seasons": target_seasons,
+        "competitions": list(target_competitions or []),
         "item_state": item_state,
     }
 
@@ -242,7 +248,7 @@ TASK_DEF = {'layer': 'bronze',
  'optional_inputs': (),
  'outputs': ('bronze.play_by_play',),
  'mutates': (),
- 'graphs': ('default', 'quick'),
+ 'graphs': ('default', 'quick', 'summer_league'),
  'modes': ('live',),
  'required': True,
  'quality_outputs': ('bronze.play_by_play',),

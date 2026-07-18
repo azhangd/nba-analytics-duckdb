@@ -3,6 +3,8 @@
 SELECT
     CAST(game_id AS TEXT) AS game_id,
     season,
+    COALESCE(league_id, '00') AS league_id,
+    COALESCE(competition, 'nba') AS competition,
     game_date,
     CAST(home_team_id AS INTEGER) AS home_team_id,
     CAST(away_team_id AS INTEGER) AS away_team_id,
@@ -23,3 +25,4 @@ SELECT
         ELSE 'regular_season'
     END AS game_type
 FROM {{ source('bronze', 'schedule') }}
+WHERE COALESCE(competition, 'nba') = 'nba'

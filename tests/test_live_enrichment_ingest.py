@@ -122,7 +122,58 @@ def test_shot_chart_ingest_passes_season_and_season_type(tmp_path, monkeypatch):
         {
             "game_id": "0069900001",
             "team_id": 0,
+            "league_id": "00",
             "season": "2099-00",
+            "season_type": "Regular Season",
+            "max_retries": 2,
+        }
+    ]
+
+
+def test_summer_shot_chart_uses_schedule_league_id(tmp_path, monkeypatch):
+    db = _init_tmp_db(tmp_path, monkeypatch)
+    from nba_duckdb.tasks.bronze import ingest_shot_charts
+
+    db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            {
+                "game_id": "1522600001",
+                "game_date": "07/09/2026 00:00:00",
+                "home_team_id": 1610612737,
+                "away_team_id": 1610612738,
+                "home_team_abbr": "ATL",
+                "away_team_abbr": "BOS",
+                "game_status": 3,
+                "game_status_text": "Final",
+                "season": "2026-27",
+                "league_id": "15",
+                "competition": "summer_league_vegas",
+                "raw_json": "{}",
+            }
+        ],
+    )
+    calls = []
+
+    def fake_fetch(**kwargs):
+        calls.append(kwargs)
+        return {"resultSets": [{"name": "Shot_Chart_Detail", "headers": [], "rowSet": []}]}
+
+    monkeypatch.setattr(ingest_shot_charts.nba_client, "get_shot_chart", fake_fetch)
+
+    result = ingest_shot_charts.run(
+        season="2026-27",
+        competitions=["summer_league_vegas"],
+    )
+
+    assert result["rows_written"] == 2
+    assert calls == [
+        {
+            "game_id": "1522600001",
+            "team_id": 0,
+            "league_id": "15",
+            "season": "2026-27",
             "season_type": "Regular Season",
             "max_retries": 2,
         }

@@ -8,6 +8,57 @@ from nba_duckdb.exceptions import LiveEndpointUnavailableError
 pytest.importorskip("nba_api")
 
 
+def test_schedule_uses_requested_league_and_validates_response(monkeypatch):
+    from nba_api.stats.endpoints import ScheduleLeagueV2
+
+    from nba_duckdb.utils import nba_client
+
+    calls = []
+
+    def fake_call(endpoint_cls, *, result_validator, **kwargs):
+        calls.append((endpoint_cls, kwargs))
+        payload = {
+            "leagueSchedule": {
+                "seasonYear": "2026-27",
+                "leagueId": "15",
+                "gameDates": [{"gameDate": "07/09/2026 00:00:00", "games": [{}]}],
+            }
+        }
+        assert result_validator(payload)
+        return payload
+
+    monkeypatch.setattr(nba_client, "_call_with_rate_limit", fake_call)
+
+    result = nba_client.get_schedule("2026-27", league_id="15", max_retries=2)
+
+    assert result["leagueSchedule"]["leagueId"] == "15"
+    assert calls == [
+        (
+            ScheduleLeagueV2,
+            {"season": "2026-27", "league_id": "15", "max_retries": 2},
+        )
+    ]
+
+
+def test_schedule_rejects_mismatched_league(monkeypatch):
+    from nba_duckdb.utils import nba_client
+
+    monkeypatch.setattr(
+        nba_client,
+        "_call_with_rate_limit",
+        lambda *_args, **_kwargs: {
+            "leagueSchedule": {
+                "seasonYear": "2026-27",
+                "leagueId": "00",
+                "gameDates": [{"gameDate": "07/09/2026 00:00:00", "games": [{}]}],
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="not requested league"):
+        nba_client.get_schedule("2026-27", league_id="15", max_retries=1)
+
+
 def test_current_schedule_from_cdn_validates_requested_season(monkeypatch):
     from nba_duckdb.utils import nba_client
 

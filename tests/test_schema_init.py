@@ -66,6 +66,39 @@ def test_lightweight_migrations_do_not_touch_dbt_owned_tables():
     assert migration_targets.isdisjoint(DBT_MODEL_DATASETS)
 
 
+def test_lightweight_migrations_add_competition_scope_to_existing_schedule(
+    tmp_path,
+    monkeypatch,
+):
+    from nba_duckdb import db
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "legacy.duckdb"))
+    db.execute_sql("CREATE SCHEMA bronze")
+    db.execute_sql(
+        """
+        CREATE TABLE bronze.schedule (
+            game_id TEXT PRIMARY KEY,
+            season TEXT
+        )
+        """
+    )
+    db.execute_sql(
+        "INSERT INTO bronze.schedule (game_id, season) VALUES ('0022500001', '2025-26')"
+    )
+
+    db.init_schema()
+
+    assert db.execute_sql(
+        "SELECT game_id, league_id, competition FROM bronze.schedule"
+    ) == [
+        {
+            "game_id": "0022500001",
+            "league_id": "00",
+            "competition": "nba",
+        }
+    ]
+
+
 def test_schema_manifest_matches_files_on_disk():
     schema_dir = Path(__file__).resolve().parents[1] / "src" / "nba_duckdb" / "sql" / "schema"
 

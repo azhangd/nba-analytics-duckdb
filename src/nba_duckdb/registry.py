@@ -13,10 +13,11 @@ from typing import Any
 
 DEFAULT_GRAPH = "default"
 QUICK_GRAPH = "quick"
+SUMMER_LEAGUE_GRAPH = "summer_league"
 LIVE_MODE = "live"
 FIXTURE_MODE = "fixture"
 
-GRAPH_ORDER = (DEFAULT_GRAPH, QUICK_GRAPH)
+GRAPH_ORDER = (DEFAULT_GRAPH, QUICK_GRAPH, SUMMER_LEAGUE_GRAPH)
 MODE_ORDER = (LIVE_MODE, FIXTURE_MODE)
 LAYER_ORDER = {
     "fixture": 0,
@@ -26,7 +27,7 @@ LAYER_ORDER = {
     "quality": 40,
 }
 
-ALL_GRAPHS = (DEFAULT_GRAPH, QUICK_GRAPH)
+ALL_GRAPHS = (DEFAULT_GRAPH, QUICK_GRAPH, SUMMER_LEAGUE_GRAPH)
 FULL_GRAPH = (DEFAULT_GRAPH,)
 ALL_MODES = (LIVE_MODE, FIXTURE_MODE)
 LIVE_ONLY = (LIVE_MODE,)
@@ -182,7 +183,11 @@ def _task_from_metadata(module_path: str, metadata: Mapping[str, Any]) -> TaskDe
 
 @lru_cache(maxsize=1)
 def _discover_task_defs() -> tuple[TaskDef, ...]:
-    from nba_duckdb.dbt_models import DBT_FEATURE_TASK_DEF, DBT_TRANSFORM_TASK_DEF
+    from nba_duckdb.dbt_models import (
+        DBT_FEATURE_TASK_DEF,
+        DBT_SUMMER_LEAGUE_TASK_DEF,
+        DBT_TRANSFORM_TASK_DEF,
+    )
 
     task_defs: list[TaskDef] = []
     for file_path in sorted(TASKS_ROOT.rglob("*.py")):
@@ -195,6 +200,7 @@ def _discover_task_defs() -> tuple[TaskDef, ...]:
         task_defs.extend(_task_from_metadata(module_path, entry) for entry in metadata_entries)
     task_defs.append(_dbt_transform_task(DBT_TRANSFORM_TASK_DEF))
     task_defs.append(_dbt_transform_task(DBT_FEATURE_TASK_DEF))
+    task_defs.append(_dbt_transform_task(DBT_SUMMER_LEAGUE_TASK_DEF))
     return tuple(task_defs)
 
 

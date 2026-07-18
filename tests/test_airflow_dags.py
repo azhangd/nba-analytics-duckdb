@@ -9,12 +9,17 @@ pytest.importorskip("cosmos")
 
 from cosmos.constants import InvocationMode
 
-from nba_duckdb.dbt_models import DBT_CORE_MODEL_NAMES, DBT_FEATURE_MODEL_NAMES
+from nba_duckdb.dbt_models import (
+    DBT_CORE_MODEL_NAMES,
+    DBT_FEATURE_MODEL_NAMES,
+    DBT_SUMMER_LEAGUE_MODEL_NAMES,
+)
 
 
 def _dags():
     from nba_duckdb.airflow_dags import (
         nba_source_backfill,
+        nba_summer_league,
         nba_warehouse_live,
         nba_warehouse_live_quick,
         nba_warehouse_smoke,
@@ -26,6 +31,7 @@ def _dags():
         for dag in (
             nba_warehouse_live,
             nba_warehouse_live_quick,
+            nba_summer_league,
             nba_warehouse_smoke,
             nba_warehouse_smoke_quick,
             nba_source_backfill,
@@ -52,6 +58,7 @@ def test_airflow_discovers_all_dags_without_import_errors():
     assert dag_bag.import_errors == {}
     assert set(dag_bag.dag_ids) == {
         "nba_source_backfill",
+        "nba_summer_league",
         "nba_warehouse_live",
         "nba_warehouse_live_quick",
         "nba_warehouse_smoke",
@@ -81,6 +88,23 @@ def test_cosmos_renders_every_dbt_model_at_model_granularity():
         for task_id in live.task_ids
         if task_id.endswith("_model_build")
     )
+
+
+def test_summer_league_dag_renders_only_competition_safe_models():
+    summer = _dags()["nba_summer_league"]
+
+    assert _cosmos_models(summer, "dbt_summer_league") == set(
+        DBT_SUMMER_LEAGUE_MODEL_NAMES
+    )
+    assert {
+        "ingest_schedule",
+        "ingest_boxscores",
+        "ingest_play_by_play",
+        "ingest_shot_charts",
+        "validate_summer_league",
+    }.issubset(summer.task_ids)
+    assert "ingest_rosters" not in summer.task_ids
+    assert not any("gold." in task_id for task_id in summer.task_ids)
 
 
 def test_runtime_models_preserve_the_two_phase_boundary():
@@ -115,6 +139,7 @@ def test_quick_dags_are_intentionally_small():
 
 def test_live_params_are_typed_for_manual_runs():
     live = _dags()["nba_warehouse_live"]
+    summer = _dags()["nba_summer_league"]
     backfill = _dags()["nba_source_backfill"]
 
     assert live.params.get_param("season").schema["pattern"] == r"^\d{4}-\d{2}$"
@@ -124,6 +149,17 @@ def test_live_params_are_typed_for_manual_runs():
     assert backfill.params.get_param("source").schema["enum"] == [
         "play-by-play",
         "shot-charts",
+    ]
+    assert summer.params.get_param("competitions").schema["items"]["enum"] == [
+        "summer_league_california",
+        "summer_league_vegas",
+        "summer_league_salt_lake_city",
+    ]
+    assert backfill.params.get_param("competition").schema["enum"] == [
+        "nba",
+        "summer_league_california",
+        "summer_league_salt_lake_city",
+        "summer_league_vegas",
     ]
 
 

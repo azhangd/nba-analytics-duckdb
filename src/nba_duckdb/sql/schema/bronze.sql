@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS bronze.schedule (
     game_status    INTEGER,
     game_status_text TEXT,
     season         TEXT,
+    league_id      TEXT NOT NULL DEFAULT '00',
+    competition    TEXT NOT NULL DEFAULT 'nba',
     raw_json       JSON,
     ingested_at    TIMESTAMP DEFAULT current_timestamp
 );

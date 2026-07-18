@@ -14,7 +14,10 @@ import time
 from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
-from nba_duckdb.season_utils import requested_or_default_seasons
+from nba_duckdb.season_utils import (
+    filter_frame_to_competitions,
+    requested_or_default_seasons,
+)
 from nba_duckdb.utils import nba_client
 from nba_duckdb.utils.env import positive_int
 
@@ -231,6 +234,7 @@ def run(**kwargs):
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
+    target_competitions = kwargs.get("competitions")
     include_optional_detail = kwargs.get("include_optional_detail")
     if include_optional_detail is None:
         include_optional_detail = ENABLE_OPTIONAL_DETAIL or bool(kwargs.get("full_refresh"))
@@ -285,6 +289,7 @@ def run(**kwargs):
 
             if "season" in schedule.columns:
                 schedule = schedule.filter(pl.col("season").is_in(target_seasons))
+            schedule = filter_frame_to_competitions(schedule, target_competitions)
             if schedule.is_empty():
                 logger.info("No completed games found in schedule for requested seasons")
                 return {"rows_written": 0, "seasons": target_seasons}

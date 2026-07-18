@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
+from nba_duckdb.competitions import competition_for_league_id
 from nba_duckdb.db import get_conn, read_table, upsert_rows
 from nba_duckdb.ingestion_state import (
     eligible_items,
@@ -17,7 +18,10 @@ from nba_duckdb.ingestion_state import (
     summarize_source,
 )
 from nba_duckdb.orchestration import heartbeat_current_task
-from nba_duckdb.season_utils import requested_or_default_seasons
+from nba_duckdb.season_utils import (
+    filter_frame_to_competitions,
+    requested_or_default_seasons,
+)
 from nba_duckdb.utils import nba_client
 from nba_duckdb.utils.env import positive_int
 
@@ -47,6 +51,12 @@ def _season_type_for_game_id(game_id: str) -> str:
     return "Regular Season"
 
 
+def _season_type_for_game(game_id: str, league_id: str) -> str:
+    if str(league_id) != "00":
+        return competition_for_league_id(league_id).season_type
+    return _season_type_for_game_id(game_id)
+
+
 def _item_season(game_id: str, game_seasons: dict[str, str], target_seasons: list[str]) -> str:
     if game_id in game_seasons:
         return game_seasons[game_id]
@@ -70,6 +80,7 @@ def run(**kwargs):
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
+    target_competitions = kwargs.get("competitions")
     team_ids = _requested_team_ids()
     schedule = read_table("bronze", "schedule", "game_status = 3")
     if schedule.is_empty():
@@ -81,6 +92,7 @@ def run(**kwargs):
 
         if "season" in schedule.columns:
             schedule = schedule.filter(pl.col("season").is_in(target_seasons))
+        schedule = filter_frame_to_competitions(schedule, target_competitions)
         if schedule.is_empty():
             logger.info("No completed games found in schedule for requested seasons")
             return {"rows_written": 0, "seasons": target_seasons}
@@ -96,10 +108,12 @@ def run(**kwargs):
     # Build list of game-team targets for home and away teams.
     items = []
     game_seasons = {}
+    game_league_ids = {}
     for row in schedule.iter_rows(named=True):
         game_id = str(row["game_id"])
         if row.get("season"):
             game_seasons[game_id] = str(row["season"])
+        game_league_ids[game_id] = str(row.get("league_id") or "00")
         for team_id in (row["home_team_id"], row["away_team_id"]):
             if team_id and (team_ids is None or int(team_id) in team_ids):
                 items.append(
@@ -192,8 +206,12 @@ def run(**kwargs):
             raw = nba_client.get_shot_chart(
                 game_id=game_id,
                 team_id=0,
+                league_id=game_league_ids.get(game_id, "00"),
                 season=str(game_seasons.get(game_id) or ""),
-                season_type=_season_type_for_game_id(game_id),
+                season_type=_season_type_for_game(
+                    game_id,
+                    game_league_ids.get(game_id, "00"),
+                ),
                 max_retries=max_retries,
             )
             for item in game_items:
@@ -254,6 +272,7 @@ def run(**kwargs):
         "rows_written": total_written,
         "game_ids": requested_game_ids,
         "seasons": target_seasons,
+        "competitions": list(target_competitions or []),
         "deferred_games": len(set(failed_games)),
         "item_state": item_state,
     }
@@ -268,7 +287,7 @@ TASK_DEF = {'layer': 'bronze',
  'optional_inputs': (),
  'outputs': ('bronze.shot_charts',),
  'mutates': (),
- 'graphs': ('default',),
+ 'graphs': ('default', 'summer_league'),
  'modes': ('live',),
  'required': True,
  'quality_outputs': ('bronze.shot_charts',),

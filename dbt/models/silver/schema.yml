@@ -61,6 +61,14 @@ models:
         data_tests:
           - not_null
           - unique
+      - name: league_id
+        description: NBA-operated league identifier used by the source feed.
+        data_tests:
+          - not_null
+      - name: competition
+        description: Stable warehouse competition slug, such as nba or summer_league_vegas.
+        data_tests:
+          - not_null
 
   - name: fct_boxscores
     description: One row per player-game boxscore.

@@ -17,6 +17,15 @@ bronze collectors
   -> warehouse quality gate
 ```
 
+Summer League has a deliberately smaller path:
+
+```text
+official competition schedules (LeagueID 13, 15, 16)
+  -> traditional/advanced box scores, play-by-play, shot charts
+  -> Cosmos dbt_summer_league (4 competition-scoped silver models)
+  -> Summer League coverage gate
+```
+
 The DAG factory reads the checked project registry for Python task metadata and
 reads `dbt/target/manifest.json` for dbt nodes. DAG parsing never invokes dbt.
 Run `make dbt-parse` after changing a model, source, macro, test, or selector.
@@ -70,6 +79,7 @@ operator checks but intentionally does not exercise dbt or ML.
 | --- | --- | --- |
 | `nba_warehouse_live` | Full live warehouse, ML phase, and quality gate | Manual |
 | `nba_warehouse_live_quick` | Schedule, rosters, box scores, and play-by-play | Manual |
+| `nba_summer_league` | California, Las Vegas, and Salt Lake City event data plus scoped silver facts | Manual |
 | `nba_warehouse_smoke` | Deterministic full fixture verification | Manual |
 | `nba_warehouse_smoke_quick` | Fixture loading only | Manual |
 | `nba_source_backfill` | Resume play-by-play or shot-chart item state | Manual |
@@ -81,6 +91,7 @@ cron expressions in the scheduler environment, then unpause the intended DAG:
 ```bash
 NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE="15 10 * * *"
 NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE="30 11 * * 1"
+NBA_DUCKDB_AIRFLOW_SUMMER_SCHEDULE="30 12 * * *"
 ```
 
 Airflow reparses the DAG after an environment change. Use a deployment-specific
@@ -88,8 +99,9 @@ schedule and timezone rather than committing a schedule that assumes one
 operator's data freshness requirements.
 
 Live and backfill DAGs expose typed Airflow Params for season, team IDs, game
-IDs, date bounds, and full refresh. `nba_source_backfill` also validates the
-source against `play-by-play` and `shot-charts`.
+IDs, date bounds, and full refresh. `nba_summer_league` additionally validates
+its competition list against the three official Summer League feeds.
+`nba_source_backfill` validates both the source and owning competition.
 
 ## DuckDB Concurrency Contract
 
@@ -107,7 +119,8 @@ move to a client/server warehouse can revisit this limit.
 
 ## Cosmos Execution Choice
 
-The project uses two `DbtTaskGroup` instances with `ExecutionMode.LOCAL`,
+The full warehouse DAG uses two `DbtTaskGroup` instances, and the independent
+Summer League DAG uses a third. All three use `ExecutionMode.LOCAL`,
 `TestBehavior.BUILD`, manifest-based rendering, and subprocess invocation.
 This gives each dbt model its own retryable Airflow task while keeping dbt
 tests attached to the model build that owns them. Subprocess isolation also
