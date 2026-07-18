@@ -44,6 +44,25 @@ percentile columns in that row.
 used for the comparison. A warehouse can be full league for one season and a
 loaded sample for another.
 
+## Competition Scope
+
+Summer League is stored with explicit `league_id` and `competition` fields.
+Its normalized facts live in `silver.summer_league_*` tables and are not fed
+into the regular-season gold or ML graph. California Classic, Las Vegas, and
+Salt Lake City are separate competitions even when the same NBA team appears in
+more than one event.
+
+The feeds are first-party NBA-operated web and stats resources, but this project
+uses them through an undocumented and unsupported integration. A successful
+pipeline run proves response availability and end-to-end coverage at that time;
+it does not establish an NBA service-level commitment or grant redistribution
+rights. Raw live payloads and generated warehouses remain local and untracked.
+
+Summer League schedules use the following NBA season label, so July 2026 is
+stored as `2026-27`. The stats endpoints also use `SeasonType=Regular Season`
+with the Summer League ID. These are source-system conventions, not claims that
+Summer League games are NBA regular-season games.
+
 ## Approximation Labels
 
 `bpm_approx` and `vorp_approx` are box-score impact approximations. They are not

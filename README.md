@@ -161,6 +161,41 @@ resumed instead of restarted from scratch.
 `run-live` refuses to run against a warehouse that already contains synthetic
 smoke rows. Use a clean `NBA_DUCKDB_PATH` for live work.
 
+### Run Summer League Data
+
+Summer League uses a separate, competition-aware graph backed by the official
+NBA-operated schedule, box-score, play-by-play, and shot-chart feeds. The graph
+covers the California Classic (`LeagueID=13`), Las Vegas (`LeagueID=15`), and
+Salt Lake City (`LeagueID=16`) competitions. NBA labels July 2026 events as
+season `2026-27`, and its stats endpoints require `SeasonType=Regular Season`
+alongside the Summer League ID.
+
+Use a dedicated warehouse so experiments and competition-level claims remain
+easy to audit:
+
+```bash
+NBA_DUCKDB_PATH=data/warehouse/summer-league-2026.duckdb \
+  uv run nba-duckdb run-summer-league --season 2026-27
+```
+
+The default command ingests all three competitions. A bounded verification run
+can target one competition and game:
+
+```bash
+NBA_DUCKDB_PATH=/tmp/summer-league.duckdb \
+  uv run nba-duckdb run-summer-league \
+    --season 2026-27 \
+    --competitions summer_league_vegas \
+    --game-ids 1522600001
+```
+
+The graph materializes `silver.summer_league_games`,
+`silver.summer_league_boxscores`, `silver.summer_league_play_by_play`, and
+`silver.summer_league_shots`. Its terminal quality task fails if a requested
+competition is absent or if any completed game is missing a required raw or
+silver fact. It intentionally does not run NBA regular-season standings,
+tracking, gold, or ML tasks.
+
 ## How It Works
 
 The warehouse has four schemas:
@@ -205,9 +240,12 @@ uv run nba-duckdb datasets graph --format html --output data/lineage.html
 
 ## Data Sources
 
-Live collection uses unofficial public NBA endpoints through `nba_api` and
-related HTTP calls. Some endpoints are slower or more rate-limited than others,
-so live runs are designed to be resumable.
+Live collection uses first-party NBA web and stats feeds through an unofficial,
+unsupported integration built on `nba_api` and related HTTP calls. These feeds
+are authoritative NBA-operated sources but are undocumented, have no stability
+or availability guarantee, and can be rate-limited. Live runs therefore retain
+raw payloads and resumable item state rather than treating the endpoints as a
+contracted API.
 
 The repository itself only includes code and test fixtures. Local DuckDB
 warehouses, raw responses, generated exports, logs, and model artifacts are
@@ -222,7 +260,8 @@ as live data. Those IDs are identifiers for validation only, not real results.
 Only after you opt into an Airflow schedule. The repository ships live DAGs
 paused and unscheduled so a clone cannot accidentally call public endpoints.
 Set `NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE` or
-`NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE`, run Airflow, verify the manual DAG, and
+`NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE`, or
+`NBA_DUCKDB_AIRFLOW_SUMMER_SCHEDULE`, run Airflow, verify the manual DAG, and
 then unpause it. Collectors upsert source responses and retain item-level state
 for resumable high-volume sources.
 
@@ -250,6 +289,8 @@ Inspect and backfill item-level sources:
 uv run nba-duckdb ingestion-status --season 2025-26 --source play-by-play
 uv run nba-duckdb backfill-source play-by-play --season 2025-26
 uv run nba-duckdb backfill-source shot-charts --season 2025-26
+uv run nba-duckdb backfill-source play-by-play --season 2026-27 \
+  --competition summer_league_vegas
 ```
 
 ## Configuration
@@ -281,6 +322,7 @@ NBA_DUCKDB_LIVE_TIMEOUT_SECONDS=30
 NBA_DUCKDB_LOG_LEVEL=WARNING
 NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE=
 NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE=
+NBA_DUCKDB_AIRFLOW_SUMMER_SCHEDULE=
 ```
 
 Use a temporary warehouse for experiments:
