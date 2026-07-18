@@ -49,9 +49,42 @@ def test_build_fct_play_by_play_rows_preserves_source_coordinate_semantics():
     ])
 
     assert len(rows) == 9
+    assert rows[0]["action_id"] == 1
     assert rows[0]["pbp_source"] == "stats_v3"
     assert rows[0]["loc_x"] is None
     assert rows[0]["loc_y"] is None
+
+
+def test_build_fct_play_by_play_uses_source_action_id_for_paired_events():
+    rows = build_fct_play_by_play_rows([
+        {
+            "game_id": GAME_ID,
+            "source": "stats_v3",
+            "pbp_json": json.dumps({
+                "game": {
+                    "actions": [
+                        {"actionId": 10, "actionNumber": 9, "description": "Turnover"},
+                        {"actionId": 11, "actionNumber": 9, "description": "Steal"},
+                    ]
+                }
+            }),
+        }
+    ])
+
+    assert [row["action_number"] for row in rows] == [9, 9]
+    assert [row["action_id"] for row in rows] == [10, 11]
+
+
+def test_build_fct_shots_preserves_game_event_id():
+    rows = build_fct_shot_rows([
+        {
+            "game_id": GAME_ID,
+            "team_id": SHOT_CHARTS[0]["team_id"],
+            "shot_chart_json": json.dumps(SHOT_CHARTS[0]["shot_chart"]),
+        }
+    ])
+
+    assert rows[0]["game_event_id"] == 1
 
 
 def test_sql_fct_games_derives_status_scores_and_type(tmp_path, monkeypatch):

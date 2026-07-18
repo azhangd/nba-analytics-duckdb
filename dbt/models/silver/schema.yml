@@ -78,6 +78,10 @@ models:
       - name: game_id
         data_tests:
           - not_null
+      - name: action_id
+        description: Source-native action identifier, unique within a game.
+        data_tests:
+          - not_null
 
   - name: fct_possessions
     description: One row per parsed possession.
@@ -90,6 +94,10 @@ models:
     description: One row per shot-chart attempt.
     columns:
       - name: game_id
+        data_tests:
+          - not_null
+      - name: game_event_id
+        description: NBA game event identifier, unique within a game.
         data_tests:
           - not_null
 

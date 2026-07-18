@@ -11,6 +11,16 @@ from nba_duckdb.exceptions import PipelineStateNotInitializedError
 
 REQUIRED_TABLES = registry.quality_required_tables()
 
+# These datasets are backed by time-sensitive or explicitly optional public
+# sources. Their tables must exist, but a valid run can produce zero rows (for
+# example, an empty offseason injury report or no user-supplied jersey ranks).
+ALLOW_EMPTY_TABLES = frozenset({
+    "silver.dim_injuries",
+    "gold.player_pageviews_daily",
+    "gold.player_media_mentions_daily",
+    "gold.player_jersey_rank_snapshots",
+})
+
 INTEGRITY_QUERIES = {
     "silver.fct_boxscores_missing_games": """
         SELECT COUNT(*) AS row_count
@@ -46,7 +56,7 @@ UNIQUE_KEY_CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "silver.fct_play_by_play_unique_action": (
         "silver.fct_play_by_play",
-        ("game_id", "action_number"),
+        ("game_id", "action_id"),
     ),
     "silver.fct_possessions_unique_possession": (
         "silver.fct_possessions",
@@ -54,16 +64,7 @@ UNIQUE_KEY_CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "silver.fct_shots_unique_shot": (
         "silver.fct_shots",
-        (
-            "game_id",
-            "team_id",
-            "player_id",
-            "period",
-            "minutes_remaining",
-            "seconds_remaining",
-            "loc_x",
-            "loc_y",
-        ),
+        ("game_id", "game_event_id"),
     ),
     "gold.player_game_stats_unique_player_game": (
         "gold.player_game_stats",
@@ -265,8 +266,27 @@ def _duplicate_key_counts() -> dict[str, int]:
     return counts
 
 
+def _missing_required_tables() -> list[str]:
+    existing = {
+        (str(row["table_schema"]), str(row["table_name"]))
+        for row in db.execute(
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            """,
+            read_only=True,
+        )
+    }
+    return [
+        f"{schema}.{table}"
+        for schema, table in REQUIRED_TABLES
+        if (schema, table) not in existing
+    ]
+
+
 def run_checks() -> dict[str, Any]:
     _ensure_initialized_for_read()
+    missing_tables = _missing_required_tables()
     table_counts = table_counts_for(REQUIRED_TABLES)
     integrity_counts = {
         name: int(db.execute(query, read_only=True)[0]["row_count"])
@@ -281,11 +301,14 @@ def run_checks() -> dict[str, Any]:
     }
     ledger_failures, ledger_counts = _ledger_failures(scoped_seasons)
 
-    failures = [
+    failures = [f"{table_name} is missing" for table_name in missing_tables]
+    failures.extend(
         f"{table_name} has no rows"
         for table_name, row_count in table_counts.items()
         if row_count == 0
-    ]
+        and table_name not in ALLOW_EMPTY_TABLES
+        and table_name not in missing_tables
+    )
     failures.extend(
         f"{check_name} found {row_count} rows"
         for check_name, row_count in integrity_counts.items()
@@ -302,6 +325,7 @@ def run_checks() -> dict[str, Any]:
         raise RuntimeError("; ".join(failures))
 
     return {
+        "missing_tables": missing_tables,
         "table_counts": table_counts,
         "integrity_counts": integrity_counts,
         "duplicate_key_counts": duplicate_key_counts,

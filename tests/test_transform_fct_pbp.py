@@ -45,6 +45,7 @@ def test_stats_v3_pbp_keeps_events_and_leaves_legacy_coordinates_unmapped(tmp_pa
                         "game": {
                             "actions": [
                                 {
+                                    "actionId": 1,
                                     "actionNumber": 1,
                                     "period": 1,
                                     "clock": "PT11M22.00S",
@@ -93,6 +94,7 @@ def test_live_cdn_pbp_maps_cdn_coordinates(tmp_path, monkeypatch):
                             "actions": [
                                 {
                                     "actionNumber": 1,
+                                    "orderNumber": 10000,
                                     "period": 1,
                                     "clock": "PT11M22.00S",
                                     "actionType": "2pt",

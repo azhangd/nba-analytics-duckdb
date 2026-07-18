@@ -225,6 +225,7 @@ def _action(
     y: int | None = None,
 ) -> dict:
     return {
+        "actionId": number,
         "actionNumber": number,
         "period": period,
         "clock": clock,
@@ -386,8 +387,10 @@ PLAY_BY_PLAY = [_pbp_game(index, game) for index, game in enumerate(SCHEDULE)]
 def _shot_chart_row(game: dict, player: dict, index: int) -> list:
     is_three = index % 3 == 0
     zone = "Above the Break 3" if is_three else ("Restricted Area" if index % 2 == 0 else "Mid-Range")
+    team_offset = 0 if player["team_id"] == game["homeTeam"]["teamId"] else 100
     return [
         game["gameId"],
+        team_offset + index + 1,
         player["player_id"],
         player["full_name"],
         player["team_id"],
@@ -418,6 +421,7 @@ def _shot_chart(game: dict, team_id: int) -> dict:
                     "name": "Shot_Chart_Detail",
                     "headers": [
                         "GAME_ID",
+                        "GAME_EVENT_ID",
                         "PLAYER_ID",
                         "PLAYER_NAME",
                         "TEAM_ID",

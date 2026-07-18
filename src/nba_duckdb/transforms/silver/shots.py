@@ -12,6 +12,7 @@ OFF_DRIBBLE_KEYWORDS = ("driving", "dunk", "layup", "tip", "floating", "running"
 
 FCT_SHOTS = (
     "game_id",
+    "game_event_id",
     "player_id",
     "player_name",
     "team_id",
@@ -86,6 +87,7 @@ def build_fct_shot_rows(bronze_rows: list[Mapping[str, Any]]) -> list[dict]:
                 action = shot.get("ACTION_TYPE", "")
                 output.append({
                     "game_id": game_id,
+                    "game_event_id": safe_int(shot.get("GAME_EVENT_ID")),
                     "player_id": safe_int(shot.get("PLAYER_ID")),
                     "player_name": shot.get("PLAYER_NAME", ""),
                     "team_id": shot_team_id,
