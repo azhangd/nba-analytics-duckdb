@@ -20,11 +20,13 @@ from urllib.parse import quote
 import httpx
 
 from nba_duckdb.db import read_table, upsert_rows
+from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.gold.player_off_court_signals")
 
 DEFAULT_OFF_COURT_REFRESH_LIMIT = 25
 DEFAULT_OFF_COURT_REQUEST_DELAY_SECONDS = 0.5
+DEFAULT_GDELT_CIRCUIT_BREAKER_AFTER = 1
 USER_AGENT = "nba-analytics-pipeline/0.1 (local analytics pipeline)"
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 WIKIMEDIA_PAGEVIEWS_ENDPOINT = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia.org/all-access/user"
@@ -168,10 +170,14 @@ def _fetch_pageviews(
     return rows
 
 
-def _fetch_gdelt_mentions(client: httpx.Client, player: dict[str, Any]) -> list[dict[str, Any]]:
+def _fetch_gdelt_mentions(
+    client: httpx.Client,
+    player: dict[str, Any],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return mention rows and whether GDELT remained available."""
     player_name = str(player.get("full_name") or player.get("player_name") or "")
     if not player_name:
-        return []
+        return [], True
     query = f'"{player_name}" (NBA OR basketball)'
     try:
         response = client.get(
@@ -190,7 +196,7 @@ def _fetch_gdelt_mentions(client: httpx.Client, player: dict[str, Any]) -> list[
         response.raise_for_status()
     except httpx.HTTPError as exc:
         logger.info("GDELT skipped for %s: %s", player_name, exc)
-        return []
+        return [], False
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for article in response.json().get("articles", []):
@@ -223,7 +229,7 @@ def _fetch_gdelt_mentions(client: httpx.Client, player: dict[str, Any]) -> list[
                 "source_url": "https://www.gdeltproject.org/",
             }
         )
-    return rows
+    return rows, True
 
 
 def refresh(
@@ -244,6 +250,14 @@ def refresh(
     media_writes: list[dict[str, Any]] = []
     jersey_writes: list[dict[str, Any]] = []
     jersey_snapshot = _load_jersey_rank_snapshot()
+    gdelt_circuit_breaker_after = positive_int(
+        "OFF_COURT_GDELT_CIRCUIT_BREAKER_AFTER",
+        DEFAULT_GDELT_CIRCUIT_BREAKER_AFTER,
+        logger=logger,
+    )
+    consecutive_gdelt_failures = 0
+    gdelt_circuit_open = False
+    gdelt_skipped_players = 0
 
     if os.environ.get("NBA_DUCKDB_OFFLINE_SMOKE") == "1":
         for rank, player in enumerate(players, start=1):
@@ -330,7 +344,22 @@ def refresh(
             title = str(identity.get("wikipedia_title") or "").replace(" ", "_")
             if title:
                 pageview_writes.extend(_fetch_pageviews(client, player_id, title))
-            media_writes.extend(_fetch_gdelt_mentions(client, player))
+            if gdelt_circuit_open:
+                gdelt_skipped_players += 1
+            else:
+                mentions, gdelt_available = _fetch_gdelt_mentions(client, player)
+                media_writes.extend(mentions)
+                if gdelt_available:
+                    consecutive_gdelt_failures = 0
+                else:
+                    consecutive_gdelt_failures += 1
+                    if consecutive_gdelt_failures >= gdelt_circuit_breaker_after:
+                        gdelt_circuit_open = True
+                        logger.warning(
+                            "Opening GDELT circuit after %d consecutive failure(s); "
+                            "remaining players will continue with Wikidata/Wikipedia only",
+                            consecutive_gdelt_failures,
+                        )
 
             jersey_rank = (
                 jersey_snapshot["ranks_by_name"].get(_normalize_name(player_name))
@@ -378,6 +407,8 @@ def refresh(
         )
         if jersey_writes
         else 0,
+        "gdelt_circuit_open": gdelt_circuit_open,
+        "gdelt_skipped_players": gdelt_skipped_players,
     }
     logger.info("Refreshed off-court signals: %s", counts)
     return counts
