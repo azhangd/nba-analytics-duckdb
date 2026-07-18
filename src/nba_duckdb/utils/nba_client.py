@@ -415,6 +415,7 @@ def get_shot_chart(
     player_id: int = 0,
     season: str = "",
     season_type: str = "Regular Season",
+    league_id: str = "00",
     max_retries: int = 5,
 ) -> dict:
     """Fetch shot chart detail."""
@@ -424,6 +425,7 @@ def get_shot_chart(
         game_id_nullable=game_id,
         team_id=team_id,
         player_id=player_id,
+        league_id=str(league_id),
         season_nullable=season,
         season_type_all_star=season_type,
         context_measure_simple="FGA",

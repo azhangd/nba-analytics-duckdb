@@ -16,6 +16,11 @@ from cosmos import DbtTaskGroup, ExecutionConfig, ProfileConfig, ProjectConfig, 
 from cosmos.constants import ExecutionMode, InvocationMode, LoadMode, TestBehavior
 
 from nba_duckdb import config, db, quality, registry
+from nba_duckdb.competitions import (
+    COMPETITIONS,
+    NBA,
+    SUMMER_LEAGUE_SLUGS,
+)
 from nba_duckdb.dbt_models import DBT_MODEL_DATASETS
 from nba_duckdb.dbt_runner import dbt_project_dir
 from nba_duckdb.defaults import get_default_season
@@ -102,13 +107,19 @@ def _params() -> dict[str, Any]:
     return dict(get_current_context()["params"])
 
 
-def _scope_from_params(*, mode: str) -> dict[str, Any]:
+def _scope_from_params(*, mode: str, graph: str) -> dict[str, Any]:
     params = _params()
     season = SYNTHETIC_SEASON if mode == registry.FIXTURE_MODE else params["season"]
+    competitions = (
+        list(params.get("competitions") or SUMMER_LEAGUE_SLUGS)
+        if graph == registry.SUMMER_LEAGUE_GRAPH
+        else [NBA.slug]
+    )
     return {
         "season": season,
         "seasons": [season],
         "game_ids": params.get("game_ids") or None,
+        "competitions": competitions,
         "full_refresh": bool(params.get("full_refresh", False)),
         "start_date": params.get("start_date"),
         "end_date": params.get("end_date"),
@@ -152,7 +163,13 @@ def initialize_warehouse(*, mode: str, quick: bool) -> dict[str, Any]:
         return {"status": "success", "warehouse": db.get_database_url()}
 
 
-def execute_registered_task(*, task_name: str, mode: str, quick: bool) -> dict[str, Any]:
+def execute_registered_task(
+    *,
+    task_name: str,
+    mode: str,
+    graph: str,
+    quick: bool,
+) -> dict[str, Any]:
     """Execute one registry task as one Airflow task instance."""
 
     task = registry.task_def_named(task_name)
@@ -165,7 +182,7 @@ def execute_registered_task(*, task_name: str, mode: str, quick: bool) -> dict[s
         try:
             result = run_task(
                 task,
-                scope=_scope_from_params(mode=mode),
+                scope=_scope_from_params(mode=mode, graph=graph),
                 fixtures_dir=_project_path(config.fixtures_dir(None)).resolve(strict=False),
                 source_name="fixtures" if mode == registry.FIXTURE_MODE else None,
             )
@@ -204,7 +221,12 @@ def execute_source_backfill() -> dict[str, Any]:
         quick=False,
         team_ids=params.get("team_ids") or [],
     ):
-        result = run_task(task, scope=_scope_from_params(mode=registry.LIVE_MODE))
+        scope = _scope_from_params(
+            mode=registry.LIVE_MODE,
+            graph=registry.DEFAULT_GRAPH,
+        )
+        scope["competitions"] = [params["competition"]]
+        result = run_task(task, scope=scope)
     return _result_summary(result)
 
 
@@ -217,7 +239,7 @@ def _asset(dataset: str) -> Asset:
     )
 
 
-def _pipeline_params(*, mode: str) -> dict[str, Param]:
+def _pipeline_params(*, mode: str, graph: str) -> dict[str, Param]:
     params = {
         "full_refresh": Param(
             False,
@@ -246,19 +268,31 @@ def _pipeline_params(*, mode: str) -> dict[str, Param]:
             items={"type": "string"},
             description="Optional explicit game IDs for a scoped refresh.",
         ),
-        "start_date": Param(
-            None,
-            type=["null", "string"],
-            format="date",
-            description="Optional inclusive start date.",
-        ),
-        "end_date": Param(
-            None,
-            type=["null", "string"],
-            format="date",
-            description="Optional inclusive end date.",
-        ),
     })
+    if graph == registry.SUMMER_LEAGUE_GRAPH:
+        params["competitions"] = Param(
+            list(SUMMER_LEAGUE_SLUGS),
+            type="array",
+            items={"type": "string", "enum": list(SUMMER_LEAGUE_SLUGS)},
+            minItems=1,
+            uniqueItems=True,
+            description="Official Summer League competitions to ingest.",
+        )
+    else:
+        params.update({
+            "start_date": Param(
+                None,
+                type=["null", "string"],
+                format="date",
+                description="Optional inclusive start date.",
+            ),
+            "end_date": Param(
+                None,
+                type=["null", "string"],
+                format="date",
+                description="Optional inclusive end date.",
+            ),
+        })
     return params
 
 
@@ -277,11 +311,10 @@ def _cosmos_group(
     if not task.dbt_selector:
         raise ValueError(f"Task {task.name} has no dbt selector")
 
-    group_id = (
-        "dbt_feature_matrices"
-        if task.name == "dbt_build_feature_matrices"
-        else "dbt_warehouse"
-    )
+    group_id = {
+        "dbt_build_feature_matrices": "dbt_feature_matrices",
+        "dbt_build_summer_league": "dbt_summer_league",
+    }.get(task.name, "dbt_warehouse")
     operator_args = {
         "full_refresh": "{{ params.full_refresh }}",
         "pool": PIPELINE_POOL,
@@ -377,7 +410,7 @@ def build_pipeline_dag(
         max_active_runs=1,
         max_active_tasks=1,
         default_args={"owner": PIPELINE_OWNER},
-        params=_pipeline_params(mode=mode),
+        params=_pipeline_params(mode=mode, graph=graph),
         render_template_as_native_obj=True,
         is_paused_upon_creation=True,
         tags=["nba", "duckdb", "dbt", "cosmos", mode, graph],
@@ -411,7 +444,12 @@ def build_pipeline_dag(
             nodes[task.name] = PythonOperator(
                 task_id=task.name,
                 python_callable=execute_registered_task,
-                op_kwargs={"task_name": task.name, "mode": mode, "quick": quick},
+                op_kwargs={
+                    "task_name": task.name,
+                    "mode": mode,
+                    "graph": graph,
+                    "quick": quick,
+                },
                 inlets=[_asset(dataset) for dataset in (*task.inputs, *task.optional_inputs)],
                 outlets=[_asset(dataset) for dataset in (*task.outputs, *task.mutates)],
                 pool=PIPELINE_POOL,
@@ -476,12 +514,21 @@ def build_backfill_dag() -> DAG:
         max_active_tasks=1,
         default_args={"owner": PIPELINE_OWNER},
         params={
-            **_pipeline_params(mode=registry.LIVE_MODE),
+            **_pipeline_params(
+                mode=registry.LIVE_MODE,
+                graph=registry.DEFAULT_GRAPH,
+            ),
             "source": Param(
                 "play-by-play",
                 type="string",
                 enum=sorted(BACKFILL_TASKS),
                 description="Collector to resume from its item-level state.",
+            ),
+            "competition": Param(
+                NBA.slug,
+                type="string",
+                enum=sorted(COMPETITIONS),
+                description="Competition owning the target games.",
             ),
         },
         render_template_as_native_obj=True,
@@ -517,6 +564,12 @@ nba_warehouse_live_quick = build_pipeline_dag(
     graph=registry.QUICK_GRAPH,
     mode=registry.LIVE_MODE,
     schedule=os.environ.get("NBA_DUCKDB_AIRFLOW_QUICK_SCHEDULE") or None,
+)
+nba_summer_league = build_pipeline_dag(
+    dag_id="nba_summer_league",
+    graph=registry.SUMMER_LEAGUE_GRAPH,
+    mode=registry.LIVE_MODE,
+    schedule=os.environ.get("NBA_DUCKDB_AIRFLOW_SUMMER_SCHEDULE") or None,
 )
 nba_warehouse_smoke = build_pipeline_dag(
     dag_id="nba_warehouse_smoke",

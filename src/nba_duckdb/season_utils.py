@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
+from nba_duckdb.competitions import NBA, normalize_competition_slugs
 from nba_duckdb.db import read_table
 from nba_duckdb.defaults import get_default_season, latest_season, sort_seasons
 
@@ -158,3 +159,17 @@ def filter_frame_to_seasons(
     if frame.is_empty() or season_col not in frame.columns or not seasons:
         return frame
     return frame.filter(pl.col(season_col).is_in(seasons))
+
+
+def filter_frame_to_competitions(
+    frame: pl.DataFrame,
+    competitions: list[str] | tuple[str, ...] | None,
+) -> pl.DataFrame:
+    """Filter a schedule-derived frame to explicit competition scope."""
+
+    requested = normalize_competition_slugs(competitions, default=())
+    if frame.is_empty() or not requested:
+        return frame
+    if "competition" not in frame.columns:
+        return frame if requested == [NBA.slug] else frame.head(0)
+    return frame.filter(pl.col("competition").is_in(requested))

@@ -71,6 +71,28 @@ def test_quick_graph_is_explicitly_smaller_than_default():
     }
 
 
+def test_summer_league_graph_has_only_competition_safe_tasks():
+    from nba_duckdb import registry
+
+    names = _names(
+        registry.task_defs_for(
+            registry.SUMMER_LEAGUE_GRAPH,
+            registry.LIVE_MODE,
+        )
+    )
+
+    assert names == [
+        "ingest_schedule",
+        "ingest_boxscores",
+        "ingest_play_by_play",
+        "ingest_shot_charts",
+        "dbt_build_summer_league",
+        "validate_summer_league",
+    ]
+    assert "ingest_rosters" not in names
+    assert "dbt_build_warehouse" not in names
+
+
 def test_registry_order_satisfies_declared_dependencies():
     from nba_duckdb import registry
 
@@ -117,13 +139,28 @@ def test_registry_declares_clear_player_season_stats_ownership():
     assert not any("gold.player_season_stats" in task.mutates for task in registry.TASK_DEFS)
 
 
-def test_dbt_gold_registration_is_single_selector_task():
+def test_dbt_registration_is_graph_scoped():
     from nba_duckdb import registry
+    from nba_duckdb.dbt_models import DBT_SUMMER_LEAGUE_MODEL_DATASETS
 
     dbt_tasks = [task for task in registry.TASK_DEFS if task.dbt_selector]
 
-    assert [task.name for task in dbt_tasks] == ["dbt_build_warehouse", "dbt_build_feature_matrices"]
-    assert tuple(output for task in dbt_tasks for output in task.outputs) == DBT_MODEL_DATASETS
+    assert [task.name for task in dbt_tasks] == [
+        "dbt_build_warehouse",
+        "dbt_build_feature_matrices",
+        "dbt_build_summer_league",
+    ]
+    default_outputs = {
+        output
+        for task in dbt_tasks
+        if "default" in task.graphs
+        for output in task.outputs
+    }
+    assert default_outputs == set(DBT_MODEL_DATASETS) - set(
+        DBT_SUMMER_LEAGUE_MODEL_DATASETS
+    )
+    assert dbt_tasks[-1].outputs == DBT_SUMMER_LEAGUE_MODEL_DATASETS
+    assert dbt_tasks[-1].regular_season_only is False
     assert all(task.task_type == "dbt" for task in dbt_tasks)
     assert all(task.dbt_selector for task in dbt_tasks)
     assert all(task.module_path == "" for task in dbt_tasks)
@@ -153,20 +190,35 @@ def test_win_probability_runtime_import_does_not_require_sklearn(monkeypatch):
 
 def test_all_schema_tables_have_registered_default_producers():
     from nba_duckdb import registry
+    from nba_duckdb.dbt_models import DBT_SUMMER_LEAGUE_MODEL_DATASETS
 
     schema_tables = _warehouse_tables()
+    summer_tables = {
+        tuple(dataset.split(".", 1))
+        for dataset in DBT_SUMMER_LEAGUE_MODEL_DATASETS
+    }
     live_outputs = _registry_outputs(registry.DEFAULT_GRAPH, registry.LIVE_MODE)
     fixture_outputs = _registry_outputs(registry.DEFAULT_GRAPH, registry.FIXTURE_MODE)
+    summer_outputs = _registry_outputs(
+        registry.SUMMER_LEAGUE_GRAPH,
+        registry.LIVE_MODE,
+    )
 
-    assert live_outputs == schema_tables
-    assert fixture_outputs == schema_tables
+    assert live_outputs == schema_tables - summer_tables
+    assert fixture_outputs == schema_tables - summer_tables
+    assert live_outputs | summer_outputs == schema_tables
 
 
 def test_quality_required_tables_are_derived_from_full_registry():
     from nba_duckdb import quality, registry
+    from nba_duckdb.dbt_models import DBT_SUMMER_LEAGUE_MODEL_DATASETS
 
     assert quality.REQUIRED_TABLES == registry.quality_required_tables()
-    assert set(quality.REQUIRED_TABLES) == _warehouse_tables()
+    summer_tables = {
+        tuple(dataset.split(".", 1))
+        for dataset in DBT_SUMMER_LEAGUE_MODEL_DATASETS
+    }
+    assert set(quality.REQUIRED_TABLES) == _warehouse_tables() - summer_tables
 
 
 def test_dataset_rows_advertise_every_registered_output():
@@ -176,7 +228,10 @@ def test_dataset_rows_advertise_every_registered_output():
     datasets = {tuple(str(row["dataset"]).split(".", 1)) for row in rows}
 
     assert datasets == _warehouse_tables()
-    assert all("quick" in row["graphs"] or "default" in row["graphs"] for row in rows)
+    assert all(
+        {"quick", "default", "summer_league"}.intersection(row["graphs"])
+        for row in rows
+    )
     assert not any("library" in row["graphs"] for row in rows)
     assert {
         row["task"]

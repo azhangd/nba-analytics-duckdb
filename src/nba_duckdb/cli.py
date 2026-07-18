@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from nba_duckdb import config, registry
+from nba_duckdb.competitions import COMPETITIONS, NBA, SUMMER_LEAGUE_SLUGS
 from nba_duckdb.db import DuckDBLockTimeoutError
 from nba_duckdb.dependencies import (
     MissingOptionalDependencyError,
@@ -40,6 +41,7 @@ from nba_duckdb.warehouse_guard import assert_no_synthetic_rows
 
 DEFAULT_GRAPH = registry.DEFAULT_GRAPH
 QUICK_GRAPH = registry.QUICK_GRAPH
+SUMMER_LEAGUE_GRAPH = registry.SUMMER_LEAGUE_GRAPH
 
 BACKFILL_SOURCES = {
     "pbp": ("play-by-play", "nba_duckdb.tasks.bronze.ingest_play_by_play", True),
@@ -213,6 +215,7 @@ def _task_scope_from_run_scope(scope: dict[str, Any]) -> dict[str, Any]:
         "season": season,
         "seasons": seasons,
         "game_ids": scope.get("game_ids"),
+        "competitions": scope.get("competitions"),
         "full_refresh": bool(scope.get("full_refresh", False)),
         "start_date": scope.get("start_date"),
         "end_date": scope.get("end_date"),
@@ -326,6 +329,7 @@ def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "seasons": seasons,
         "team_ids": args.team_ids,
         "game_ids": args.game_ids,
+        "competitions": [NBA.slug],
         "full_refresh": args.full_refresh,
         "start_date": args.start_date,
         "end_date": args.end_date,
@@ -333,6 +337,56 @@ def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     context = prepare_run(
         command="run-live",
         graph=graph,
+        scope=run_scope,
+        run_id=args.run_id,
+        resume_latest=args.resume_latest,
+        retry_failed=args.retry_failed,
+    )
+
+    if context.scope.get("team_ids"):
+        os.environ["NBA_DUCKDB_TEAM_IDS"] = ",".join(
+            str(team_id) for team_id in context.scope["team_ids"]
+        )
+
+    steps = _live_steps(context.graph, _task_scope_from_run_scope(context.scope))
+    return run_steps(
+        context,
+        steps,
+        retries=args.retries,
+        retry_delay_seconds=args.retry_delay_seconds,
+    )
+
+
+def run_summer_league_pipeline(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the official Summer League schedule and event-data graph."""
+
+    require_optional_groups(
+        "live",
+        hint=LIVE_INSTALL_HINT,
+        install_command=UV_LIVE_INSTALL_COMMAND,
+        pip_install_command=PIP_LIVE_INSTALL_COMMAND,
+    )
+
+    from nba_duckdb import db
+
+    if args.init_schema:
+        db.init_schema()
+    assert_no_synthetic_rows()
+
+    competitions = list(args.competitions or SUMMER_LEAGUE_SLUGS)
+    run_scope: dict[str, Any] = {
+        "season": args.season,
+        "seasons": [args.season],
+        "team_ids": args.team_ids,
+        "game_ids": args.game_ids,
+        "competitions": competitions,
+        "full_refresh": args.full_refresh,
+        "start_date": None,
+        "end_date": None,
+    }
+    context = prepare_run(
+        command="run-summer-league",
+        graph=SUMMER_LEAGUE_GRAPH,
         scope=run_scope,
         run_id=args.run_id,
         resume_latest=args.resume_latest,
@@ -381,6 +435,7 @@ def backfill_source(args: argparse.Namespace) -> dict[str, Any]:
         "seasons": [args.season],
         "team_ids": args.team_ids,
         "game_ids": args.game_ids,
+        "competitions": [args.competition],
         "full_refresh": False,
         "start_date": None,
         "end_date": None,
@@ -529,6 +584,25 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runner_args(live_parser, default_retries=2, default_retry_delay_seconds=120.0)
     live_parser.set_defaults(func=run_live_pipeline, init_schema=True)
 
+    summer_parser = subparsers.add_parser(
+        "run-summer-league",
+        help="Run official California, Las Vegas, and Salt Lake City Summer League feeds.",
+    )
+    summer_parser.add_argument("--season", required=True)
+    summer_parser.add_argument(
+        "--competitions",
+        nargs="+",
+        choices=list(SUMMER_LEAGUE_SLUGS),
+        default=list(SUMMER_LEAGUE_SLUGS),
+        help="Summer League competitions to ingest; defaults to all three.",
+    )
+    summer_parser.add_argument("--team-ids", nargs="+")
+    summer_parser.add_argument("--game-ids", nargs="+")
+    summer_parser.add_argument("--full-refresh", action="store_true")
+    summer_parser.add_argument("--no-init-schema", action="store_false", dest="init_schema")
+    _add_runner_args(summer_parser, default_retries=2, default_retry_delay_seconds=120.0)
+    summer_parser.set_defaults(func=run_summer_league_pipeline, init_schema=True)
+
     backfill_parser = subparsers.add_parser(
         "backfill-source",
         help="Resume one live source using item-level ingestion state.",
@@ -537,6 +611,12 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--season", required=True)
     backfill_parser.add_argument("--team-ids", nargs="+")
     backfill_parser.add_argument("--game-ids", nargs="+")
+    backfill_parser.add_argument(
+        "--competition",
+        choices=sorted(COMPETITIONS),
+        default=NBA.slug,
+        help="Competition owning the target games.",
+    )
     backfill_parser.add_argument("--no-init-schema", action="store_false", dest="init_schema")
     _add_runner_args(backfill_parser, default_retries=2, default_retry_delay_seconds=120.0)
     backfill_parser.set_defaults(func=backfill_source, init_schema=True)
