@@ -18,7 +18,6 @@ SELECT
         ELSE 'Scheduled'
     END AS status,
     CASE
-        WHEN COALESCE(competition, 'nba') LIKE 'summer_league_%' THEN 'summer_league'
         WHEN CAST(game_id AS TEXT) LIKE '004%' THEN 'playoffs'
         WHEN CAST(game_id AS TEXT) LIKE '005%' THEN 'play_in'
         WHEN CAST(game_id AS TEXT) LIKE '006%' THEN 'nba_cup'
@@ -26,3 +25,4 @@ SELECT
         ELSE 'regular_season'
     END AS game_type
 FROM {{ source('bronze', 'schedule') }}
+WHERE COALESCE(competition, 'nba') = 'nba'
