@@ -1,4 +1,4 @@
-{{ config(materialized='table', schema='silver', tags=['summer_league']) }}
+{{ config(materialized='table', schema='silver', alias='summer_league_games', tags=['summer_league']) }}
 
 SELECT
     CAST(game_id AS TEXT) AS game_id,

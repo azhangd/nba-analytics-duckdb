@@ -94,7 +94,7 @@ DBT_TRANSFORM_SELECTOR = "tag:silver tag:gold"
 # same orchestration boundary: models that require runtime gold artifacts.
 DBT_TRANSFORM_EXCLUDE = DBT_RUNTIME_DEPENDENT_SELECTOR
 DBT_FEATURE_SELECTOR = DBT_RUNTIME_DEPENDENT_SELECTOR
-DBT_SUMMER_LEAGUE_SELECTOR = " ".join(DBT_SUMMER_LEAGUE_MODEL_NAMES)
+DBT_SUMMER_LEAGUE_SELECTOR = "tag:summer_league"
 
 DBT_TRANSFORM_INPUTS = (
     "bronze.schedule",

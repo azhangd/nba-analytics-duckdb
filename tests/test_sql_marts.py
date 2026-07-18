@@ -12,6 +12,9 @@ from nba_duckdb.dbt_models import (
     DBT_MODEL_DATASETS,
     DBT_MODEL_NAMES,
     DBT_RUNTIME_DEPENDENT_SELECTOR,
+    DBT_SUMMER_LEAGUE_MODEL_DATASETS,
+    DBT_SUMMER_LEAGUE_MODEL_NAMES,
+    DBT_SUMMER_LEAGUE_SELECTOR,
     DBT_TRANSFORM_EXCLUDE,
     DBT_TRANSFORM_INPUTS,
     DBT_TRANSFORM_SELECTOR,
@@ -150,11 +153,15 @@ def test_dbt_tag_selectors_partition_registered_models():
         exclude=DBT_TRANSFORM_EXCLUDE,
     )
     feature_models = _dbt_ls_model_names(selector=DBT_FEATURE_SELECTOR)
+    summer_league_models = _dbt_ls_model_names(selector=DBT_SUMMER_LEAGUE_SELECTOR)
 
     assert core_models == set(DBT_CORE_MODEL_NAMES)
     assert feature_models == set(DBT_FEATURE_MODEL_NAMES)
+    assert summer_league_models == set(DBT_SUMMER_LEAGUE_MODEL_NAMES)
     assert core_models.isdisjoint(feature_models)
-    assert core_models | feature_models == set(DBT_MODEL_NAMES)
+    assert core_models.isdisjoint(summer_league_models)
+    assert feature_models.isdisjoint(summer_league_models)
+    assert core_models | feature_models | summer_league_models == set(DBT_MODEL_NAMES)
     assert "team_season_feature_matrix" in core_models
     assert "game_flow_snapshots" in feature_models
     assert "player_season_feature_matrix" in feature_models
@@ -180,7 +187,7 @@ def test_dbt_tables_are_owned_by_dbt_not_schema_sql():
     assert schema_tables.isdisjoint(DBT_MODEL_DATASETS)
 
 
-def test_dbt_gold_models_match_single_registry_task():
+def test_dbt_models_match_their_registry_tasks():
     registered = _registered_dbt_models()
     producers = _registered_gold_producers()
 
@@ -189,11 +196,18 @@ def test_dbt_gold_models_match_single_registry_task():
         task.name
         for task in registry.TASK_DEFS
         if task.dbt_selector
-    ] == ["dbt_build_warehouse", "dbt_build_feature_matrices"]
+    ] == [
+        "dbt_build_warehouse",
+        "dbt_build_feature_matrices",
+        "dbt_build_summer_league",
+    ]
 
     core_task = next(task for task in registry.TASK_DEFS if task.name == "dbt_build_warehouse")
     feature_task = next(
         task for task in registry.TASK_DEFS if task.name == "dbt_build_feature_matrices"
+    )
+    summer_league_task = next(
+        task for task in registry.TASK_DEFS if task.name == "dbt_build_summer_league"
     )
     assert core_task.dbt_selector == DBT_TRANSFORM_SELECTOR
     assert core_task.dbt_exclude == DBT_TRANSFORM_EXCLUDE
@@ -210,6 +224,11 @@ def test_dbt_gold_models_match_single_registry_task():
         "gold.player_season_archetypes",
     )
     assert feature_task.task_type == "dbt"
+    assert summer_league_task.dbt_selector == DBT_SUMMER_LEAGUE_SELECTOR
+    assert summer_league_task.dbt_exclude in (None, "")
+    assert summer_league_task.dbt_models == DBT_SUMMER_LEAGUE_MODEL_NAMES
+    assert summer_league_task.outputs == DBT_SUMMER_LEAGUE_MODEL_DATASETS
+    assert summer_league_task.task_type == "dbt"
 
     for model in DBT_GOLD_MODEL_NAMES:
         assert model in producers
