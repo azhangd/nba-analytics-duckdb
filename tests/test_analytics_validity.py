@@ -1106,6 +1106,64 @@ def test_bpm_vorp_transform_computes_approx_columns(tmp_path, monkeypatch):
     assert row["vorp_approx"] is not None
 
 
+def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
+    import polars as pl
+
+    from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
+
+    player_games = pl.DataFrame(
+        {
+            "game_id": ["0029900001", "0029900002"],
+            "player_id": [990001, 990001],
+            "team_id": [1610612737, 1610612738],
+            "minutes": [30.0, 34.0],
+            "pts": [20, 24],
+            "reb": [5, 7],
+            "oreb": [1, 2],
+            "dreb": [4, 5],
+            "ast": [6, 8],
+            "stl": [1, 2],
+            "blk": [0, 1],
+            "tov": [2, 3],
+            "fga": [15, 18],
+            "fg3a": [6, 7],
+            "pf": [2, 3],
+        }
+    )
+    games = pl.DataFrame(
+        {
+            "game_id": ["0029900001", "0029900002"],
+            "season": ["2099-00", "2099-00"],
+        }
+    )
+    season_stats = pl.DataFrame(
+        {
+            "player_id": [990001],
+            "season": ["2099-00"],
+            "avg_usg_pct": [0.25],
+        }
+    )
+    four_factors = pl.DataFrame(
+        {
+            "team_id": [1610612737, 1610612738],
+            "season": ["2099-00", "2099-00"],
+            "pace": [96.0, 104.0],
+        }
+    )
+
+    result, league_avg_pace = build_bpm_vorp(
+        player_games=player_games,
+        fct_games=games,
+        season_stats=season_stats,
+        four_factors=four_factors,
+    )
+
+    assert result.height == 1
+    assert result.row(0, named=True)["player_id"] == 990001
+    assert result.row(0, named=True)["season"] == "2099-00"
+    assert league_avg_pace == 100.0
+
+
 def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch):
     pytest.importorskip("sklearn")
     pytest.importorskip("scipy")
