@@ -419,6 +419,7 @@ def test_quality_detects_duplicate_natural_keys(tmp_path, monkeypatch):
         [
             {
                 "game_id": "002SYN0001",
+                "action_id": 1,
                 "action_number": 1,
                 "period": 1,
                 "pbp_source": "fixture",
@@ -429,6 +430,33 @@ def test_quality_detects_duplicate_natural_keys(tmp_path, monkeypatch):
     from nba_duckdb import quality
 
     with pytest.raises(RuntimeError, match="silver.fct_play_by_play_unique_action"):
+        quality.run_checks()
+
+
+def test_quality_allows_empty_optional_source_tables(tmp_path, monkeypatch):
+    db = _run_full_smoke(tmp_path, monkeypatch)
+    for qualified_table in (
+        "silver.dim_injuries",
+        "gold.player_pageviews_daily",
+        "gold.player_media_mentions_daily",
+        "gold.player_jersey_rank_snapshots",
+    ):
+        db.execute(f"DELETE FROM {qualified_table}")
+
+    from nba_duckdb import quality
+
+    result = quality.run_checks()
+
+    assert result["missing_tables"] == []
+
+
+def test_quality_requires_optional_source_tables_to_exist(tmp_path, monkeypatch):
+    db = _run_full_smoke(tmp_path, monkeypatch)
+    db.execute("DROP TABLE gold.player_jersey_rank_snapshots")
+
+    from nba_duckdb import quality
+
+    with pytest.raises(RuntimeError, match="gold.player_jersey_rank_snapshots is missing"):
         quality.run_checks()
 
 

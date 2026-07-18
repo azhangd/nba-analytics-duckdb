@@ -7,3 +7,7 @@ class LiveEndpointUnavailableError(RuntimeError):
 
 class PipelineStateNotInitializedError(RuntimeError):
     """Raised when read-only run-state commands are used before schema init."""
+
+
+class SyntheticDataInLiveWarehouseError(RuntimeError):
+    """Raised when a live pipeline points at an offline smoke warehouse."""

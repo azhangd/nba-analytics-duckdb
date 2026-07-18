@@ -7,7 +7,7 @@ image, so these views split it by how someone would usually query it.
 Every bronze, silver, and gold table appears as a primary table in exactly one
 diagram. Some upstream tables repeat as context so the individual views are
 easier to read. Diagram generation checks each table against the schema and
-checks curated relationships against the dbt manifest plus Python asset
+checks curated relationships against the dbt manifest plus Python task
 metadata. If the manifest is missing or stale, `make diagrams` and
 `make check-diagrams` may run `dbt parse` and refresh ignored files under
 `dbt/target/`.

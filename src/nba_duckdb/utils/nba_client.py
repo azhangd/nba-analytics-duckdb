@@ -8,6 +8,8 @@ import os
 import time
 from typing import Any
 
+import httpx
+
 # Patch nba_api headers before any endpoint imports.
 # - Referer must be www.nba.com (not stats.nba.com) as of 2025.
 # - The stats endpoints expect browser-compatible request metadata.
@@ -102,6 +104,10 @@ from nba_api.live.nba.endpoints import ScoreBoard as LiveScoreBoard
 
 _TIMEOUT = 60  # seconds; default 30s is too low for heavy endpoints
 _LIVE_TIMEOUT = positive_int("NBA_DUCKDB_LIVE_TIMEOUT_SECONDS", 30)
+_CURRENT_SCHEDULE_URLS = (
+    "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json",
+    "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json",
+)
 _SYNERGY_PLAY_TYPE_ALIASES = {
     "Putbacks": "OffRebound",
 }
@@ -213,6 +219,42 @@ def _call_live_endpoint(
 def get_schedule(season: str, max_retries: int = 5) -> dict:
     """Fetch full season schedule."""
     return _call_with_rate_limit(ScheduleLeagueV2, season=season, max_retries=max_retries)
+
+
+def get_current_schedule_from_cdn(season: str) -> dict:
+    """Fetch the current season schedule from the NBA website's CDN feed.
+
+    The CDN resource only represents the current season, so validate its
+    season before returning it. The alternate URL keeps this path resilient to
+    the filename used by different versions of the NBA schedule page.
+    """
+    _ensure_live_fetch_allowed()
+    errors: list[str] = []
+    for url in _CURRENT_SCHEDULE_URLS:
+        nba_api_limiter.acquire()
+        try:
+            response = httpx.get(
+                url,
+                headers=_LIVE_HEADERS,
+                timeout=_LIVE_TIMEOUT,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            result = response.json()
+            league_schedule = result.get("leagueSchedule", {})
+            response_season = league_schedule.get("seasonYear")
+            game_dates = league_schedule.get("gameDates")
+            if response_season != season:
+                raise ValueError(
+                    f"NBA CDN schedule is for {response_season!r}, not requested season {season!r}"
+                )
+            if not game_dates:
+                raise ValueError("NBA CDN schedule has no gameDates")
+            return result
+        except (httpx.HTTPError, ValueError) as exc:
+            errors.append(f"{url}: {exc}")
+
+    raise ValueError("NBA CDN schedule unavailable; " + "; ".join(errors))
 
 
 def get_scoreboard_for_date(game_date: str, max_retries: int = 3) -> dict:
@@ -539,9 +581,18 @@ def get_win_probability(game_id: str, max_retries: int = 1) -> dict:
 # --- Game rotations ---
 
 
-def get_game_rotation(game_id: str, max_retries: int = 5) -> dict:
+def get_game_rotation(
+    game_id: str,
+    max_retries: int = 5,
+    timeout: int = 30,
+) -> dict:
     """Fetch official rotation data (stint times, player pts, +/-, USG%)."""
-    return _call_with_rate_limit(GameRotation, max_retries=max_retries, timeout=30, game_id=game_id)
+    return _call_with_rate_limit(
+        GameRotation,
+        max_retries=max_retries,
+        timeout=timeout,
+        game_id=game_id,
+    )
 
 
 # --- Shot detail with filters ---

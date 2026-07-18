@@ -9,6 +9,7 @@ from typing import Any
 
 FCT_PLAY_BY_PLAY = (
     "game_id",
+    "action_id",
     "action_number",
     "period",
     "clock",
@@ -58,8 +59,12 @@ def build_fct_play_by_play_rows(bronze_rows: list[Mapping[str, Any]]) -> list[di
             loc_y = action.get("y") if pbp_source != "stats_v3" else None
             team_id = action.get("teamId")
             player_id = action.get("personId")
+            action_id = action.get("actionId")
+            if action_id is None:
+                action_id = action.get("orderNumber")
             output.append({
                 "game_id": game_id,
+                "action_id": int(action_id) if action_id is not None else None,
                 "action_number": int(action.get("actionNumber") or 0),
                 "period": int(action.get("period") or 0),
                 "clock": str(action.get("clock", "")),

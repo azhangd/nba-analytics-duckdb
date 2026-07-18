@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 pytest.importorskip("nba_api")
@@ -220,3 +222,100 @@ def test_shot_chart_ingest_does_not_refetch_existing_pairs(tmp_path, monkeypatch
 
     assert result["rows_written"] == 0
     assert result["item_state"]["status_counts"] == {"success": 2}
+
+
+def _insert_game_detail_schedule(db, game_ids):
+    db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            {
+                "game_id": game_id,
+                "game_date": "01/01/2100 00:00:00",
+                "home_team_id": 1610612737,
+                "away_team_id": 1610612738,
+                "home_team_abbr": "AAA",
+                "away_team_abbr": "BBB",
+                "game_status": 3,
+                "game_status_text": "Final",
+                "season": "2099-00",
+                "raw_json": "{}",
+            }
+            for game_id in game_ids
+        ],
+    )
+
+
+def _game_detail_payload(key):
+    return {
+        key: {
+            "homeTeam": {"teamId": 1610612737},
+            "awayTeam": {"teamId": 1610612738},
+        }
+    }
+
+
+def test_game_detail_opens_rotation_circuit_and_uses_pbp_fallback(tmp_path, monkeypatch):
+    db = _init_tmp_db(tmp_path, monkeypatch)
+    _insert_game_detail_schedule(db, ["0029900001", "0029900002"])
+
+    from nba_duckdb.tasks.bronze import ingest_game_detail
+
+    monkeypatch.setattr(
+        ingest_game_detail.nba_client,
+        "get_boxscore_misc",
+        lambda **_kwargs: _game_detail_payload("boxScoreMisc"),
+    )
+    monkeypatch.setattr(
+        ingest_game_detail.nba_client,
+        "get_boxscore_scoring",
+        lambda **_kwargs: _game_detail_payload("boxScoreScoring"),
+    )
+    rotation_calls = []
+
+    def fail_rotation(**kwargs):
+        rotation_calls.append(kwargs)
+        raise TimeoutError("rotation unavailable")
+
+    monkeypatch.setattr(ingest_game_detail.nba_client, "get_game_rotation", fail_rotation)
+
+    result = ingest_game_detail.run(season="2099-00")
+    rows = db.execute("SELECT detail_json FROM bronze.game_detail ORDER BY game_id")
+
+    assert result["rows_written"] == 2
+    assert result["rotation_holes"] == 2
+    assert result["rotation_circuit_open"] is True
+    assert len(rotation_calls) == 1
+    assert rotation_calls[0]["game_id"] in {"0029900001", "0029900002"}
+    assert rotation_calls[0]["max_retries"] == 1
+    assert rotation_calls[0]["timeout"] == 10
+    assert all(
+        json.loads(row["detail_json"])["rotation"]["_status"] == "unavailable"
+        for row in rows
+    )
+
+
+def test_game_detail_strict_rotation_fails_when_circuit_opens(tmp_path, monkeypatch):
+    db = _init_tmp_db(tmp_path, monkeypatch)
+    _insert_game_detail_schedule(db, ["0029900001"])
+
+    from nba_duckdb.tasks.bronze import ingest_game_detail
+
+    monkeypatch.setattr(
+        ingest_game_detail.nba_client,
+        "get_boxscore_misc",
+        lambda **_kwargs: _game_detail_payload("boxScoreMisc"),
+    )
+    monkeypatch.setattr(
+        ingest_game_detail.nba_client,
+        "get_boxscore_scoring",
+        lambda **_kwargs: _game_detail_payload("boxScoreScoring"),
+    )
+    monkeypatch.setattr(
+        ingest_game_detail.nba_client,
+        "get_game_rotation",
+        lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("rotation unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="rotation endpoint unavailable"):
+        ingest_game_detail.run(season="2099-00", strict_rotation_detail=True)

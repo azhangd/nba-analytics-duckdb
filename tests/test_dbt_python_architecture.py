@@ -38,8 +38,8 @@ EXPECTED_DBT_PYTHON_MODELS = {
 }
 
 RUNTIME_MODULE_PREFIXES = (
-    "dagster",
-    "dagster_dbt",
+    "airflow",
+    "cosmos",
     "dbt",
     "nba_duckdb.tasks",
 )

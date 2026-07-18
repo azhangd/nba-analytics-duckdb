@@ -23,10 +23,9 @@ jobs:
           python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get install -y graphviz
       - run: uv sync --extra dev --extra full
-      - run: uv run ruff check src tests scripts examples
+      - run: uv run ruff check src tests scripts examples dags
       - run: make dbt-parse
       - run: uv run pytest
-      - run: uv run dagster definitions validate -m nba_duckdb.definitions
       - run: make check-artifacts
       - run: make check-diagrams
       - run: uv run nba-duckdb run-smoke
@@ -34,6 +33,32 @@ jobs:
       - run: uv run nba-duckdb run-smoke --quick
       - run: make example-basic-team-summary
       - run: make check-wheel
+
+  airflow:
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/dags
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__OPENLINEAGE__NAMESPACE: nba-analytics-duckdb
+      AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI: "True"
+    steps:
+      - name: Configure runtime paths
+        run: |
+          echo "AIRFLOW_HOME=${RUNNER_TEMP}/airflow" >> "${GITHUB_ENV}"
+          echo "NBA_DUCKDB_SMOKE_PATH=${RUNNER_TEMP}/airflow-smoke.duckdb" >> "${GITHUB_ENV}"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra full --extra airflow
+      - run: make airflow-check
+      - run: make airflow-smoke
 
   light:
     runs-on: ubuntu-latest
@@ -48,7 +73,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: uv sync --extra dev
-      - run: uv run ruff check src tests scripts examples
+      - run: uv run ruff check src tests scripts examples dags
       - run: uv run pytest -q
       - run: uv run nba-duckdb run-smoke --quick
 
@@ -98,10 +123,6 @@ jobs:
           from importlib.util import find_spec
 
           for module in (
-              "dagster",
-              "dagster_dbt",
-              "dagster_duckdb",
-              "dagster_webserver",
               "dbt",
               "dbt.adapters.duckdb",
               "joblib",

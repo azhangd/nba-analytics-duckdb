@@ -223,12 +223,24 @@ def _ingest_season(season: str, is_current: bool) -> dict:
 
     rows: list[dict] = []
     used_scoreboard_fallback = False
+    raw: dict | None = None
+    if is_current:
+        try:
+            raw = nba_client.get_current_schedule_from_cdn(season)
+        except ValueError as exc:
+            logger.warning(
+                "Current-season CDN schedule unavailable for %s; falling back to stats API: %s",
+                season,
+                exc,
+            )
+
     try:
         # Initial historical backfills are prone to transient empty payloads from
         # stats.nba.com. Give cold loads a wider retry budget, while keeping
         # incremental refreshes quick when cached season rows already exist.
-        schedule_retries = 2 if existing_rows > 0 else 4
-        raw = nba_client.get_schedule(season=season, max_retries=schedule_retries)
+        if raw is None:
+            schedule_retries = 2 if existing_rows > 0 else 4
+            raw = nba_client.get_schedule(season=season, max_retries=schedule_retries)
     except ValueError as exc:
         if "Empty resultSets" not in str(exc):
             raise
@@ -254,6 +266,7 @@ def _ingest_season(season: str, is_current: bool) -> dict:
             season,
         )
     else:
+        assert raw is not None
         game_dates = raw.get("leagueSchedule", raw.get("LeagueSchedule", {})).get(
             "gameDates", raw.get("leagueSchedule", raw.get("LeagueSchedule", {})).get("GameDates", [])
         )

@@ -1,10 +1,58 @@
 import json
 
+import httpx
 import pytest
 
 from nba_duckdb.exceptions import LiveEndpointUnavailableError
 
 pytest.importorskip("nba_api")
+
+
+def test_current_schedule_from_cdn_validates_requested_season(monkeypatch):
+    from nba_duckdb.utils import nba_client
+
+    requested_urls = []
+
+    def fake_get(url, **_kwargs):
+        requested_urls.append(url)
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            json={
+                "leagueSchedule": {
+                    "seasonYear": "2025-26",
+                    "gameDates": [{"gameDate": "10/21/2025 00:00:00", "games": [{}]}],
+                }
+            },
+        )
+
+    monkeypatch.setattr(nba_client.httpx, "get", fake_get)
+
+    result = nba_client.get_current_schedule_from_cdn("2025-26")
+
+    assert result["leagueSchedule"]["seasonYear"] == "2025-26"
+    assert requested_urls == [nba_client._CURRENT_SCHEDULE_URLS[0]]
+
+
+def test_current_schedule_from_cdn_rejects_stale_season(monkeypatch):
+    from nba_duckdb.utils import nba_client
+
+    def fake_get(url, **_kwargs):
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            json={
+                "leagueSchedule": {
+                    "seasonYear": "2024-25",
+                    "gameDates": [{"gameDate": "10/22/2024 00:00:00", "games": [{}]}],
+                }
+            },
+        )
+
+    monkeypatch.setattr(nba_client.httpx, "get", fake_get)
+
+    with pytest.raises(ValueError, match="not requested season"):
+        nba_client.get_current_schedule_from_cdn("2025-26")
 
 
 def test_play_by_play_falls_back_to_stats_v3(monkeypatch):

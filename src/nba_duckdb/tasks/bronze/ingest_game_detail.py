@@ -16,13 +16,13 @@ from datetime import datetime, timezone
 from nba_duckdb.db import get_conn, read_table, upsert_rows
 from nba_duckdb.season_utils import requested_or_default_seasons
 from nba_duckdb.utils import nba_client
+from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.game_detail")
 
 FLUSH_EVERY = 50
-DETAIL_KEYS = ("misc", "scoring", "win_prob", "rotation")
 OPTIONAL_DETAIL_KEYS = ("misc", "scoring", "win_prob")
-REQUIRED_DETAIL_KEYS = ("rotation",)
+ROTATION_DETAIL_KEYS = ("rotation",)
 DEFAULT_OPTIONAL_RETRIES = 1
 STRICT_OPTIONAL_RETRIES = 3
 ROTATION_RECOVERY_PASSES = 2
@@ -35,6 +35,8 @@ SKIPPED_STATUS = "skipped"
 # calls when only rotation data is required.
 _OPTIONAL_TOGGLE = os.environ.get("ENABLE_OPTIONAL_GAME_DETAIL", "").strip().lower()
 ENABLE_OPTIONAL_DETAIL = _OPTIONAL_TOGGLE not in {"0", "false", "no"}
+_ROTATION_TOGGLE = os.environ.get("ENABLE_GAME_ROTATION", "").strip().lower()
+ENABLE_ROTATION_DETAIL = _ROTATION_TOGGLE not in {"0", "false", "no"}
 
 
 def _detail_payload(value) -> dict:
@@ -55,11 +57,10 @@ def _detail_component_complete(
     treat_unavailable_as_complete: bool = True,
 ) -> bool:
     doc = _detail_payload(payload)
-    if component in OPTIONAL_DETAIL_KEYS and doc.get("_status") == SKIPPED_STATUS:
+    if doc.get("_status") == SKIPPED_STATUS:
         return True
     if (
-        component in OPTIONAL_DETAIL_KEYS
-        and doc.get("_status") == UNAVAILABLE_STATUS
+        doc.get("_status") == UNAVAILABLE_STATUS
         and treat_unavailable_as_complete
     ):
         return True
@@ -155,24 +156,55 @@ def _fetch_optional_component(
     raise ValueError(f"Unsupported optional component: {component}")
 
 
+def _fetch_rotation_component(
+    detail: dict,
+    game_id: str,
+    *,
+    max_retries: int,
+    timeout: int,
+) -> bool:
+    """Fetch rotation data and return whether a complete payload was received."""
+    try:
+        detail["rotation"] = nba_client.get_game_rotation(
+            game_id=game_id,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        logger.warning("rotation failed for %s: %s", game_id, exc)
+        detail["rotation"] = _optional_unavailable_payload(exc)
+        return False
+    return _detail_component_complete("rotation", detail["rotation"])
+
+
 def _fetch_required_component(detail: dict, component: str, game_id: str) -> None:
     if component == "rotation":
-        try:
-            detail["rotation"] = nba_client.get_game_rotation(game_id=game_id)
-        except Exception as exc:
-            logger.warning("rotation failed for %s: %s", game_id, exc)
-            detail["rotation"] = {}
+        _fetch_rotation_component(
+            detail,
+            game_id,
+            max_retries=1,
+            timeout=10,
+        )
         return
 
     raise ValueError(f"Unsupported required component: {component}")
 
 
-def _blocking_components(*, include_optional_detail: bool, include_win_prob: bool, strict_optional_detail: bool) -> tuple[str, ...]:
-    components = list(REQUIRED_DETAIL_KEYS)
+def _blocking_components(
+    *,
+    include_optional_detail: bool,
+    include_win_prob: bool,
+    strict_optional_detail: bool,
+    include_rotation_detail: bool,
+    strict_rotation_detail: bool,
+) -> tuple[str, ...]:
+    components = []
     if strict_optional_detail and include_optional_detail:
         components.extend(("misc", "scoring"))
         if include_win_prob:
             components.append("win_prob")
+    if strict_rotation_detail and include_rotation_detail:
+        components.extend(ROTATION_DETAIL_KEYS)
     return tuple(components)
 
 
@@ -206,12 +238,39 @@ def run(**kwargs):
         include_optional_detail = bool(include_optional_detail)
     include_win_prob = include_optional_detail and bool(kwargs.get("include_win_prob"))
     strict_optional_detail = bool(kwargs.get("full_refresh") or kwargs.get("strict_optional_detail"))
-    treat_unavailable_as_complete = not strict_optional_detail
+    include_rotation_detail = kwargs.get("include_rotation_detail")
+    if include_rotation_detail is None:
+        include_rotation_detail = ENABLE_ROTATION_DETAIL
+    else:
+        include_rotation_detail = bool(include_rotation_detail)
+    strict_rotation_detail = bool(
+        kwargs.get("full_refresh") or kwargs.get("strict_rotation_detail")
+    )
+    treat_unavailable_as_complete = not (
+        strict_optional_detail or strict_rotation_detail
+    )
     optional_max_retries = STRICT_OPTIONAL_RETRIES if strict_optional_detail else DEFAULT_OPTIONAL_RETRIES
+    rotation_max_retries = positive_int(
+        "NBA_DUCKDB_ROTATION_MAX_RETRIES",
+        1,
+        logger=logger,
+    )
+    rotation_timeout = positive_int(
+        "NBA_DUCKDB_ROTATION_TIMEOUT_SECONDS",
+        10,
+        logger=logger,
+    )
+    rotation_circuit_breaker_after = positive_int(
+        "NBA_DUCKDB_ROTATION_CIRCUIT_BREAKER_AFTER",
+        1,
+        logger=logger,
+    )
     blocking_components = _blocking_components(
         include_optional_detail=include_optional_detail,
         include_win_prob=include_win_prob,
         strict_optional_detail=strict_optional_detail,
+        include_rotation_detail=include_rotation_detail,
+        strict_rotation_detail=strict_rotation_detail,
     )
     if requested_game_ids:
         game_ids = requested_game_ids
@@ -245,7 +304,11 @@ def run(**kwargs):
                 for row in cur.fetchall()
             }
 
-    requested_detail_keys = DETAIL_KEYS if include_optional_detail else REQUIRED_DETAIL_KEYS
+    requested_detail_keys = []
+    if include_optional_detail:
+        requested_detail_keys.extend(OPTIONAL_DETAIL_KEYS)
+    if include_rotation_detail:
+        requested_detail_keys.extend(ROTATION_DETAIL_KEYS)
     todo = [
         game_id
         for game_id in game_ids
@@ -267,6 +330,9 @@ def run(**kwargs):
     batch = []
     failed_game_ids: list[str] = []
     optional_holes: list[str] = []
+    rotation_holes: list[str] = []
+    consecutive_rotation_failures = 0
+    rotation_circuit_open = False
 
     for i, game_id in enumerate(todo):
         if i > 0 and i % 20 == 0:
@@ -314,8 +380,44 @@ def run(**kwargs):
                     max_retries=optional_max_retries,
                 )
 
-        if not _detail_component_complete("rotation", detail.get("rotation")):
-            _fetch_required_component(detail, "rotation", game_id)
+        if include_rotation_detail and not _detail_component_complete(
+            "rotation",
+            detail.get("rotation"),
+            treat_unavailable_as_complete=treat_unavailable_as_complete,
+        ):
+            if rotation_circuit_open:
+                detail["rotation"] = _optional_unavailable_payload(
+                    RuntimeError("rotation endpoint circuit open after repeated failures")
+                )
+            else:
+                rotation_complete = _fetch_rotation_component(
+                    detail,
+                    game_id,
+                    max_retries=rotation_max_retries,
+                    timeout=rotation_timeout,
+                )
+                if rotation_complete:
+                    consecutive_rotation_failures = 0
+                else:
+                    consecutive_rotation_failures += 1
+                    if consecutive_rotation_failures >= rotation_circuit_breaker_after:
+                        rotation_circuit_open = True
+                        logger.warning(
+                            "Opening rotation endpoint circuit after %d consecutive failure(s); "
+                            "remaining games will use play-by-play lineup reconstruction",
+                            consecutive_rotation_failures,
+                        )
+                        if strict_rotation_detail:
+                            raise RuntimeError(
+                                "Official rotation endpoint unavailable during strict ingestion; "
+                                f"circuit opened after {consecutive_rotation_failures} failure(s)"
+                            )
+            if _detail_payload(detail.get("rotation")).get("_status") == UNAVAILABLE_STATUS:
+                rotation_holes.append(game_id)
+        elif not include_rotation_detail:
+            detail["rotation"] = _optional_skipped_payload(
+                "official rotation endpoint disabled; downstream uses play-by-play lineup reconstruction"
+            )
 
         incomplete = _incomplete_components(
             detail,
@@ -412,6 +514,13 @@ def run(**kwargs):
             optional_summary,
         )
 
+    if rotation_holes:
+        logger.warning(
+            "Official rotation data unavailable for %d game(s); "
+            "downstream lineups will use play-by-play reconstruction",
+            len(rotation_holes),
+        )
+
     if failed_game_ids:
         failed_summary = ", ".join(failed_game_ids[:10])
         raise RuntimeError(
@@ -425,7 +534,10 @@ def run(**kwargs):
         "game_ids": todo,
         "seasons": target_seasons,
         "optional_holes": len(optional_holes),
+        "rotation_holes": len(rotation_holes),
+        "rotation_circuit_open": rotation_circuit_open,
         "strict_optional_detail": strict_optional_detail,
+        "strict_rotation_detail": strict_rotation_detail,
     }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.

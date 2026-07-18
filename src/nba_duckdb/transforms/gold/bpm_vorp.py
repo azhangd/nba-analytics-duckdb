@@ -46,7 +46,13 @@ def build_bpm_vorp(
     if not four_factors.is_empty() and "pace" in four_factors.columns:
         valid_pace = four_factors.filter(pl.col("pace").is_not_null() & (pl.col("pace") > 0))
         league_avg_pace = float(valid_pace["pace"].mean()) if not valid_pace.is_empty() else _LEAGUE_AVG_PACE
-        team_pace = four_factors.select(["team_id", "pace"])
+        team_pace_columns = ["team_id", "pace"]
+        if "season" in four_factors.columns:
+            team_pace_columns.insert(1, "season")
+        team_pace = four_factors.select(team_pace_columns).unique(
+            subset=[column for column in team_pace_columns if column != "pace"],
+            keep="last",
+        )
     else:
         league_avg_pace = _LEAGUE_AVG_PACE
         team_pace = pl.DataFrame({"team_id": pl.Series([], dtype=pl.Int64), "pace": pl.Series([], dtype=pl.Float64)})
@@ -56,8 +62,19 @@ def build_bpm_vorp(
     pgs = pgs.with_columns(pl.col("season").fill_null("2025-26"))
     pgs = pgs.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
 
+    if not team_pace.is_empty():
+        pace_join_keys = ["team_id", "season"] if "season" in team_pace.columns else ["team_id"]
+        pgs = pgs.join(
+            team_pace.rename({"pace": "team_pace"}),
+            on=pace_join_keys,
+            how="left",
+        )
+        pgs = pgs.with_columns(pl.col("team_pace").fill_null(league_avg_pace))
+    else:
+        pgs = pgs.with_columns(pl.lit(league_avg_pace).alias("team_pace"))
+
     agg = (
-        pgs.group_by(["player_id", "season", "team_id"])
+        pgs.group_by(["player_id", "season"])
         .agg([
             pl.col("minutes").mean().alias("mpg"),
             pl.col("pts").mean().alias("ppg"),
@@ -72,19 +89,17 @@ def build_bpm_vorp(
             pl.col("fg3a").mean().alias("fg3a_pg"),
             pl.col("pf").mean().alias("pfpg"),
             pl.col("game_id").count().alias("gp"),
+            pl.col("team_pace").mean().alias("team_pace"),
         ])
         .with_columns(pl.col("season").fill_null("2025-26"))
         .filter(pl.col("mpg") > 0)
     )
 
-    if not team_pace.is_empty():
-        agg = agg.join(team_pace.rename({"pace": "team_pace"}), on="team_id", how="left")
-        agg = agg.with_columns(pl.col("team_pace").fill_null(league_avg_pace))
-    else:
-        agg = agg.with_columns(pl.lit(league_avg_pace).alias("team_pace"))
-
-    usg = season_stats.select(["player_id", "season", "avg_usg_pct"]).filter(
-        pl.col("avg_usg_pct").is_not_null()
+    usg = (
+        season_stats.select(["player_id", "season", "avg_usg_pct"])
+        .filter(pl.col("avg_usg_pct").is_not_null())
+        .group_by(["player_id", "season"])
+        .agg(pl.col("avg_usg_pct").mean())
     )
     agg = agg.join(usg, on=["player_id", "season"], how="left")
     agg = agg.with_columns(pl.col("avg_usg_pct").fill_null(_AVG_USG))

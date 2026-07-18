@@ -31,8 +31,33 @@ def test_run_live_default_builds_full_warehouse_graph():
 
     names = _flatten_step_names(cli._live_steps("default", _scope()))
 
-    assert names == ["live_job"]
-    assert cli._live_steps("default", _scope())[0].task_type == "dagster"
+    assert names == [
+        "ingest_schedule",
+        "ingest_rosters",
+        "ingest_boxscores",
+        "ingest_play_by_play",
+        "ingest_shot_charts",
+        "ingest_standings",
+        "ingest_tracking_stats",
+        "ingest_hustle",
+        "ingest_matchups",
+        "ingest_defense",
+        "ingest_tracking",
+        "ingest_game_detail",
+        "ingest_injuries",
+        "dbt_build_warehouse",
+        "compute_rapm",
+        "compute_win_prob_model",
+        "refresh_player_off_court_signals",
+        "compute_shot_quality_trained",
+        "compute_player_embeddings",
+        "dbt_build_feature_matrices",
+    ]
+    assert {step.task_type for step in cli._live_steps("default", _scope())} == {
+        "bronze",
+        "dbt",
+        "gold",
+    }
 
 
 def test_run_live_quick_keeps_small_iteration_graph():
@@ -40,8 +65,13 @@ def test_run_live_quick_keeps_small_iteration_graph():
 
     names = _flatten_step_names(cli._live_steps("quick", _scope()))
 
-    assert names == ["live_quick_job"]
-    assert cli._live_steps("quick", _scope())[0].task_type == "dagster"
+    assert names == [
+        "ingest_schedule",
+        "ingest_rosters",
+        "ingest_boxscores",
+        "ingest_play_by_play",
+    ]
+    assert {step.task_type for step in cli._live_steps("quick", _scope())} == {"bronze"}
 
 
 def test_public_cli_uses_current_command_names():
@@ -547,11 +577,19 @@ def test_default_live_gold_tasks_are_recorded_as_gold():
     from nba_duckdb import cli
 
     steps = cli._live_steps("default", _scope())
-    task_types = {
-        step.name: step.task_type for step in steps if isinstance(step, TaskSpec)
-    }
+    task_types = {step.name: step.task_type for step in steps if isinstance(step, TaskSpec)}
 
-    assert task_types == {"live_job": "dagster"}
+    assert {
+        task_name for task_name, task_type in task_types.items() if task_type == "gold"
+    } == {
+        "compute_rapm",
+        "compute_win_prob_model",
+        "refresh_player_off_court_signals",
+        "compute_shot_quality_trained",
+        "compute_player_embeddings",
+    }
+    assert task_types["dbt_build_warehouse"] == "dbt"
+    assert task_types["dbt_build_feature_matrices"] == "dbt"
 
 
 def test_datasets_graph_cli_can_write_html(tmp_path):
