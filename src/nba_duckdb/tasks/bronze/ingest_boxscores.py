@@ -6,7 +6,6 @@ import os
 from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
-from nba_duckdb.defaults import ALL_TEAM_IDS
 from nba_duckdb.season_utils import (
     filter_frame_to_competitions,
     requested_or_default_seasons,
@@ -55,8 +54,12 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS)
-    team_ids = {int(t.strip()) for t in team_ids_raw.split(",")}
+    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "").strip()
+    team_ids = (
+        {int(value.strip()) for value in team_ids_raw.split(",") if value.strip()}
+        if team_ids_raw
+        else None
+    )
 
     if not game_ids:
         schedule = read_table("bronze", "schedule", "game_status = 3")
@@ -69,14 +72,20 @@ def run(**kwargs):
         if target_seasons and "season" in schedule.columns:
             schedule = schedule.filter(pl.col("season").is_in(target_seasons))
         schedule = filter_frame_to_competitions(schedule, target_competitions)
-        team_games = schedule.filter(
-            pl.col("home_team_id").is_in(team_ids) | pl.col("away_team_id").is_in(team_ids)
-        )
+        team_games = schedule
+        if team_ids is not None:
+            team_games = schedule.filter(
+                pl.col("home_team_id").is_in(team_ids)
+                | pl.col("away_team_id").is_in(team_ids)
+            )
         game_ids = team_games["game_id"].unique().to_list()
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT game_id, traditional_json, advanced_json FROM bronze.boxscores")
+            cur.execute(
+                "SELECT game_id, traditional_json, advanced_json, "
+                "traditional_source, advanced_source FROM bronze.boxscores"
+            )
             existing_rows = {row["game_id"]: row for row in cur.fetchall()}
 
     already_done = {
@@ -103,13 +112,19 @@ def run(**kwargs):
         try:
             existing = existing_rows.get(game_id, {})
             boxscore = _load_json(existing.get("traditional_json"))
+            traditional_source = str(existing.get("traditional_source") or "unknown")
             if not boxscore:
-                boxscore = nba_client.get_boxscore(game_id=game_id, max_retries=max_retries)
+                boxscore, traditional_source = nba_client.get_boxscore_with_source(
+                    game_id=game_id,
+                    max_retries=max_retries,
+                )
 
             advanced = _load_json(existing.get("advanced_json"))
+            advanced_source = str(existing.get("advanced_source") or "unknown")
             if not advanced:
                 try:
                     advanced = nba_client.get_boxscore_advanced(game_id=game_id, max_retries=max(3, max_retries))
+                    advanced_source = "stats_v3"
                 except Exception as e:
                     logger.info("Advanced box score unavailable for %s: %s", game_id, e)
 
@@ -117,6 +132,8 @@ def run(**kwargs):
                 "game_id": game_id,
                 "traditional_json": json.dumps(boxscore),
                 "advanced_json": json.dumps(advanced) if advanced else None,
+                "traditional_source": traditional_source,
+                "advanced_source": advanced_source,
                 "ingested_at": datetime.now(timezone.utc).isoformat(),
             })
         except Exception as e:

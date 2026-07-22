@@ -306,7 +306,7 @@ def get_scoreboard_for_date(game_date: str, max_retries: int = 3) -> dict:
     return {}
 
 
-def get_boxscore(game_id: str, max_retries: int = 3) -> dict:
+def get_boxscore_with_source(game_id: str, max_retries: int = 3) -> tuple[dict, str]:
     """Fetch a completed-game box score.
 
     Prefer the official stats V3 endpoint for completed games because the live
@@ -324,22 +324,33 @@ def get_boxscore(game_id: str, max_retries: int = 3) -> dict:
                 boxscore.get("homeTeam", {}).get("players")
                 and boxscore.get("awayTeam", {}).get("players")
             ):
-                return result
+                return result, "stats_v3"
             raise ValueError("Incomplete BoxScoreTraditionalV3 payload")
         except Exception:
             if attempt == max_retries - 1:
                 break
             time.sleep(min(2 ** attempt, 10))
 
-    return _call_live_endpoint(
-        LiveBoxScore,
-        game_id=game_id,
-        max_retries=1,
-        result_validator=lambda result: bool(
-            result.get("game", {}).get("homeTeam", {}).get("players")
-        )
-        and bool(result.get("game", {}).get("awayTeam", {}).get("players")),
+    return (
+        _call_live_endpoint(
+            LiveBoxScore,
+            game_id=game_id,
+            max_retries=1,
+            result_validator=lambda result: bool(
+                result.get("game", {}).get("homeTeam", {}).get("players")
+            )
+            and bool(result.get("game", {}).get("awayTeam", {}).get("players")),
+        ),
+        "live_cdn",
     )
+
+
+def get_boxscore(game_id: str, max_retries: int = 3) -> dict:
+    payload, _source = get_boxscore_with_source(
+        game_id=game_id,
+        max_retries=max_retries,
+    )
+    return payload
 
 
 def get_boxscore_advanced(game_id: str, max_retries: int = 5) -> dict:

@@ -23,7 +23,7 @@ Summer League has a deliberately smaller path:
 official competition schedules (LeagueID 13, 15, 16)
   -> traditional/advanced box scores, play-by-play, shot charts
   -> Cosmos dbt_summer_league (4 competition-scoped silver models)
-  -> Summer League coverage gate
+  -> cross-source reconciliation and hashed payload-manifest gate
 ```
 
 The DAG factory reads the checked project registry for Python task metadata and

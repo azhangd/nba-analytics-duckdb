@@ -52,3 +52,18 @@ CREATE TABLE IF NOT EXISTS ops.ingestion_items (
     next_retry_at       TIMESTAMP,
     PRIMARY KEY (source, season, item_key)
 );
+
+CREATE TABLE IF NOT EXISTS ops.source_payload_manifest (
+    source_name        TEXT NOT NULL,
+    item_key           TEXT NOT NULL,
+    game_id            TEXT NOT NULL,
+    season             TEXT NOT NULL,
+    competition        TEXT NOT NULL,
+    source_locator     TEXT NOT NULL,
+    source_variant     TEXT NOT NULL,
+    payload_sha256     TEXT NOT NULL,
+    payload_bytes      BIGINT NOT NULL,
+    source_ingested_at TIMESTAMP,
+    audited_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (source_name, item_key)
+);

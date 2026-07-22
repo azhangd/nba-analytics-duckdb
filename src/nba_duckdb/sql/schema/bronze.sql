@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS bronze.boxscores (
     game_id           TEXT PRIMARY KEY,
     traditional_json  JSON,
     advanced_json     JSON,
+    traditional_source TEXT DEFAULT 'unknown',
+    advanced_source    TEXT DEFAULT 'unknown',
     ingested_at       TIMESTAMP DEFAULT current_timestamp
 );
 

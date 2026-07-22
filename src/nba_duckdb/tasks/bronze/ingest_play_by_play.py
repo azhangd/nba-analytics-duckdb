@@ -7,7 +7,6 @@ import time
 from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
-from nba_duckdb.defaults import ALL_TEAM_IDS
 from nba_duckdb.exceptions import LiveEndpointUnavailableError
 from nba_duckdb.ingestion_state import (
     eligible_items,
@@ -73,8 +72,12 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS)
-    team_ids = {int(t.strip()) for t in team_ids_raw.split(",")}
+    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "").strip()
+    team_ids = (
+        {int(value.strip()) for value in team_ids_raw.split(",") if value.strip()}
+        if team_ids_raw
+        else None
+    )
 
     schedule = read_table("bronze", "schedule", "game_status = 3")
     game_seasons: dict[str, str] = {}
@@ -85,9 +88,12 @@ def run(**kwargs):
             schedule = schedule.filter(pl.col("season").is_in(target_seasons))
         schedule = filter_frame_to_competitions(schedule, target_competitions)
 
-        team_games = schedule.filter(
-            pl.col("home_team_id").is_in(team_ids) | pl.col("away_team_id").is_in(team_ids)
-        )
+        team_games = schedule
+        if team_ids is not None:
+            team_games = schedule.filter(
+                pl.col("home_team_id").is_in(team_ids)
+                | pl.col("away_team_id").is_in(team_ids)
+            )
         if requested_game_ids:
             team_games = team_games.filter(pl.col("game_id").is_in(requested_game_ids))
         game_ids = [str(game_id) for game_id in team_games["game_id"].unique().to_list()]
