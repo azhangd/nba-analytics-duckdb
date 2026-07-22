@@ -58,6 +58,16 @@ LIGHTWEIGHT_MIGRATIONS = (
     ),
     (
         "bronze",
+        "boxscores",
+        "ALTER TABLE bronze.boxscores ADD COLUMN IF NOT EXISTS traditional_source TEXT DEFAULT 'unknown'",
+    ),
+    (
+        "bronze",
+        "boxscores",
+        "ALTER TABLE bronze.boxscores ADD COLUMN IF NOT EXISTS advanced_source TEXT DEFAULT 'unknown'",
+    ),
+    (
+        "bronze",
         "schedule",
         "ALTER TABLE bronze.schedule ADD COLUMN IF NOT EXISTS league_id TEXT DEFAULT '00'",
     ),

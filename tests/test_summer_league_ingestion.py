@@ -3,12 +3,19 @@ import pytest
 pytest.importorskip("nba_api")
 
 
-def _schedule_row(game_id: str, *, competition: str, league_id: str) -> dict:
+def _schedule_row(
+    game_id: str,
+    *,
+    competition: str,
+    league_id: str,
+    home_team_id: int = 1610612737,
+    away_team_id: int = 1610612738,
+) -> dict:
     return {
         "game_id": game_id,
         "game_date": "07/09/2026 00:00:00",
-        "home_team_id": 1610612737,
-        "away_team_id": 1610612738,
+        "home_team_id": home_team_id,
+        "away_team_id": away_team_id,
         "home_team_abbr": "ATL",
         "away_team_abbr": "BOS",
         "game_status": 3,
@@ -39,6 +46,8 @@ def test_collectors_do_not_cross_competition_boundaries(tmp_path, monkeypatch):
                 "1522600001",
                 competition="summer_league_vegas",
                 league_id="15",
+                home_team_id=1710612758,
+                away_team_id=45,
             ),
         ],
     )
@@ -49,7 +58,7 @@ def test_collectors_do_not_cross_competition_boundaries(tmp_path, monkeypatch):
 
     def fake_boxscore(game_id, **_kwargs):
         boxscore_calls.append(game_id)
-        return {"boxScoreTraditional": {"gameId": game_id}}
+        return {"boxScoreTraditional": {"gameId": game_id}}, "stats_v3"
 
     def fake_pbp(game_id, **_kwargs):
         pbp_calls.append(game_id)
@@ -63,7 +72,11 @@ def test_collectors_do_not_cross_competition_boundaries(tmp_path, monkeypatch):
             ]
         }
 
-    monkeypatch.setattr(ingest_boxscores.nba_client, "get_boxscore", fake_boxscore)
+    monkeypatch.setattr(
+        ingest_boxscores.nba_client,
+        "get_boxscore_with_source",
+        fake_boxscore,
+    )
     monkeypatch.setattr(
         ingest_boxscores.nba_client,
         "get_boxscore_advanced",
@@ -91,8 +104,10 @@ def test_collectors_do_not_cross_competition_boundaries(tmp_path, monkeypatch):
     assert pbp_calls == ["1522600001"]
     assert [call["game_id"] for call in shot_calls] == ["1522600001"]
     assert shot_calls[0]["league_id"] == "15"
-    assert db.execute_sql("SELECT game_id FROM bronze.boxscores") == [
-        {"game_id": "1522600001"}
+    assert db.execute_sql(
+        "SELECT game_id, traditional_source FROM bronze.boxscores"
+    ) == [
+        {"game_id": "1522600001", "traditional_source": "stats_v3"}
     ]
     assert db.execute_sql("SELECT game_id FROM bronze.play_by_play") == [
         {"game_id": "1522600001"}

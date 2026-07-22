@@ -53,7 +53,11 @@ def test_existing_traditional_boxscore_is_complete_without_advanced(tmp_path, mo
         calls.append("fetch")
         raise AssertionError("completed traditional boxscore should not be refetched")
 
-    monkeypatch.setattr(ingest_boxscores.nba_client, "get_boxscore", fake_fetch)
+    monkeypatch.setattr(
+        ingest_boxscores.nba_client,
+        "get_boxscore_with_source",
+        fake_fetch,
+    )
     monkeypatch.setattr(ingest_boxscores.nba_client, "get_boxscore_advanced", fake_fetch)
 
     result = ingest_boxscores.run(season="2099-00")
