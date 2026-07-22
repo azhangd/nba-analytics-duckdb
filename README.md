@@ -193,8 +193,27 @@ The graph materializes `silver.summer_league_games`,
 `silver.summer_league_boxscores`, `silver.summer_league_play_by_play`, and
 `silver.summer_league_shots`. Its terminal quality task fails if a requested
 competition is absent or if any completed game is missing a required raw or
-silver fact. It intentionally does not run NBA regular-season standings,
-tracking, gold, or ML tasks.
+silver fact. It also reconciles physical free-throw attempts and makes between
+play-by-play and traditional box scores, reconciles final scores between the
+schedule and box scores, and writes a canonical per-game payload manifest to
+`ops.source_payload_manifest`. The manifest records the source locator and
+variant, ingestion time, canonical JSON SHA-256, and payload size for schedules,
+box scores, play-by-play, and shot charts. It intentionally does not run NBA
+regular-season standings, tracking, gold, or ML tasks.
+
+Summer League schedules occasionally contain alternate or international teams
+whose identifiers are outside the 30-team NBA list. The Summer League graph
+includes every team in the requested competition by default. Pass `--team-ids`
+only for an intentionally bounded collection.
+
+Inspect the persisted provenance after a successful run:
+
+```sql
+SELECT season, competition, source_name, COUNT(*) AS payloads
+FROM ops.source_payload_manifest
+GROUP BY ALL
+ORDER BY ALL;
+```
 
 ## How It Works
 

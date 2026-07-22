@@ -19,6 +19,7 @@ def test_schema_sql_defines_medallion_layers():
     assert "CREATE TABLE IF NOT EXISTS ops.pipeline_runs" in sql
     assert "CREATE TABLE IF NOT EXISTS ops.task_runs" in sql
     assert "CREATE TABLE IF NOT EXISTS ops.ingestion_items" in sql
+    assert "CREATE TABLE IF NOT EXISTS ops.source_payload_manifest" in sql
 
 
 def test_schema_sql_does_not_require_destructive_reload():
