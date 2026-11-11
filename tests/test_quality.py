@@ -450,6 +450,25 @@ def test_quality_allows_empty_optional_source_tables(tmp_path, monkeypatch):
     assert result["missing_tables"] == []
 
 
+def test_quality_allows_empty_min_games_tables_only_before_20_games(tmp_path, monkeypatch):
+    db = _run_full_smoke(tmp_path, monkeypatch)
+    for qualified_table in (
+        "gold.player_season_mvp_ladder",
+        "gold.player_season_embeddings",
+        "gold.player_season_similarity",
+    ):
+        db.execute(f"DELETE FROM {qualified_table}")
+
+    from nba_duckdb import quality
+
+    db.execute("UPDATE gold.player_season_stats SET games_played = LEAST(games_played, 19)")
+    quality.run_checks()
+
+    db.execute("UPDATE gold.player_season_stats SET games_played = 20")
+    with pytest.raises(RuntimeError, match="gold.player_season_mvp_ladder has no rows"):
+        quality.run_checks()
+
+
 def test_quality_requires_optional_source_tables_to_exist(tmp_path, monkeypatch):
     db = _run_full_smoke(tmp_path, monkeypatch)
     db.execute("DROP TABLE gold.player_jersey_rank_snapshots")
