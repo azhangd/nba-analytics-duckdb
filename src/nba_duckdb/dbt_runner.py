@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,9 @@ def dbt_project_dir() -> Path:
 
 
 def _dbt_executable() -> str:
-    executable = shutil.which("dbt")
+    # Prefer the dbt installed beside this interpreter so dbt runs with the same
+    # duckdb build that wrote the warehouse, even when another env leads PATH.
+    executable = shutil.which("dbt", path=str(Path(sys.executable).parent)) or shutil.which("dbt")
     if executable:
         return executable
     raise MissingRequiredDependencyError(

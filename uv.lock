@@ -1862,7 +1862,7 @@ requires-dist = [
     { name = "apache-airflow", marker = "extra == 'airflow'", specifier = "==3.3.0" },
     { name = "apache-airflow-providers-openlineage", marker = "extra == 'airflow'", specifier = "==2.19.0" },
     { name = "astronomer-cosmos", marker = "extra == 'airflow'", specifier = "==1.15.0" },
-    { name = "dbt-core", specifier = ">=1.10" },
+    { name = "dbt-core", specifier = ">=1.10,<2" },
     { name = "dbt-duckdb", specifier = ">=1.10" },
     { name = "duckdb", specifier = ">=1.1.0" },
     { name = "httpx", specifier = ">=0.28" },
