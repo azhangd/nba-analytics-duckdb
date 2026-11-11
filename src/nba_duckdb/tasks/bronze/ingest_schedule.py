@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import time
 from datetime import date, datetime, timedelta
 
@@ -12,7 +11,7 @@ from nba_duckdb.competitions import (
     competitions_for_slugs,
 )
 from nba_duckdb.db import get_conn, upsert_rows
-from nba_duckdb.defaults import get_seasons
+from nba_duckdb.defaults import get_default_season, get_seasons
 from nba_duckdb.season_utils import normalize_requested_seasons
 from nba_duckdb.utils import nba_client
 
@@ -398,7 +397,7 @@ def run(
     full_refresh: bool = False,
     **kwargs,
 ):
-    default_season = os.environ.get("NBA_DUCKDB_DEFAULT_SEASON", "2025-26")
+    default_season = get_default_season()
     target_seasons = normalize_requested_seasons(seasons) or ([season] if season else get_seasons())
     target_competitions = competitions_for_slugs(kwargs.get("competitions"))
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+from datetime import date
+
+from nba_duckdb.transforms.silver.shots import season_from_game_date
 
 
 def season_sort_key(season: str) -> tuple[int, int]:
@@ -45,7 +48,7 @@ def latest_season(seasons: list[str]) -> str | None:
 
 
 def get_default_season() -> str:
-    return os.environ.get("NBA_DUCKDB_DEFAULT_SEASON", "2025-26")
+    return os.environ.get("NBA_DUCKDB_DEFAULT_SEASON") or season_from_game_date(date.today().isoformat())
 
 
 def get_seasons() -> list[str]:

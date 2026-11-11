@@ -27,7 +27,7 @@ logger = logging.getLogger("nba_duckdb.tasks.gold.player_off_court_signals")
 DEFAULT_OFF_COURT_REFRESH_LIMIT = 25
 DEFAULT_OFF_COURT_REQUEST_DELAY_SECONDS = 0.5
 DEFAULT_GDELT_CIRCUIT_BREAKER_AFTER = 1
-USER_AGENT = "nba-analytics-pipeline/0.1 (local analytics pipeline)"
+USER_AGENT = "nba-analytics-duckdb/0.1 (+https://github.com/azhangd/nba-analytics-duckdb)"
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 WIKIMEDIA_PAGEVIEWS_ENDPOINT = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia.org/all-access/user"
 GDELT_DOC_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -147,7 +147,7 @@ def _fetch_pageviews(
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code != 404:
-            logger.info("Pageviews skipped for %s: %s", title, exc)
+            logger.warning("Pageviews skipped for %s: %s", title, exc)
         return []
     except httpx.HTTPError as exc:
         logger.info("Pageviews skipped for %s: %s", title, exc)

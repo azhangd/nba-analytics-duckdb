@@ -21,6 +21,16 @@ ALLOW_EMPTY_TABLES = frozenset({
     "gold.player_jersey_rank_snapshots",
 })
 
+# These datasets only include players with at least 20 games (MIN_GP in
+# modeling/player_embeddings.py and the MVP ladder's eligibility), so they are
+# legitimately empty until some player in the warehouse reaches 20 games.
+MIN_GAMES_PLAYED = 20
+MIN_GAMES_TABLES = frozenset({
+    "gold.player_season_mvp_ladder",
+    "gold.player_season_embeddings",
+    "gold.player_season_similarity",
+})
+
 INTEGRITY_QUERIES = {
     "silver.fct_boxscores_missing_games": """
         SELECT COUNT(*) AS row_count
@@ -301,12 +311,21 @@ def run_checks() -> dict[str, Any]:
     }
     ledger_failures, ledger_counts = _ledger_failures(scoped_seasons)
 
+    allow_empty = ALLOW_EMPTY_TABLES
+    if "gold.player_season_stats" not in missing_tables:
+        max_games_played = db.execute(
+            "SELECT COALESCE(MAX(games_played), 0) AS gp FROM gold.player_season_stats",
+            read_only=True,
+        )[0]["gp"]
+        if max_games_played < MIN_GAMES_PLAYED:
+            allow_empty = allow_empty | MIN_GAMES_TABLES
+
     failures = [f"{table_name} is missing" for table_name in missing_tables]
     failures.extend(
         f"{table_name} has no rows"
         for table_name, row_count in table_counts.items()
         if row_count == 0
-        and table_name not in ALLOW_EMPTY_TABLES
+        and table_name not in allow_empty
         and table_name not in missing_tables
     )
     failures.extend(
