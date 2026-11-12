@@ -23,9 +23,9 @@ dependencies = [
 
 [project.optional-dependencies]
 airflow = [
-  "apache-airflow==3.3.1",
-  "apache-airflow-providers-openlineage==2.19.0",
-  "astronomer-cosmos==1.15.0",
+  "apache-airflow==3.4.0",
+  "apache-airflow-providers-openlineage==2.21.0",
+  "astronomer-cosmos==1.16.0",
 ]
 ml = [
   "joblib>=1.4",
