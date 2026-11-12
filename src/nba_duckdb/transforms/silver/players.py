@@ -6,6 +6,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from nba_duckdb.defaults import get_default_season
+
 DIM_PLAYERS = (
     "player_id",
     "full_name",
@@ -40,9 +42,8 @@ def parse_weight_lbs(weight: object) -> int:
 def build_dim_player_rows(
     roster_rows: list[Mapping[str, Any]],
     boxscore_rows: list[Mapping[str, Any]],
-    *,
-    default_season: str = "2025-26",
 ) -> list[dict]:
+    default_season = get_default_season()
     seen = {}
     for row in roster_rows:
         seen[row["player_id"]] = {

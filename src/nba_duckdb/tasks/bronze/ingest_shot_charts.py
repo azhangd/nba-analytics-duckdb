@@ -2,11 +2,11 @@
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from nba_duckdb.competitions import competition_for_league_id
 from nba_duckdb.db import get_conn, read_table, upsert_rows
+from nba_duckdb.defaults import get_team_ids
 from nba_duckdb.ingestion_state import (
     eligible_items,
     make_item,
@@ -27,13 +27,6 @@ from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.shot_charts")
 SOURCE = "shot-charts"
-
-
-def _requested_team_ids() -> set[int] | None:
-    raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "").strip()
-    if not raw:
-        return None
-    return {int(value.strip()) for value in raw.split(",") if value.strip()}
 
 
 def _season_type_for_game_id(game_id: str) -> str:
@@ -81,7 +74,7 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids = _requested_team_ids()
+    team_ids = get_team_ids()
     schedule = read_table("bronze", "schedule", "game_status = 3")
     if schedule.is_empty():
         logger.info("No completed games found in schedule")

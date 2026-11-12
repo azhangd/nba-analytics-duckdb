@@ -5,7 +5,7 @@ FROM (
 WITH base AS (
     SELECT
         pgs.player_id,
-        COALESCE(fg.season, '2025-26') AS season,
+        fg.season AS season,
         mode() WITHIN GROUP (ORDER BY pgs.player_name) AS player_name,
         mode() WITHIN GROUP (ORDER BY pgs.team_id) AS team_id,
         SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END) AS games_played,
@@ -61,7 +61,7 @@ WITH base AS (
         END AS avg_ts_pct
     FROM {{ ref('player_game_stats') }} pgs
     LEFT JOIN {{ ref('fct_games') }} fg ON pgs.game_id = fg.game_id
-    GROUP BY pgs.player_id, COALESCE(fg.season, '2025-26')
+    GROUP BY pgs.player_id, fg.season
     HAVING SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END) > 0
 ),
 with_advanced AS (

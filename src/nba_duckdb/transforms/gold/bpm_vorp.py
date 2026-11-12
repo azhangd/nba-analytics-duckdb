@@ -59,7 +59,6 @@ def build_bpm_vorp(
 
     games_slim = fct_games.select(["game_id", "season"])
     pgs = player_games.join(games_slim, on="game_id", how="left")
-    pgs = pgs.with_columns(pl.col("season").fill_null("2025-26"))
     pgs = pgs.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
 
     if not team_pace.is_empty():
@@ -91,7 +90,6 @@ def build_bpm_vorp(
             pl.col("game_id").count().alias("gp"),
             pl.col("team_pace").mean().alias("team_pace"),
         ])
-        .with_columns(pl.col("season").fill_null("2025-26"))
         .filter(pl.col("mpg") > 0)
     )
 
