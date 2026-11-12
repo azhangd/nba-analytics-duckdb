@@ -41,12 +41,6 @@ def sort_seasons(seasons: list[str]) -> list[str]:
     return sorted(unique, key=season_sort_key)
 
 
-def latest_season(seasons: list[str]) -> str | None:
-    """Return the latest season label from a list."""
-    ordered = sort_seasons(seasons)
-    return ordered[-1] if ordered else None
-
-
 def get_default_season() -> str:
     return os.environ.get("NBA_DUCKDB_DEFAULT_SEASON") or season_from_game_date(date.today().isoformat())
 

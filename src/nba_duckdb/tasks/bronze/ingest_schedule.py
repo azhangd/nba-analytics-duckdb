@@ -449,16 +449,10 @@ def run(
     }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'bronze',
- 'task_type': 'bronze',
- 'inputs': (),
- 'optional_inputs': (),
- 'outputs': ('bronze.schedule',),
- 'mutates': (),
- 'graphs': ('default', 'quick', 'summer_league'),
- 'modes': ('live',),
- 'required': True,
- 'quality_outputs': ('bronze.schedule',),
- 'regular_season_only': True,
- 'live_order': 10,
- 'fixture_order': None}
+TASK_DEF = {
+    "layer": "bronze",
+    "outputs": ("bronze.schedule",),
+    "graphs": ("default", "quick", "summer_league"),
+    "modes": ("live",),
+    "live_order": 10,
+}

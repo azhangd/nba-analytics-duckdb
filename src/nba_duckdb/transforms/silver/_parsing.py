@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unicodedata
 from typing import Any
 
@@ -49,11 +48,6 @@ def parse_minutes(value: Any) -> float | None:
 def normalize_name(name: str) -> str:
     normalized = unicodedata.normalize("NFD", name or "")
     return "".join(c for c in normalized if unicodedata.category(c) != "Mn").lower().replace(".", "").strip()
-
-
-def title_from_name(name: str) -> str:
-    cleaned = re.sub(r"\s+", " ", str(name or "").strip())
-    return cleaned.replace(" ", "_")
 
 
 def build_roster_name_map(boxscores_df: pl.DataFrame) -> dict[int, dict[str, int]]:

@@ -330,7 +330,6 @@ NBA_DUCKDB_PATH=data/warehouse/nba.duckdb
 # NBA_DUCKDB_DATABASE_URL=duckdb:///data/warehouse/nba.duckdb
 NBA_DUCKDB_SMOKE_PATH=data/warehouse/smoke.duckdb
 NBA_DUCKDB_QUICK_SMOKE_PATH=data/warehouse/smoke-quick.duckdb
-NBA_DUCKDB_RAW_ROOT=data/raw
 NBA_DUCKDB_FIXTURES_DIR=data/fixtures/generated
 NBA_DUCKDB_ARTIFACT_ROOT=data/artifacts
 # Empty uses the season of today's date (rolls over in October).

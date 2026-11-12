@@ -79,14 +79,6 @@ def update_elo(
     return winner_elo + shift, loser_elo - shift
 
 
-def elo_to_spread(elo_a: float, elo_b: float, home_a: bool = False) -> float:
-    """Convert Elo difference to point spread (positive = A favored)."""
-    diff = elo_a - elo_b
-    if home_a:
-        diff += HOME_ADVANTAGE
-    return diff / 28.0
-
-
 def project_record(
     team_elo: float,
     current_wins: int,

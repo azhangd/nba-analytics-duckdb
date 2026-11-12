@@ -62,7 +62,6 @@ def _warehouse_env(*, mode: str, quick: bool) -> dict[str, str]:
     env = {
         "NBA_DUCKDB_PATH": str(_warehouse_path(mode=mode, quick=quick)),
         "NBA_DUCKDB_DATABASE_URL": "",
-        "NBA_DUCKDB_RAW_ROOT": str(_project_path(settings.raw_root).resolve(strict=False)),
         "NBA_DUCKDB_ARTIFACT_ROOT": str(
             _project_path(settings.artifact_root).resolve(strict=False)
         ),

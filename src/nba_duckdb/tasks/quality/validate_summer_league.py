@@ -576,24 +576,10 @@ def run(**kwargs) -> dict[str, Any]:
 
 TASK_DEF = {
     "layer": "quality",
-    "task_type": "quality",
-    "inputs": (
-        "bronze.schedule",
-        "bronze.boxscores",
-        "bronze.play_by_play",
-        "bronze.shot_charts",
-        "silver.summer_league_games",
-        "silver.summer_league_boxscores",
-        "silver.summer_league_play_by_play",
-        "silver.summer_league_shots",
-    ),
-    "optional_inputs": (),
+    "inputs": ("bronze.schedule", "bronze.boxscores", "bronze.play_by_play", "bronze.shot_charts", "silver.summer_league_games", "silver.summer_league_boxscores", "silver.summer_league_play_by_play", "silver.summer_league_shots"),
     "outputs": (),
-    "mutates": (),
     "graphs": ("summer_league",),
     "modes": ("live",),
-    "required": True,
-    "quality_outputs": (),
     "regular_season_only": False,
     "live_order": 200,
 }

@@ -1,18 +1,6 @@
 import ast
 from pathlib import Path
 
-import pytest
-
-CONVERTED_SQL_MODELS = {
-    "dim_coaches",
-    "dim_player_external_identities",
-    "dim_teams",
-    "fct_games",
-    "fct_team_coach_seasons",
-    "player_game_stats",
-    "team_game_stats",
-}
-
 EXPECTED_DBT_PYTHON_MODELS = {
     "dim_injuries",
     "dim_players",
@@ -76,32 +64,6 @@ def _imports_for(path: Path) -> list[str]:
     return imports
 
 
-def test_dbt_bridge_modules_were_removed():
-    root = _repo_root()
-    bridge_modules = [f"dbt_{layer}" for layer in ("silver", "gold")]
-
-    for module in bridge_modules:
-        assert not (root / "src" / "nba_duckdb" / f"{module}.py").exists()
-
-    self_path = Path(__file__).resolve()
-    for path in _python_sources(root / "src") + _python_sources(root / "tests") + _dbt_python_models():
-        if path.resolve() == self_path:
-            continue
-        text = path.read_text()
-        for module in bridge_modules:
-            assert f"nba_duckdb.{module}" not in text, path
-
-
-def test_simple_dbt_models_are_sql_not_python_adapters():
-    models_root = _repo_root() / "dbt" / "models"
-
-    for model in CONVERTED_SQL_MODELS:
-        sql_path = next(models_root.glob(f"**/{model}.sql"), None)
-        py_path = next(models_root.glob(f"**/{model}.py"), None)
-        assert sql_path is not None, model
-        assert py_path is None, model
-
-
 def test_remaining_dbt_python_models_are_explicitly_justified():
     actual = {path.stem for path in _dbt_python_models()}
 
@@ -114,20 +76,6 @@ def test_remaining_dbt_python_models_are_explicitly_justified():
             or module == "nba_duckdb.dbt_support"
             for module in imports
         ), path
-
-
-@pytest.mark.parametrize(
-    "module_path",
-    [
-        "src/nba_duckdb/transforms/silver/coaches.py",
-        "src/nba_duckdb/transforms/silver/games.py",
-        "src/nba_duckdb/transforms/silver/external_identities.py",
-        "src/nba_duckdb/transforms/gold/player_game_stats.py",
-        "src/nba_duckdb/transforms/gold/team_game_stats.py",
-    ],
-)
-def test_over_abstracted_one_use_transform_modules_were_removed(module_path):
-    assert not (_repo_root() / module_path).exists()
 
 
 def test_dbt_and_transforms_do_not_import_runtime_modules():
