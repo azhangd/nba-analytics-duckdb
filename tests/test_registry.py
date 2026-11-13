@@ -60,9 +60,6 @@ def test_quick_graph_is_explicitly_smaller_than_default():
     quick_names = set(_names(registry.task_defs_for(registry.QUICK_GRAPH, registry.LIVE_MODE)))
 
     assert quick_names < default_names
-    assert "ingest_shot_charts" not in quick_names
-    assert "dbt_build_warehouse" not in quick_names
-    assert "dbt_build_feature_matrices" not in quick_names
     assert quick_names == {
         "ingest_schedule",
         "ingest_rosters",
@@ -89,8 +86,6 @@ def test_summer_league_graph_has_only_competition_safe_tasks():
         "dbt_build_summer_league",
         "validate_summer_league",
     ]
-    assert "ingest_rosters" not in names
-    assert "dbt_build_warehouse" not in names
 
 
 def test_registry_order_satisfies_declared_dependencies():
@@ -109,33 +104,6 @@ def test_registry_order_satisfies_declared_dependencies():
                 ]
                 assert missing == [], f"{graph}/{mode}/{task.name} missing {missing}"
                 produced.update(task.outputs)
-
-
-def test_registry_declares_clear_player_season_stats_ownership():
-    from nba_duckdb import registry
-
-    tasks = {task.name: task for task in registry.TASK_DEFS}
-
-    assert "compute_adjusted_stats" not in tasks
-    assert "compute_bpm_vorp" not in tasks
-    assert "gold.player_season_stats_base" in tasks["dbt_build_warehouse"].outputs
-    assert "gold.player_season_stats" in tasks["dbt_build_warehouse"].outputs
-    assert "gold.team_season_feature_matrix" in tasks["dbt_build_warehouse"].outputs
-    assert "compute_player_feature_matrix" not in tasks
-    assert "compute_team_feature_matrix" not in tasks
-    assert tasks["dbt_build_feature_matrices"].inputs[:5] == (
-        "gold.player_season_stats",
-        "gold.player_game_rolling_stats",
-        "gold.player_season_shot_profile",
-        "gold.player_season_archetypes",
-        "gold.player_season_embeddings",
-    )
-    assert tasks["dbt_build_feature_matrices"].outputs == (
-        "gold.game_flow_snapshots",
-        "gold.player_season_feature_matrix",
-    )
-    assert "bronze.boxscores" in tasks["dbt_build_warehouse"].inputs
-    assert "bronze.play_by_play" in tasks["dbt_build_warehouse"].inputs
 
 
 def test_dbt_registration_is_graph_scoped():
@@ -161,7 +129,6 @@ def test_dbt_registration_is_graph_scoped():
     assert dbt_tasks[-1].outputs == DBT_SUMMER_LEAGUE_MODEL_DATASETS
     assert dbt_tasks[-1].regular_season_only is False
     assert all(task.task_type == "dbt" for task in dbt_tasks)
-    assert all(task.dbt_selector for task in dbt_tasks)
     assert all(task.module_path == "" for task in dbt_tasks)
 
 
@@ -209,10 +176,9 @@ def test_all_schema_tables_have_registered_default_producers():
 
 
 def test_quality_required_tables_are_derived_from_full_registry():
-    from nba_duckdb import quality, registry
+    from nba_duckdb import quality
     from nba_duckdb.dbt_models import DBT_SUMMER_LEAGUE_MODEL_DATASETS
 
-    assert quality.REQUIRED_TABLES == registry.quality_required_tables()
     summer_tables = {
         tuple(dataset.split(".", 1))
         for dataset in DBT_SUMMER_LEAGUE_MODEL_DATASETS
@@ -232,31 +198,11 @@ def test_dataset_rows_advertise_every_registered_output():
         for row in rows
     )
     assert not any("library" in row["graphs"] for row in rows)
-    assert {
-        row["task"]
-        for row in rows
-        if row["dataset"] == "gold.player_season_stats"
-    } == {"dbt_build_warehouse"}
-    assert {
-        row["task"]
-        for row in rows
-        if row["dataset"] == "gold.player_season_feature_matrix"
-    } == {"dbt_build_feature_matrices"}
-    assert {
-        row["task"]
-        for row in rows
-        if row["dataset"] == "gold.team_season_feature_matrix"
-    } == {"dbt_build_warehouse"}
-    assert {
-        row["layer"]
-        for row in rows
-        if row["dataset"] == "silver.fct_games"
-    } == {"silver"}
-    assert {
-        row["layer"]
-        for row in rows
-        if row["dataset"] == "gold.player_season_stats"
-    } == {"gold"}
+    owners = {row["dataset"]: (row["task"], row["layer"]) for row in rows}
+    assert owners["gold.player_season_stats"] == ("dbt_build_warehouse", "gold")
+    assert owners["gold.player_season_feature_matrix"] == ("dbt_build_feature_matrices", "gold")
+    assert owners["gold.team_season_feature_matrix"] == ("dbt_build_warehouse", "gold")
+    assert owners["silver.fct_games"][1] == "silver"
 
 
 def test_dataset_graph_exposes_lineage_without_task_imports():

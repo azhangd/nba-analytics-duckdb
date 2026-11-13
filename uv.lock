@@ -250,23 +250,6 @@ wheels = [
 ]
 
 [[package]]
-name = "apache-airflow-providers-openlineage"
-version = "2.21.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "apache-airflow" },
-    { name = "apache-airflow-providers-common-compat" },
-    { name = "apache-airflow-providers-common-sql" },
-    { name = "attrs" },
-    { name = "openlineage-integration-common" },
-    { name = "openlineage-python" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/0a/88fabacbcd2199d554656c50b1071acaf53f571d2e1267479b415702518f/apache_airflow_providers_openlineage-2.21.0.tar.gz", hash = "sha256:915a017dcd607b8c25a44e228360da9d69eb9930ea68c82432386c425bb69770", size = 374742, upload-time = "2026-11-01T18:27:19.543Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/5a/9a7c66bb55b999796ee544573b5df53125942619c13402b40f5d1ed2f540/apache_airflow_providers_openlineage-2.21.0-py3-none-any.whl", hash = "sha256:accc0cad751502247b8de657545bd59736ab0dcf4919f9ac4e231e9357b668d5", size = 132278, upload-time = "2026-11-01T18:27:17.139Z" },
-]
-
-[[package]]
 name = "apache-airflow-providers-smtp"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1879,7 +1862,6 @@ dependencies = [
 [package.optional-dependencies]
 airflow = [
     { name = "apache-airflow" },
-    { name = "apache-airflow-providers-openlineage" },
     { name = "astronomer-cosmos" },
 ]
 dev = [
@@ -1914,7 +1896,6 @@ ml = [
 [package.metadata]
 requires-dist = [
     { name = "apache-airflow", marker = "extra == 'airflow'", specifier = "==3.4.0" },
-    { name = "apache-airflow-providers-openlineage", marker = "extra == 'airflow'", specifier = "==2.21.0" },
     { name = "astronomer-cosmos", marker = "extra == 'airflow'", specifier = "==1.16.0" },
     { name = "dbt-duckdb", specifier = ">=1.10" },
     { name = "duckdb", specifier = ">=1.1.0" },

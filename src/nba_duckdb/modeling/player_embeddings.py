@@ -18,11 +18,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 
-from nba_duckdb.modeling.artifact_paths import artifact_dir
+from nba_duckdb.modeling import artifact_paths
 
 logger = logging.getLogger("nba_duckdb.modeling.player_embeddings")
-
-ARTIFACT_DIR = artifact_dir("embeddings")
 
 # Feature definitions
 STAT_FEATURES = [
@@ -278,7 +276,7 @@ def compute_embeddings(
     }
 
     # Save artifacts
-    target_artifact_dir = artifact_dir or ARTIFACT_DIR
+    target_artifact_dir = artifact_dir or artifact_paths.artifact_dir("embeddings")
     os.makedirs(target_artifact_dir, exist_ok=True)
     joblib.dump(scaler, os.path.join(target_artifact_dir, "scaler.joblib"))
     joblib.dump(pca, os.path.join(target_artifact_dir, "pca.joblib"))

@@ -1,5 +1,7 @@
 import json
 
+from conftest import schedule_row
+
 
 def test_dim_players_supplements_from_all_boxscore_game_types(tmp_path, monkeypatch):
     from nba_duckdb import db, dbt_runner
@@ -29,18 +31,7 @@ def test_dim_players_supplements_from_all_boxscore_game_types(tmp_path, monkeypa
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0019900001",
-                "game_date": "10/01/2099 00:00:00",
-                "home_team_id": 10,
-                "away_team_id": 20,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row(game_id="0019900001", game_date="10/01/2099 00:00:00", home_team_id=10, away_team_id=20)
         ],
     )
     db.insert_rows(

@@ -1,4 +1,5 @@
 import pytest
+from conftest import schedule_row
 
 pytest.importorskip("nba_api")
 
@@ -11,20 +12,7 @@ def _schedule_row(
     home_team_id: int = 1610612737,
     away_team_id: int = 1610612738,
 ) -> dict:
-    return {
-        "game_id": game_id,
-        "game_date": "07/09/2026 00:00:00",
-        "home_team_id": home_team_id,
-        "away_team_id": away_team_id,
-        "home_team_abbr": "ATL",
-        "away_team_abbr": "BOS",
-        "game_status": 3,
-        "game_status_text": "Final",
-        "season": "2026-27",
-        "league_id": league_id,
-        "competition": competition,
-        "raw_json": "{}",
-    }
+    return schedule_row(game_id=game_id, game_date="07/09/2026 00:00:00", home_team_id=home_team_id, away_team_id=away_team_id, home_team_abbr="ATL", away_team_abbr="BOS", season="2026-27", league_id=league_id, competition=competition)
 
 
 def test_collectors_do_not_cross_competition_boundaries(tmp_path, monkeypatch):

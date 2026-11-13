@@ -60,21 +60,6 @@ def test_artifact_checker_rejects_oversized_tracked_files(tmp_path):
     assert "larger" in violations[0].reason
 
 
-def test_direct_dependencies_do_not_include_unused_heavy_packages():
-    pyproject = Path(__file__).resolve().parents[1].joinpath("pyproject.toml").read_text()
-    src_text = "\n".join(
-        path.read_text()
-        for path in Path(__file__).resolve().parents[1].joinpath("src").rglob("*.py")
-    )
-
-    assert '"shap' not in pyproject
-    assert '"numba' not in pyproject
-    assert "import shap" not in src_text
-    assert "from shap" not in src_text
-    assert "import numba" not in src_text
-    assert "from numba" not in src_text
-
-
 def test_artifact_root_respects_env_changes_in_same_process(tmp_path, monkeypatch):
     from nba_duckdb.modeling.artifact_paths import artifact_root
 

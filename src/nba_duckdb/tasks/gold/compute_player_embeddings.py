@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 import polars as pl
@@ -33,7 +32,7 @@ def run(**kwargs):
     similarity_rows: list[dict[str, object]] = []
     summary: list[dict[str, object]] = []
 
-    from nba_duckdb.modeling.player_embeddings import ARTIFACT_DIR
+    from nba_duckdb.modeling.artifact_paths import artifact_dir
 
     for season_value in target_seasons:
         scoped_stats = (
@@ -53,7 +52,7 @@ def run(**kwargs):
         result = compute_embeddings(
             scoped_stats,
             scoped_player_shot_profile,
-            artifact_dir=os.path.join(ARTIFACT_DIR, season_value),
+            artifact_dir=artifact_dir("embeddings", season_value),
         )
         if not result["embeddings"]:
             continue

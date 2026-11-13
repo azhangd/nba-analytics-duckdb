@@ -1,12 +1,13 @@
 import pytest
 
 
-def _init_tmp_db(tmp_path, monkeypatch):
-    from nba_duckdb import db
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
-    db.init_schema()
-    return db
+def _duplicate_keys(db, table, keys):
+    """Count key combinations that appear more than once in `table`."""
+    columns = ", ".join(keys)
+    return db.execute(
+        f"SELECT COUNT(*) AS row_count FROM "
+        f"(SELECT {columns} FROM {table} GROUP BY {columns} HAVING COUNT(*) > 1)"
+    )[0]["row_count"]
 
 
 def _create_dim_teams(db):
@@ -369,8 +370,8 @@ def _create_team_feature_matrix_inputs(db):
     )
 
 
-def test_player_season_split_stats_grain_and_source_reconciliation(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_player_season_split_stats_grain_and_source_reconciliation(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _create_fct_games(db)
@@ -458,17 +459,7 @@ def test_player_season_split_stats_grain_and_source_reconciliation(tmp_path, mon
         ORDER BY split_type, split_value
         """
     )
-    duplicate_count = db.execute(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM (
-            SELECT player_id, season, team_id, split_type, split_value
-            FROM gold.player_season_split_stats
-            GROUP BY player_id, season, team_id, split_type, split_value
-            HAVING COUNT(*) > 1
-        )
-        """
-    )[0]["row_count"]
+    duplicate_count = _duplicate_keys(db, "gold.player_season_split_stats", ["player_id", "season", "team_id", "split_type", "split_value"])
     home_away_total = db.execute(
         """
         SELECT SUM(ppg * games) AS pts
@@ -488,8 +479,8 @@ def test_player_season_split_stats_grain_and_source_reconciliation(tmp_path, mon
     } >= {("home_away", "Home"), ("home_away", "Away"), ("rest_days", "B2B")}
 
 
-def test_lineup_season_stats_grain_and_minutes_reconciliation(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_lineup_season_stats_grain_and_minutes_reconciliation(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _create_fct_games(db)
@@ -564,17 +555,7 @@ def test_lineup_season_stats_grain_and_minutes_reconciliation(tmp_path, monkeypa
 
     result = dbt_runner.run_model(model="lineup_season_stats")
     row = db.execute("SELECT * FROM gold.lineup_season_stats")[0]
-    duplicate_count = db.execute(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM (
-            SELECT team_id, season, player_ids_str
-            FROM gold.lineup_season_stats
-            GROUP BY team_id, season, player_ids_str
-            HAVING COUNT(*) > 1
-        )
-        """
-    )[0]["row_count"]
+    duplicate_count = _duplicate_keys(db, "gold.lineup_season_stats", ["team_id", "season", "player_ids_str"])
     total_minutes = db.execute(
         "SELECT SUM(total_minutes) AS total_minutes FROM gold.lineup_season_stats"
     )[0]["total_minutes"]
@@ -590,8 +571,8 @@ def test_lineup_season_stats_grain_and_minutes_reconciliation(tmp_path, monkeypa
     assert total_minutes == pytest.approx(15.0)
 
 
-def test_player_combo_season_stats_grain_and_combo_totals(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_player_combo_season_stats_grain_and_combo_totals(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _create_dim_players(db)
@@ -660,17 +641,7 @@ def test_player_combo_season_stats_grain_and_combo_totals(tmp_path, monkeypatch)
     )
 
     result = dbt_runner.run_model(model="player_combo_season_stats")
-    duplicate_count = db.execute(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM (
-            SELECT team_id, season, combo_type, player_ids
-            FROM gold.player_combo_season_stats
-            GROUP BY team_id, season, combo_type, player_ids
-            HAVING COUNT(*) > 1
-        )
-        """
-    )[0]["row_count"]
+    duplicate_count = _duplicate_keys(db, "gold.player_combo_season_stats", ["team_id", "season", "combo_type", "player_ids"])
     row = db.execute(
         """
         SELECT *
@@ -696,8 +667,8 @@ def test_player_combo_season_stats_grain_and_combo_totals(tmp_path, monkeypatch)
     )[0]["row_count"] == 0
 
 
-def test_team_season_feature_matrix_grain_and_core_inputs(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_team_season_feature_matrix_grain_and_core_inputs(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _create_team_feature_matrix_inputs(db)
@@ -833,17 +804,7 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_path, monkeypatch)
 
     result = dbt_runner.run_model(model="team_season_feature_matrix")
     row = db.execute("SELECT * FROM gold.team_season_feature_matrix")[0]
-    duplicate_count = db.execute(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM (
-            SELECT team_id, season
-            FROM gold.team_season_feature_matrix
-            GROUP BY team_id, season
-            HAVING COUNT(*) > 1
-        )
-        """
-    )[0]["row_count"]
+    duplicate_count = _duplicate_keys(db, "gold.team_season_feature_matrix", ["team_id", "season"])
 
     assert result["rows_written"] == 1
     assert duplicate_count == 0
@@ -866,8 +827,8 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_path, monkeypatch)
     )[0]["row_count"] == 0
 
 
-def test_team_percentile_scope_is_data_driven_per_season(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_team_percentile_scope_is_data_driven_per_season(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
     from nba_duckdb.defaults import ALL_TEAM_IDS
 
@@ -938,8 +899,8 @@ def test_team_percentile_scope_is_data_driven_per_season(tmp_path, monkeypatch):
     }
 
 
-def test_team_elo_labels_loaded_sample_and_suppresses_projections(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_team_elo_labels_loaded_sample_and_suppresses_projections(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _seed_dim_teams(db, [1610612737, 1610612738])
@@ -980,8 +941,8 @@ def test_team_elo_labels_loaded_sample_and_suppresses_projections(tmp_path, monk
     assert all(row["projected_win_pct"] is None for row in rows)
 
 
-def test_team_elo_empty_scoped_refresh_deletes_stale_rows(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_team_elo_empty_scoped_refresh_deletes_stale_rows(tmp_db):
+    db = tmp_db
     from nba_duckdb import dbt_runner
 
     _seed_dim_teams(db, [1610612737, 1610612738])
@@ -1031,8 +992,8 @@ def test_team_elo_empty_scoped_refresh_deletes_stale_rows(tmp_path, monkeypatch)
     assert stale_rows == 0
 
 
-def test_bpm_vorp_transform_computes_approx_columns(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_bpm_vorp_transform_computes_approx_columns(tmp_db):
+    db = tmp_db
     from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
 
     _create_fct_games(db)
@@ -1163,11 +1124,11 @@ def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
     assert league_avg_pace == 100.0
 
 
-def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch):
+def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db, monkeypatch):
     np = pytest.importorskip("numpy")
     pytest.importorskip("sklearn")
     pytest.importorskip("scipy")
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     from nba_duckdb import dbt_runner
     from nba_duckdb.tasks.gold import compute_rapm
 
