@@ -1,106 +1,68 @@
-# Analytics Validity
+# How much to trust the numbers
 
-This project is a reproducible NBA data engineering pipeline, not a packaged
-forecasting product. Gold outputs are useful analytical tables, but their
-interpretation depends on the loaded warehouse scope and on whether the metric is
-descriptive, heuristic, or research-oriented.
+Short version: the box-score stats are just arithmetic on what you loaded, and
+the fancier metrics are home-made approximations. Nothing here has been checked
+against Basketball-Reference, the NBA's own advanced stats, or any betting or
+tracking system.
 
-## Verification Status
+## What's what
 
-The repository is verified with deterministic offline fixture smoke runs,
-quality checks, artifact-policy checks, and wheel packaging checks. Live runs use
-the same registered warehouse graph, but they depend on public NBA endpoint
-availability, response shapes, and rate limits.
+- **Plain summaries.** Player and team game stats, four factors, clutch,
+  starters vs. bench, opponent scouting, timeouts and after-timeout plays.
+  These just add up the games in your database.
+- **Simple formulas.** Elo ratings, and `bpm_approx` and `vorp_approx`. The
+  BPM and VORP columns are box-score approximations that haven't been compared
+  with Basketball-Reference, and anything built on them inherits that.
+- **Rule-based.** Play-type labels and the heuristic shot quality columns
+  (`expected_fg_pct_heuristic`, `quality_delta_heuristic`), which come from
+  hard-coded baselines.
+- **Experimental models.** RAPM, win probability, the trained shot model,
+  player embeddings, similarity, the MVP ladder and the feature matrices.
+  Useful for poking around, but they aren't calibrated forecasts.
 
-## Output Tiers
+## Partial data
 
-- **Descriptive marts** summarize loaded games without claiming model validity.
-  Examples: player game stats, team game stats, team-season four factors,
-  clutch summaries, starter/bench summaries, opponent scouting, timeout
-  analysis, and ATO team stats.
-- **Transparent heuristics** are simple calculations with readable assumptions.
-  Examples: Elo ratings/projections and BPM/VORP-style approximations.
-- **Rule-based analytics** use deterministic rules or hardcoded
-  baselines. Examples: play-type classification and heuristic shot quality.
-- **Research-oriented analytics** combine several derived signals into
-  exploratory outputs such as MVP-style rankings, feature matrices, embeddings,
-  similarity tables, RAPM, and trained win-probability artifacts. They are
-  produced by the pipeline, but they should be interpreted as transparent
-  analysis aids rather than calibrated or externally validated predictive
-  models.
+If you only loaded some teams, percentiles and ranks are computed against
+whoever is in the database. Tables that have them include a
+`comparison_scope` column: `full_league` means all 30 teams were loaded for
+that season, `loaded_sample` means they weren't. `comparison_team_count` and
+`comparison_player_count` tell you how many were in the comparison. One season
+can be complete while another isn't.
 
-## Scope Metadata
+Elo season projections are only filled in when all 30 teams are loaded.
 
-Scoped runs are valid for pipeline verification and team-level exploration. They
-are not evidence for full-league conclusions.
+## Summer League
 
-Tables with percentile or ranking fields include `comparison_scope` metadata
-where supported. `full_league` means the loaded season includes 30 NBA teams for
-that comparison. `loaded_sample` means the comparison was computed over only the
-rows present in the local warehouse. The scope flag applies to all `_pct`
-percentile columns in that row.
+Summer League games go into their own `silver.summer_league_*` tables and never
+feed the regular-season gold tables or models. The California Classic, Las
+Vegas and Salt Lake City are kept as separate competitions, even when a team
+plays in more than one.
 
-`comparison_team_count` and `comparison_player_count` record the denominator
-used for the comparison. A warehouse can be full league for one season and a
-loaded sample for another.
+The NBA labels July 2026 Summer League as season `2026-27`, and its stats
+endpoints want `SeasonType=Regular Season` alongside the Summer League ID. We
+store what the NBA sends; it doesn't mean those games count as regular season.
 
-## Competition Scope
+## Avoiding leakage in the models
 
-Summer League is stored with explicit `league_id` and `competition` fields.
-Its normalized facts live in `silver.summer_league_*` tables and are not fed
-into the regular-season gold or ML graph. California Classic, Las Vegas, and
-Salt Lake City are separate competitions even when the same NBA team appears in
-more than one event.
+The win probability model trains on earlier games and tests on later ones.
+Its Elo inputs are each team's rating going into that game (from
+`gold.team_game_elo_history`), not the end-of-season rating. Possession is
+taken from the home team's side when an event makes it clear, and left neutral
+when it doesn't. `gold.game_flow_snapshots` uses the same features and the
+model for the matching season.
 
-The feeds are first-party NBA-operated web and stats resources, but this project
-uses them through an undocumented and unsupported integration. A successful
-pipeline run proves response availability and end-to-end coverage at that time;
-it does not establish an NBA service-level commitment or grant redistribution
-rights. Raw live payloads and generated warehouses remain local and untracked.
+The trained shot model holds out whole games, picked by date, so no game is in
+both training and evaluation. It doesn't use same-season tracking averages,
+because those would leak later games into earlier ones. After evaluation it's
+refit on all loaded shots, and the metadata records the split sizes and
+feature version.
 
-Summer League schedules use the following NBA season label, so July 2026 is
-stored as `2026-27`. The stats endpoints also use `SeasonType=Regular Season`
-with the Summer League ID. These are source-system conventions, not claims that
-Summer League games are NBA regular-season games.
+That keeps the holdout numbers honest, but it doesn't make either model a
+calibrated forecast.
 
-## Approximation Labels
+## About the data source
 
-`bpm_approx` and `vorp_approx` are box-score impact approximations. They are not
-parity-tested against Basketball-Reference metrics. Downstream tables that use
-these columns inherit the same approximation caveat unless this document says
-otherwise.
-
-`expected_fg_pct_heuristic` and `quality_delta_heuristic` come from hardcoded
-shot-quality baselines and adjustments. The trained shot-quality table uses
-separate trained-model column names and should be interpreted as a local model
-artifact, not a validated shot-making model.
-
-RAPM and win-probability artifacts are research-oriented local models. They are
-useful for reproducible experimentation, but they are not calibrated forecasts
-and have not been externally validated against production betting, tracking, or
-league systems.
-
-## Model Evaluation Controls
-
-The trained win-probability model uses a chronological game split. Elo features
-come from each team's rating before that game in `gold.team_game_elo_history`,
-not from the season-final rating. Possession is oriented from the home team's
-perspective for events that identify a clear post-event possession; ambiguous
-events use a neutral value. `gold.game_flow_snapshots` consumes that same feature
-contract and the model artifact for the matching season.
-
-The trained shot-quality model also evaluates on a chronological, whole-game
-holdout: no game can appear in both its training and evaluation partitions.
-Same-season aggregate tracking statistics are excluded because they would expose
-later-season information to earlier held-out games. After evaluation, the
-production artifact is refit on all eligible loaded shots. Its metadata records
-the evaluation partition sizes, production training size, feature-contract
-version, and exclusion of same-season priors.
-
-These controls make the local holdout metrics reproducible and prevent the known
-same-season leakage paths. They do not turn either model into an externally
-calibrated forecast; the research-oriented interpretation above still applies.
-
-Elo outputs are transparent rating heuristics. Projection fields are only
-populated when the loaded season has full-team coverage; scoped samples keep
-ratings and current records but do not present season projections as complete.
+The NBA stats endpoints aren't a documented or supported API. A successful run
+means they answered at the time, not that they always will, and it doesn't give
+you any right to redistribute the data. Raw responses and databases stay on
+your machine and out of git.
