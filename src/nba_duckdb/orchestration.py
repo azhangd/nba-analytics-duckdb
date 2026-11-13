@@ -268,70 +268,29 @@ def _should_skip_task(
 def _start_task(run_id: str, task_name: str, task_type: str, max_attempts: int) -> int:
     existing = _get_task_run(run_id, task_name)
     attempts = int(existing["attempts"]) + 1 if existing else 1
-    row = {
-        "run_id": run_id,
-        "task_name": task_name,
-        "task_type": task_type,
-        "status": RUNNING,
-        "attempts": attempts,
-        "max_attempts": max_attempts,
-        "started_at": existing["started_at"] if existing and existing["started_at"] else None,
-        "result_json": None,
-        "error_text": None,
-    }
-    if row["started_at"] is None:
-        db.execute(
-            """
-            INSERT INTO ops.task_runs (
-                run_id, task_name, task_type, status, attempts, max_attempts,
-                started_at, heartbeat_at, updated_at, worker_pid, progress_json,
-                result_json, error_text
-            )
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP, ?, NULL, ?, ?)
-            """,
-            [
-                row["run_id"],
-                row["task_name"],
-                row["task_type"],
-                row["status"],
-                row["attempts"],
-                row["max_attempts"],
-                os.getpid(),
-                row["result_json"],
-                row["error_text"],
-            ],
+    db.execute(
+        """
+        INSERT INTO ops.task_runs (
+            run_id, task_name, task_type, status, attempts, max_attempts,
+            started_at, heartbeat_at, updated_at, worker_pid
         )
-    else:
-        db.execute(
-            """
-            UPDATE ops.task_runs
-            SET task_type = ?,
-                status = ?,
-                attempts = ?,
-                max_attempts = ?,
-                heartbeat_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP,
-                finished_at = NULL,
-                worker_pid = ?,
-                progress_json = NULL,
-                result_json = ?,
-                error_text = ?
-            WHERE run_id = ?
-              AND task_name = ?
-            """,
-            [
-                row["task_type"],
-                row["status"],
-                row["attempts"],
-                row["max_attempts"],
-                os.getpid(),
-                row["result_json"],
-                row["error_text"],
-                row["run_id"],
-                row["task_name"],
-            ],
-        )
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+        ON CONFLICT (run_id, task_name) DO UPDATE SET
+            task_type = excluded.task_type,
+            status = excluded.status,
+            attempts = excluded.attempts,
+            max_attempts = excluded.max_attempts,
+            started_at = COALESCE(task_runs.started_at, excluded.started_at),
+            heartbeat_at = now(),
+            updated_at = now(),
+            finished_at = NULL,
+            worker_pid = excluded.worker_pid,
+            progress_json = NULL,
+            result_json = NULL,
+            error_text = NULL
+        """,
+        [run_id, task_name, task_type, RUNNING, attempts, max_attempts, os.getpid()],
+    )
     return attempts
 
 
@@ -472,33 +431,23 @@ def _execute_task_with_retries(
     raise last_error
 
 
-def _expected_task_names(steps: Sequence[TaskSpec]) -> list[str]:
-    return [step.name for step in steps]
-
-
-def _complete_pipeline_run(run_id: str, expected_tasks: Sequence[str]) -> dict[str, Any]:
-    rows = db.execute(
-        """
-        SELECT task_name, status
-        FROM ops.task_runs
-        WHERE run_id = ?
-        """,
-        [run_id],
-    )
+def _finish_pipeline_run(
+    run_id: str, expected_tasks: Sequence[str], *, failed: bool = False
+) -> dict[str, Any]:
+    rows = db.execute("SELECT task_name, status FROM ops.task_runs WHERE run_id = ?", [run_id])
     statuses = {str(row["task_name"]): str(row["status"]) for row in rows}
+    counts = {
+        status: sum(1 for task_name in expected_tasks if statuses.get(task_name) == status)
+        for status in (SUCCESS, DEGRADED, DEFERRED, FAILED, INTERRUPTED)
+    }
     missing = [task_name for task_name in expected_tasks if task_name not in statuses]
-    success_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == SUCCESS)
-    degraded_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == DEGRADED)
-    deferred_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == DEFERRED)
-    failed_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == FAILED)
-    interrupted_count = sum(
-        1 for task_name in expected_tasks if statuses.get(task_name) == INTERRUPTED
-    )
-    complete_count = success_count + degraded_count + deferred_count
-    if complete_count == len(expected_tasks) and not missing:
-        final_status = SUCCESS if degraded_count == 0 and deferred_count == 0 else DEGRADED
-    else:
+    complete = counts[SUCCESS] + counts[DEGRADED] + counts[DEFERRED] == len(expected_tasks)
+    if failed or missing or not complete:
         final_status = FAILED
+    elif counts[DEGRADED] or counts[DEFERRED]:
+        final_status = DEGRADED
+    else:
+        final_status = SUCCESS
     db.execute(
         """
         UPDATE ops.pipeline_runs
@@ -516,11 +465,11 @@ def _complete_pipeline_run(run_id: str, expected_tasks: Sequence[str]) -> dict[s
         [
             final_status,
             len(expected_tasks),
-            success_count,
-            degraded_count,
-            deferred_count,
-            failed_count,
-            interrupted_count,
+            counts[SUCCESS],
+            counts[DEGRADED],
+            counts[DEFERRED],
+            counts[FAILED],
+            counts[INTERRUPTED],
             run_id,
         ],
     )
@@ -528,56 +477,13 @@ def _complete_pipeline_run(run_id: str, expected_tasks: Sequence[str]) -> dict[s
         "run_id": run_id,
         "status": final_status,
         "task_count": len(expected_tasks),
-        "success_count": success_count,
-        "degraded_count": degraded_count,
-        "deferred_count": deferred_count,
-        "failed_count": failed_count,
-        "interrupted_count": interrupted_count,
+        "success_count": counts[SUCCESS],
+        "degraded_count": counts[DEGRADED],
+        "deferred_count": counts[DEFERRED],
+        "failed_count": counts[FAILED],
+        "interrupted_count": counts[INTERRUPTED],
         "missing_tasks": missing,
     }
-
-
-def _mark_pipeline_failed(run_id: str, expected_tasks: Sequence[str]) -> None:
-    rows = db.execute(
-        """
-        SELECT task_name, status
-        FROM ops.task_runs
-        WHERE run_id = ?
-        """,
-        [run_id],
-    )
-    statuses = {str(row["task_name"]): str(row["status"]) for row in rows}
-    success_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == SUCCESS)
-    failed_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == FAILED)
-    degraded_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == DEGRADED)
-    deferred_count = sum(1 for task_name in expected_tasks if statuses.get(task_name) == DEFERRED)
-    interrupted_count = sum(
-        1 for task_name in expected_tasks if statuses.get(task_name) == INTERRUPTED
-    )
-    db.execute(
-        """
-        UPDATE ops.pipeline_runs
-        SET status = 'failed',
-            updated_at = CURRENT_TIMESTAMP,
-            finished_at = CURRENT_TIMESTAMP,
-            task_count = ?,
-            success_count = ?,
-            degraded_count = ?,
-            deferred_count = ?,
-            failed_count = ?,
-            interrupted_count = ?
-        WHERE run_id = ?
-        """,
-        [
-            len(expected_tasks),
-            success_count,
-            degraded_count,
-            deferred_count,
-            failed_count,
-            interrupted_count,
-            run_id,
-        ],
-    )
 
 
 def run_steps(
@@ -588,7 +494,7 @@ def run_steps(
     retry_delay_seconds: float,
 ) -> dict[str, Any]:
     max_attempts = retries + 1
-    expected_tasks = _expected_task_names(steps)
+    expected_tasks = [step.name for step in steps]
     results: dict[str, Any] = {}
     try:
         downstream_rerun_required = False
@@ -603,10 +509,10 @@ def run_steps(
             if context.retry_failed and results[step.name].get("status") != "skipped":
                 downstream_rerun_required = True
     except Exception:
-        _mark_pipeline_failed(context.run_id, expected_tasks)
+        _finish_pipeline_run(context.run_id, expected_tasks, failed=True)
         raise
 
-    summary = _complete_pipeline_run(context.run_id, expected_tasks)
+    summary = _finish_pipeline_run(context.run_id, expected_tasks)
     return {
         **summary,
         "graph": context.graph,

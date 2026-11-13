@@ -1,8 +1,8 @@
 """Player embeddings.
 
-PCA dimensionality reduction + UMAP 2D projection + GMM clustering
-on per-player statistical profiles. Produces embeddings for visualization
-and cosine similarity for player comparison.
+PCA dimensionality reduction + GMM clustering on per-player statistical
+profiles. Produces embeddings for visualization and cosine similarity for
+player comparison.
 """
 
 import json
@@ -103,12 +103,10 @@ def compute_embeddings(
     season_stats: pl.DataFrame,
     player_shot_profile: pl.DataFrame,
     n_pca_variance: float = 0.90,
-    umap_neighbors: int = 15,
-    umap_min_dist: float = 0.1,
     gmm_k_range: tuple[int, int] = (4, 12),
     artifact_dir: str | None = None,
 ) -> dict:
-    """Full embedding pipeline: filter → standardize → PCA → UMAP → GMM.
+    """Full embedding pipeline: filter → standardize → PCA → GMM.
 
     Returns dict with 'embeddings', 'similarity', 'metadata'.
     """
@@ -159,26 +157,7 @@ def compute_embeddings(
         [round(v, 3) for v in pca.explained_variance_ratio_.tolist()],
     )
 
-    # 6. UMAP
-    try:
-        import umap
-        # Initialize from PCA first 2 components for stability
-        init = X_pca[:, :2] if X_pca.shape[1] >= 2 else "spectral"
-        reducer = umap.UMAP(
-            n_components=2,
-            n_neighbors=min(umap_neighbors, len(player_ids) - 1),
-            min_dist=umap_min_dist,
-            metric="cosine",
-            random_state=42,
-            init=init if isinstance(init, str) else init,
-        )
-        X_umap = reducer.fit_transform(X_pca)
-    except Exception as e:
-        logger.warning("UMAP failed, falling back to PCA first 2 components: %s", e)
-        X_umap = X_pca[:, :2] if X_pca.shape[1] >= 2 else np.zeros((len(player_ids), 2))
-        reducer = None
-
-    # 7. GMM clustering on PCA space
+    # 6. GMM clustering on PCA space
     best_k = gmm_k_range[0]
     best_bic = float("inf")
     bic_scores = {}
@@ -201,7 +180,7 @@ def compute_embeddings(
 
     logger.info("GMM: K=%d (BIC=%.1f), silhouette=%.3f", best_k, best_bic, sil)
 
-    # 8. Auto-label clusters by dominant features
+    # 7. Auto-label clusters by dominant features
     cluster_names = {}
     for k in range(best_k):
         mask = cluster_labels == k
@@ -230,10 +209,10 @@ def compute_embeddings(
     logger.info("Clusters: %s", {k: f"{v} ({(cluster_labels == k).sum()} players)"
                                    for k, v in cluster_names.items()})
 
-    # 9. Cosine similarity in PCA space
+    # 8. Cosine similarity in PCA space
     cos_sim = cosine_similarity(X_pca)
 
-    # 10. Build output
+    # 9. Build output
     embeddings = []
     for i, pid in enumerate(player_ids):
         emb = {
@@ -241,8 +220,6 @@ def compute_embeddings(
             "player_name": player_names[i],
             "team_id": team_ids[i],
             "position": positions[i] or "",
-            "umap_x": round(float(X_umap[i, 0]), 4),
-            "umap_y": round(float(X_umap[i, 1]), 4),
             "cluster_id": int(cluster_labels[i]),
             "cluster_label": cluster_names.get(int(cluster_labels[i]), ""),
         }
@@ -306,8 +283,6 @@ def compute_embeddings(
     joblib.dump(scaler, os.path.join(target_artifact_dir, "scaler.joblib"))
     joblib.dump(pca, os.path.join(target_artifact_dir, "pca.joblib"))
     joblib.dump(final_gmm, os.path.join(target_artifact_dir, "gmm.joblib"))
-    if reducer is not None:
-        joblib.dump(reducer, os.path.join(target_artifact_dir, "umap.joblib"))
     with open(os.path.join(target_artifact_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 

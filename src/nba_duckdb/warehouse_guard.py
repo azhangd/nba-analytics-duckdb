@@ -47,7 +47,7 @@ def assert_no_synthetic_rows() -> None:
         predicates = []
         params = []
         if "season" in columns:
-            predicates.append(f"{db._quote_ident('season')} = %s")
+            predicates.append(f"{db._quote_ident('season')} = ?")
             params.append(SYNTHETIC_SEASON)
         if "game_id" in columns:
             predicates.append(f"{db._quote_ident('game_id')} LIKE '002SYN%'")

@@ -391,7 +391,7 @@ def test_quality_detects_failed_core_ingestion_items(tmp_path, monkeypatch):
 
     from nba_duckdb import quality
 
-    failures, rows = quality._ledger_failures()
+    failures, rows = quality._ledger_failures({"2099-00"})
 
     assert rows[0]["status"] == "failed"
     assert failures == ["play-by-play 2099-00 has 1 failed ingestion items"]

@@ -5,9 +5,9 @@ from importlib.util import find_spec
 OPTIONAL_GROUPS = {
     "ml": {
         "joblib": "joblib",
+        "numpy": "numpy",
         "scipy": "scipy",
         "sklearn": "scikit-learn",
-        "umap": "umap-learn",
         "xgboost": "xgboost",
     },
     "live": {

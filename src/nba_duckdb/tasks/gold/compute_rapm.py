@@ -209,7 +209,7 @@ def run(**kwargs):
 
     count = truncate_and_insert("gold", "player_season_rapm", results) if not target_seasons else 0
     if target_seasons:
-        delete_where("gold", "player_season_rapm", "season = ANY(%s)", [target_seasons])
+        delete_where("gold", "player_season_rapm", "season = ANY(?)", [target_seasons])
         count = insert_rows("gold", "player_season_rapm", results)
     logger.info("Wrote %d player RAPM values", count)
 

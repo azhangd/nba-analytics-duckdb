@@ -161,7 +161,6 @@ def test_run_smoke_default_missing_full_extras_fails_before_writing_warehouse(
             "sklearn",
             "scipy",
             "xgboost",
-            "umap",
             "joblib",
         },
     )
@@ -197,7 +196,6 @@ def test_run_smoke_quick_does_not_require_ml(tmp_path, monkeypatch, capsys):
             "sklearn",
             "scipy",
             "xgboost",
-            "umap",
             "joblib",
         },
     )
@@ -289,7 +287,6 @@ def test_run_live_default_with_live_extra_missing_ml_reports_ml_only(
             "sklearn",
             "scipy",
             "xgboost",
-            "umap",
             "joblib",
         },
     )
@@ -319,7 +316,7 @@ def test_run_live_quick_with_live_extra_does_not_require_ml(
 
     db_path = tmp_path / "live.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    _hide_optional_modules(monkeypatch, {"sklearn", "scipy", "xgboost", "umap", "joblib"})
+    _hide_optional_modules(monkeypatch, {"sklearn", "scipy", "xgboost", "joblib"})
     monkeypatch.setattr(cli, "run_steps", lambda *_args, **_kwargs: {"status": "ok"})
     monkeypatch.setattr(
         sys,
@@ -426,7 +423,6 @@ def test_run_smoke_cli_ignores_dotenv_live_warehouse_after_env_load(
             "NBA_DUCKDB_QUICK_SMOKE_PATH",
         ):
             os.environ.pop(key, None)
-        config.get_settings.cache_clear()
 
 
 def _assert_run_live_refuses_current_warehouse(monkeypatch, capsys, expected_table=None):

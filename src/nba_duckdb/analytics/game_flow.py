@@ -41,7 +41,7 @@ def _load_trained_coefficients(season: str | None = None) -> dict | None:
                 if season_value:
                     cur.execute(
                         "SELECT metadata_json FROM gold.model_artifacts "
-                        "WHERE model_name = 'win_probability' AND season = %s "
+                        "WHERE model_name = 'win_probability' AND season = ? "
                         "ORDER BY trained_at DESC LIMIT 1",
                         [season_value],
                     )

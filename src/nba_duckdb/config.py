@@ -5,11 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from functools import lru_cache
 from pathlib import Path
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ENV_FILE_LOADED_VALUES: dict[str, str] = {}
 
@@ -48,7 +44,6 @@ def env_overrides(values: Mapping[str, str]) -> Iterator[None]:
     """Set environment variables for the block, then restore the previous values."""
     previous = {key: os.environ.get(key) for key in values}
     os.environ.update(values)
-    get_settings.cache_clear()
     try:
         yield
     finally:
@@ -57,26 +52,19 @@ def env_overrides(values: Mapping[str, str]) -> Iterator[None]:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        get_settings.cache_clear()
-
+    
 
 def env_value_loaded_from_file(key: str) -> bool:
     """Return whether the current environment value came from `.env` loading."""
     return os.environ.get(key) == _ENV_FILE_LOADED_VALUES.get(key)
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="NBA_DUCKDB_", env_file=".env")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-    duckdb_path: Path = Field(
-        default=Path("data/warehouse/nba.duckdb"),
-        validation_alias="NBA_DUCKDB_PATH",
-    )
-    artifact_root: Path = Path("data/artifacts")
 
-    @property
-    def project_root(self) -> Path:
-        return Path(__file__).resolve().parents[2]
+def artifact_root() -> Path:
+    load_env_file()
+    return Path(os.environ.get("NBA_DUCKDB_ARTIFACT_ROOT") or "data/artifacts")
 
 
 def fixtures_dir(value: str | None = None) -> Path:
@@ -97,9 +85,3 @@ def quick_smoke_warehouse_path() -> Path:
         "NBA_DUCKDB_QUICK_SMOKE_PATH"
     )
     return Path(raw or "data/warehouse/smoke-quick.duckdb")
-
-
-@lru_cache
-def get_settings() -> Settings:
-    load_env_file()
-    return Settings()

@@ -141,7 +141,6 @@ UNIQUE_KEY_CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 CORE_LEDGER_SOURCES = {"play-by-play"}
-CORE_TEAM_IDS = ALL_TEAM_IDS
 
 
 def _ensure_initialized_for_read() -> None:
@@ -149,11 +148,11 @@ def _ensure_initialized_for_read() -> None:
 
 
 def _active_team_scope() -> tuple[int, ...]:
-    return get_team_ids() or CORE_TEAM_IDS
+    return get_team_ids() or ALL_TEAM_IDS
 
 
 def _season_coverage_failures() -> tuple[list[str], list[dict[str, Any]]]:
-    known_placeholders = ", ".join("?" for _ in CORE_TEAM_IDS)
+    known_placeholders = ", ".join("?" for _ in ALL_TEAM_IDS)
     scoped_team_ids = _active_team_scope()
     scoped_placeholders = ", ".join("?" for _ in scoped_team_ids)
     rows = db.execute(
@@ -175,7 +174,7 @@ def _season_coverage_failures() -> tuple[list[str], list[dict[str, Any]]]:
         GROUP BY schedule.season
         ORDER BY schedule.season
         """,
-        [*CORE_TEAM_IDS, *CORE_TEAM_IDS, *scoped_team_ids, *scoped_team_ids],
+        [*ALL_TEAM_IDS, *ALL_TEAM_IDS, *scoped_team_ids, *scoped_team_ids],
         read_only=True,
     )
     failures = []
@@ -194,24 +193,20 @@ def _season_coverage_failures() -> tuple[list[str], list[dict[str, Any]]]:
     return failures, rows
 
 
-def _ledger_failures(seasons: set[str] | None = None) -> tuple[list[str], list[dict[str, Any]]]:
-    if seasons is not None and not seasons:
+def _ledger_failures(seasons: set[str]) -> tuple[list[str], list[dict[str, Any]]]:
+    if not seasons:
         return [], []
 
     source_placeholders = ", ".join("?" for _ in CORE_LEDGER_SOURCES)
-    params: list[Any] = sorted(CORE_LEDGER_SOURCES)
-    season_filter = ""
-    if seasons is not None:
-        ordered_seasons = sorted(seasons)
-        season_placeholders = ", ".join("?" for _ in ordered_seasons)
-        season_filter = f" AND season IN ({season_placeholders})"
-        params.extend(ordered_seasons)
+    ordered_seasons = sorted(seasons)
+    season_placeholders = ", ".join("?" for _ in ordered_seasons)
+    params: list[Any] = [*sorted(CORE_LEDGER_SOURCES), *ordered_seasons]
     rows = db.execute(
         f"""
         SELECT source, season, status, COUNT(*) AS item_count
         FROM ops.ingestion_items
         WHERE source IN ({source_placeholders})
-          {season_filter}
+          AND season IN ({season_placeholders})
           AND status <> 'success'
         GROUP BY source, season, status
         ORDER BY source, season, status
@@ -271,7 +266,15 @@ def _missing_required_tables() -> list[str]:
 def run_checks() -> dict[str, Any]:
     _ensure_initialized_for_read()
     missing_tables = _missing_required_tables()
-    table_counts = table_counts_for(REQUIRED_TABLES)
+    table_counts = {
+        f"{schema}.{table}": int(
+            db.execute(f'SELECT COUNT(*) AS row_count FROM "{schema}"."{table}"', read_only=True)[0][
+                "row_count"
+            ]
+        )
+        for schema, table in REQUIRED_TABLES
+        if f"{schema}.{table}" not in missing_tables
+    }
     integrity_counts = {
         name: int(db.execute(query, read_only=True)[0]["row_count"])
         for name, query in INTEGRITY_QUERIES.items()
@@ -298,9 +301,7 @@ def run_checks() -> dict[str, Any]:
     failures.extend(
         f"{table_name} has no rows"
         for table_name, row_count in table_counts.items()
-        if row_count == 0
-        and table_name not in allow_empty
-        and table_name not in missing_tables
+        if row_count == 0 and table_name not in allow_empty
     )
     failures.extend(
         f"{check_name} found {row_count} rows"
@@ -325,21 +326,3 @@ def run_checks() -> dict[str, Any]:
         "coverage_counts": coverage_counts,
         "ledger_counts": ledger_counts,
     }
-
-
-def table_counts_for(tables: list[tuple[str, str]]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for schema, table in tables:
-        try:
-            row = db.execute(
-                f'SELECT COUNT(*) AS row_count FROM "{schema}"."{table}"',
-                read_only=True,
-            )[0]
-            counts[f"{schema}.{table}"] = int(row["row_count"])
-        except Exception:
-            counts[f"{schema}.{table}"] = 0
-    return counts
-
-
-def table_counts() -> dict[str, int]:
-    return table_counts_for(REQUIRED_TABLES)

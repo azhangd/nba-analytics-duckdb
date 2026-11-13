@@ -16,15 +16,10 @@ from nba_duckdb.season_utils import requested_or_default_seasons
 
 
 def _json_document(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
+    """Parse a stored payload; a missing payload is an empty document."""
+    if value is None:
+        return {}
+    return value if isinstance(value, dict) else json.loads(value)
 
 
 def _game_ids(frame: pl.DataFrame) -> set[str]:
@@ -393,7 +388,7 @@ def _replace_source_manifest(entries: list[dict[str, Any]], game_ids: set[str]) 
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM ops.source_payload_manifest WHERE game_id = ANY(%s)",
+                "DELETE FROM ops.source_payload_manifest WHERE game_id = ANY(?)",
                 [sorted(game_ids)],
             )
     upsert_rows(

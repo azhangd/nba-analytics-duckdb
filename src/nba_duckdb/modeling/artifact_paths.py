@@ -9,17 +9,8 @@ from nba_duckdb import config
 
 
 def artifact_root() -> str:
-    explicit_root = (
-        os.environ.get("NBA_DUCKDB_ARTIFACT_ROOT")
-        or os.environ.get("NBA_DUCKDB_ARTIFACT_DIR")
-    )
-    if explicit_root:
-        return explicit_root
-
-    configured = config.get_settings().artifact_root
-    if configured.is_absolute():
-        return str(configured)
-    return str(Path.cwd() / configured)
+    root = config.artifact_root()
+    return str(root if root.is_absolute() else Path.cwd() / root)
 
 
 def artifact_dir(*parts: str) -> str:

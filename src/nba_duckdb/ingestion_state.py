@@ -47,7 +47,6 @@ def _dedupe_items(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def ensure_items(source: str, items: Iterable[dict[str, Any]]) -> int:
-    source = normalize_source(source)
     target_items = _dedupe_items(items)
     if not target_items:
         return 0
@@ -81,7 +80,6 @@ def ensure_items(source: str, items: Iterable[dict[str, Any]]) -> int:
 
 
 def mark_running_items_interrupted(source: str, season: str | None = None) -> int:
-    source = normalize_source(source)
     params: list[Any] = [source]
     where = "source = ? AND status = 'running'"
     if season:
@@ -102,7 +100,6 @@ def mark_running_items_interrupted(source: str, season: str | None = None) -> in
 
 
 def fetch_item_states(source: str, items: Iterable[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
-    source = normalize_source(source)
     target_items = _dedupe_items(items)
     states: dict[tuple[str, str], dict[str, Any]] = {}
     for season in sorted({item["season"] for item in target_items}):
@@ -121,7 +118,6 @@ def fetch_item_states(source: str, items: Iterable[dict[str, Any]]) -> dict[tupl
 
 
 def eligible_items(source: str, items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    source = normalize_source(source)
     target_items = _dedupe_items(items)
     ensure_items(source, target_items)
     states = fetch_item_states(source, target_items)
@@ -143,7 +139,6 @@ def eligible_items(source: str, items: Iterable[dict[str, Any]]) -> list[dict[st
 
 
 def mark_item_running(source: str, item: dict[str, Any]) -> None:
-    source = normalize_source(source)
     db.execute(
         """
         UPDATE ops.ingestion_items
@@ -163,7 +158,6 @@ def mark_item_running(source: str, item: dict[str, Any]) -> None:
 
 
 def mark_item_success(source: str, item: dict[str, Any], *, rows_written: int = 1) -> None:
-    source = normalize_source(source)
     db.execute(
         """
         UPDATE ops.ingestion_items
@@ -189,7 +183,6 @@ def mark_item_failed(
     retry_delay_seconds: float | None = None,
     deferred: bool = False,
 ) -> None:
-    source = normalize_source(source)
     next_retry_at = None
     if retry_delay_seconds and retry_delay_seconds > 0:
         next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds)
@@ -222,7 +215,6 @@ def mark_item_failed(
 
 
 def mark_items_success(source: str, items: Iterable[dict[str, Any]], *, rows_written: int = 1) -> None:
-    source = normalize_source(source)
     deduped = _dedupe_items(items)
     ensure_items(source, deduped)
     for season in sorted({item["season"] for item in deduped}):
@@ -248,7 +240,6 @@ def mark_items_success(source: str, items: Iterable[dict[str, Any]], *, rows_wri
 
 
 def summarize_items(source: str, items: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    source = normalize_source(source)
     deduped = _dedupe_items(items)
     ensure_items(source, deduped)
     states = fetch_item_states(source, deduped)
@@ -267,7 +258,6 @@ def summarize_items(source: str, items: Iterable[dict[str, Any]]) -> dict[str, A
 
 
 def incomplete_items(source: str, items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    source = normalize_source(source)
     deduped = _dedupe_items(items)
     ensure_items(source, deduped)
     states = fetch_item_states(source, deduped)

@@ -56,7 +56,7 @@ def seasons_for_game_ids(game_ids: list[str], *, regular_season_only: bool = Fal
     if not game_ids:
         return []
 
-    games = read_table("silver", "fct_games", "game_id = ANY(%s)", [[str(game_id) for game_id in game_ids]])
+    games = read_table("silver", "fct_games", "game_id = ANY(?)", [[str(game_id) for game_id in game_ids]])
     if games.is_empty() or "season" not in games.columns:
         return []
 

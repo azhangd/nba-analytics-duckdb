@@ -21,7 +21,7 @@ def test_summer_league_dbt_models_and_quality_gate_end_to_end(tmp_path, monkeypa
         UPDATE bronze.schedule
         SET league_id = '15',
             competition = 'summer_league_vegas'
-        WHERE game_id = %s
+        WHERE game_id = ?
         """,
         [summer_game_id],
     )
@@ -29,11 +29,11 @@ def test_summer_league_dbt_models_and_quality_gate_end_to_end(tmp_path, monkeypa
     # payload to both team keys. Align the generic fixture with that contract.
     shot_payload = db.execute_sql(
         "SELECT shot_chart_json FROM bronze.shot_charts "
-        "WHERE game_id = %s ORDER BY team_id LIMIT 1",
+        "WHERE game_id = ? ORDER BY team_id LIMIT 1",
         [summer_game_id],
     )[0]["shot_chart_json"]
     db.execute_sql(
-        "UPDATE bronze.shot_charts SET shot_chart_json = %s WHERE game_id = %s",
+        "UPDATE bronze.shot_charts SET shot_chart_json = ? WHERE game_id = ?",
         [shot_payload, summer_game_id],
     )
 
@@ -50,7 +50,7 @@ def test_summer_league_dbt_models_and_quality_gate_end_to_end(tmp_path, monkeypa
     )
     for table in ("fct_games", "fct_boxscores", "fct_play_by_play", "fct_shots"):
         assert db.execute_sql(
-            f"SELECT COUNT(*) AS count FROM silver.{table} WHERE game_id = %s",
+            f"SELECT COUNT(*) AS count FROM silver.{table} WHERE game_id = ?",
             [summer_game_id],
         ) == [{"count": 0}]
 

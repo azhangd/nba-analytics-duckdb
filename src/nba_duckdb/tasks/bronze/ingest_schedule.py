@@ -25,8 +25,8 @@ def _existing_schedule_count(season: str, competition: Competition = NBA) -> int
                 """
                 SELECT COUNT(*) AS cnt
                 FROM bronze.schedule
-                WHERE season = %s
-                  AND competition = %s
+                WHERE season = ?
+                  AND competition = ?
                 """,
                 [season, competition.slug],
             )
@@ -39,10 +39,10 @@ def _latest_final_date(season: str, competition: Competition = NBA) -> date | No
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT MAX(to_date(game_date, 'MM/DD/YYYY HH24:MI:SS')) AS latest_final
+                SELECT MAX(strptime(game_date, '%m/%d/%Y %H:%M:%S')) AS latest_final
                 FROM bronze.schedule
-                WHERE season = %s
-                  AND competition = %s
+                WHERE season = ?
+                  AND competition = ?
                   AND game_status = 3
                 """,
                 [season, competition.slug],
@@ -212,7 +212,7 @@ def _refresh_specific_games(
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT game_id, game_date FROM bronze.schedule WHERE game_id = ANY(%s)",
+                "SELECT game_id, game_date FROM bronze.schedule WHERE game_id = ANY(?)",
                 [game_ids],
             )
             for row in cur.fetchall():
