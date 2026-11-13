@@ -33,7 +33,7 @@ def build_adjusted_stats(
     team_def_rtg = (
         team_log
         .filter(pl.col("def_rtg").is_not_null())
-        .group_by("team_id")
+        .group_by(["team_id", "season"])
         .agg(pl.col("def_rtg").mean().alias("season_def_rtg"))
     )
 
@@ -46,7 +46,7 @@ def build_adjusted_stats(
     )
     pgs = pgs.join(
         team_def_rtg.rename({"team_id": "opp_team_id", "season_def_rtg": "opp_def_rtg"}),
-        on="opp_team_id",
+        on=["opp_team_id", "season"],
         how="left",
     )
     pgs = pgs.with_columns(pl.col("opp_def_rtg").fill_null(league_avg))
@@ -70,7 +70,6 @@ def build_adjusted_stats(
             pl.col("adj_ppg").cast(pl.Float64, strict=False).round(1),
             pl.col("adj_ts_pct").cast(pl.Float64, strict=False).round(3),
             pl.col("adj_net_rtg").cast(pl.Float64, strict=False).round(1),
-            pl.col("season").fill_null("2025-26"),
         ])
     )
     return adjusted, float(league_avg)

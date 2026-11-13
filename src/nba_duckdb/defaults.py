@@ -57,11 +57,17 @@ def get_seasons() -> list[str]:
     return [get_default_season()]
 
 
-ALL_TEAM_IDS = ",".join(str(team_id) for team_id in [
+ALL_TEAM_IDS = (
     1610612737, 1610612738, 1610612739, 1610612740, 1610612741,
     1610612742, 1610612743, 1610612744, 1610612745, 1610612746,
     1610612747, 1610612748, 1610612749, 1610612750, 1610612751,
     1610612752, 1610612753, 1610612754, 1610612755, 1610612756,
     1610612757, 1610612758, 1610612759, 1610612760, 1610612761,
     1610612762, 1610612763, 1610612764, 1610612765, 1610612766,
-])
+)
+
+
+def get_team_ids() -> tuple[int, ...] | None:
+    """Return NBA_DUCKDB_TEAM_IDS as ints, or None (all teams) when unset or empty."""
+    raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "")
+    return tuple(int(value) for value in raw.split(",") if value.strip()) or None

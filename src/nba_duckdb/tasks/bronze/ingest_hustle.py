@@ -43,6 +43,9 @@ def run(**kwargs):
         except Exception as e:
             logger.warning("Failed to fetch team hustle for %s: %s", season, e)
 
+    if seasons and not rows:
+        raise RuntimeError(f"Failed to fetch hustle stats for every requested season: {seasons}")
+
     count = upsert_rows("bronze", "hustle", rows, conflict_cols=["season", "level"])
     logger.info("Upserted %d hustle stat records across %d seasons", count, len(seasons))
     return {"rows_written": count}

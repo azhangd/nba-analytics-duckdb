@@ -2,11 +2,10 @@
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from nba_duckdb.db import upsert_rows
-from nba_duckdb.defaults import ALL_TEAM_IDS, get_seasons
+from nba_duckdb.defaults import ALL_TEAM_IDS, get_seasons, get_team_ids
 from nba_duckdb.season_utils import normalize_requested_seasons
 from nba_duckdb.utils import nba_client
 
@@ -14,8 +13,7 @@ logger = logging.getLogger("nba_duckdb.tasks.bronze.matchups")
 
 
 def run(**kwargs):
-    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS)
-    team_ids = [int(t.strip()) for t in team_ids_raw.split(",")]
+    team_ids = get_team_ids() or ALL_TEAM_IDS
     season = kwargs.get("season")
     seasons = normalize_requested_seasons(kwargs.get("seasons")) or ([season] if season else get_seasons())
     now = datetime.now(timezone.utc).isoformat()

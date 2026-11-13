@@ -872,7 +872,7 @@ def test_team_percentile_scope_is_data_driven_per_season(tmp_path, monkeypatch):
     from nba_duckdb import dbt_runner
     from nba_duckdb.defaults import ALL_TEAM_IDS
 
-    full_team_ids = [int(value) for value in ALL_TEAM_IDS.split(",")]
+    full_team_ids = list(ALL_TEAM_IDS)
     rows = [
         {
             "team_id": team_id,

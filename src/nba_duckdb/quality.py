@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from nba_duckdb import db, registry
-from nba_duckdb.defaults import ALL_TEAM_IDS
+from nba_duckdb.defaults import ALL_TEAM_IDS, get_team_ids
 from nba_duckdb.exceptions import PipelineStateNotInitializedError
 
 REQUIRED_TABLES = registry.quality_required_tables()
@@ -143,7 +142,7 @@ UNIQUE_KEY_CHECKS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 CORE_LEDGER_SOURCES = {"play-by-play"}
-CORE_TEAM_IDS = tuple(int(team_id) for team_id in ALL_TEAM_IDS.split(","))
+CORE_TEAM_IDS = ALL_TEAM_IDS
 
 
 def _missing_pipeline_state(exc: Exception) -> bool:
@@ -167,15 +166,8 @@ def _ensure_initialized_for_read() -> None:
         raise
 
 
-def _parse_team_ids(raw: str | None) -> tuple[int, ...]:
-    if not raw or not raw.strip():
-        return CORE_TEAM_IDS
-    team_ids = tuple(int(value.strip()) for value in raw.split(",") if value.strip())
-    return team_ids or CORE_TEAM_IDS
-
-
 def _active_team_scope() -> tuple[int, ...]:
-    return _parse_team_ids(os.environ.get("NBA_DUCKDB_TEAM_IDS", ALL_TEAM_IDS))
+    return get_team_ids() or CORE_TEAM_IDS
 
 
 def _season_coverage_failures() -> tuple[list[str], list[dict[str, Any]]]:

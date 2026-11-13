@@ -2,11 +2,11 @@
 
 import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
+from nba_duckdb.defaults import get_team_ids
 from nba_duckdb.exceptions import LiveEndpointUnavailableError
 from nba_duckdb.ingestion_state import (
     eligible_items,
@@ -72,12 +72,7 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "").strip()
-    team_ids = (
-        {int(value.strip()) for value in team_ids_raw.split(",") if value.strip()}
-        if team_ids_raw
-        else None
-    )
+    team_ids = get_team_ids()
 
     schedule = read_table("bronze", "schedule", "game_status = 3")
     game_seasons: dict[str, str] = {}

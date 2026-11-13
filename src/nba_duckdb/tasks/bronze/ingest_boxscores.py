@@ -2,10 +2,10 @@
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from nba_duckdb.db import get_conn, read_table, upsert_rows
+from nba_duckdb.defaults import get_team_ids
 from nba_duckdb.season_utils import (
     filter_frame_to_competitions,
     requested_or_default_seasons,
@@ -54,12 +54,7 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids_raw = os.environ.get("NBA_DUCKDB_TEAM_IDS", "").strip()
-    team_ids = (
-        {int(value.strip()) for value in team_ids_raw.split(",") if value.strip()}
-        if team_ids_raw
-        else None
-    )
+    team_ids = get_team_ids()
 
     if not game_ids:
         schedule = read_table("bronze", "schedule", "game_status = 3")

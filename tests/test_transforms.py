@@ -537,3 +537,37 @@ def test_full_refresh_task_reads_all_upstream_and_removes_stale_rows(tmp_path, m
         {"game_id": "0029800001", "season": "2098-99"},
         {"game_id": "0029900001", "season": "2099-00"},
     ]
+
+
+def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
+    from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
+
+    games = pl.DataFrame({
+        "game_id": ["g1", "g2"],
+        "home_team_id": [1, 1],
+        "away_team_id": [2, 2],
+        "season": ["2025-26", "2026-27"],
+    })
+    team_log = pl.DataFrame({
+        "team_id": [2, 2],
+        "season": ["2025-26", "2026-27"],
+        "def_rtg": [100.0, 120.0],
+    })
+    player_games = pl.DataFrame({
+        "player_id": [7, 7],
+        "game_id": ["g1", "g2"],
+        "team_id": [1, 1],
+        "minutes": [30.0, 30.0],
+        "pts": [22.0, 22.0],
+        "fga": [15, 15],
+        "ts_pct": [0.6, 0.6],
+        "net_rating": [0.0, 0.0],
+    })
+
+    adjusted, league_avg = build_adjusted_stats(
+        player_games=player_games, team_log=team_log, fct_games=games
+    )
+
+    by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
+    assert by_season["2025-26"] == round(22.0 * league_avg / 100.0, 1)
+    assert by_season["2026-27"] == round(22.0 * league_avg / 120.0, 1)

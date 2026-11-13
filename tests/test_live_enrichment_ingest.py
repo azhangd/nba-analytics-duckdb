@@ -26,6 +26,19 @@ def test_defense_ingest_fails_when_every_requested_combo_fails(monkeypatch):
         ingest_defense.run(season="2099-00")
 
 
+def test_hustle_ingest_fails_when_every_requested_fetch_fails(monkeypatch):
+    from nba_duckdb.tasks.bronze import ingest_hustle
+
+    def fail_fetch(**_kwargs):
+        raise RuntimeError("rate limited")
+
+    monkeypatch.setattr(ingest_hustle.nba_client, "get_hustle_stats_player", fail_fetch)
+    monkeypatch.setattr(ingest_hustle.nba_client, "get_hustle_stats_team", fail_fetch)
+
+    with pytest.raises(RuntimeError, match="hustle stats for every requested season"):
+        ingest_hustle.run(season="2099-00")
+
+
 def test_tracking_ingest_fails_when_every_requested_category_fails(monkeypatch):
     from nba_duckdb.tasks.bronze import ingest_tracking_stats
 
