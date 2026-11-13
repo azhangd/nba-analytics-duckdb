@@ -17,6 +17,7 @@ import duckdb
 import polars as pl
 
 from nba_duckdb.config import load_env_file
+from nba_duckdb.exceptions import PipelineStateNotInitializedError
 from nba_duckdb.sql.schema import schema_sql_text
 
 logger = logging.getLogger("nba_duckdb.db")
@@ -85,6 +86,36 @@ LIGHTWEIGHT_MIGRATIONS = (
         "bronze",
         "schedule",
         "ALTER TABLE bronze.schedule ALTER COLUMN competition SET NOT NULL",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm ADD COLUMN IF NOT EXISTS bpm_prior REAL",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS possessions",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS orapm",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS drapm",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS orapm_prior",
+    ),
+    (
+        "gold",
+        "player_season_rapm",
+        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS drapm_prior",
     ),
 )
 
@@ -236,6 +267,10 @@ def _is_lock_error(exc: Exception) -> bool:
 
 class DuckConnection(AbstractContextManager["DuckConnection"]):
     def __init__(self, path: Path, *, read_only: bool = False):
+        if read_only and not path.exists():
+            raise PipelineStateNotInitializedError(
+                f"Warehouse {path} not found; run `nba-duckdb init` first"
+            )
         if not read_only:
             path.parent.mkdir(parents=True, exist_ok=True)
         last_error: Exception | None = None
@@ -306,7 +341,7 @@ def table_exists(schema: str, table: str, *, read_only: bool = False) -> bool:
 
 
 def _apply_lightweight_migrations() -> None:
-    """Apply additive ops-schema changes for existing local DuckDB files."""
+    """Apply in-place schema changes to existing local DuckDB files."""
     for schema, table, sql_text in LIGHTWEIGHT_MIGRATIONS:
         if not table_exists(schema, table):
             continue
@@ -328,7 +363,14 @@ def execute_sql(
 ) -> list[dict[str, Any]]:
     with get_conn(read_only=read_only) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql_text, params)
+            try:
+                cur.execute(sql_text, params)
+            except duckdb.CatalogException as exc:
+                if read_only:
+                    raise PipelineStateNotInitializedError(
+                        f"{exc.args[0].splitlines()[0]}; run `nba-duckdb init` first"
+                    ) from exc
+                raise
             if cur.description:
                 return cur.fetchall()
         if not read_only:

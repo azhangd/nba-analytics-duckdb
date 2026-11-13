@@ -6,7 +6,6 @@ from typing import Any
 
 from nba_duckdb import db, registry
 from nba_duckdb.defaults import ALL_TEAM_IDS, get_team_ids
-from nba_duckdb.exceptions import PipelineStateNotInitializedError
 
 REQUIRED_TABLES = registry.quality_required_tables()
 
@@ -145,25 +144,8 @@ CORE_LEDGER_SOURCES = {"play-by-play"}
 CORE_TEAM_IDS = ALL_TEAM_IDS
 
 
-def _missing_pipeline_state(exc: Exception) -> bool:
-    message = str(exc)
-    return (
-        "does not exist" in message
-        or "Catalog Error" in message
-        or "Cannot open file" in message
-        or "No such file" in message
-    )
-
-
 def _ensure_initialized_for_read() -> None:
-    try:
-        db.execute("SELECT 1 FROM ops.pipeline_runs LIMIT 1", read_only=True)
-    except Exception as exc:  # noqa: BLE001 - convert DuckDB setup errors for CLI users
-        if _missing_pipeline_state(exc):
-            raise PipelineStateNotInitializedError(
-                "Pipeline tables not found; run `nba-duckdb init` first"
-            ) from exc
-        raise
+    db.execute("SELECT 1 FROM ops.pipeline_runs LIMIT 1", read_only=True)
 
 
 def _active_team_scope() -> tuple[int, ...]:

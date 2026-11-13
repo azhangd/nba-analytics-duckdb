@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -39,6 +41,23 @@ def load_env_file(path: str | Path = ".env") -> None:
         if key not in os.environ:
             os.environ[key] = value
             _ENV_FILE_LOADED_VALUES[key] = value
+
+
+@contextmanager
+def env_overrides(values: Mapping[str, str]) -> Iterator[None]:
+    """Set environment variables for the block, then restore the previous values."""
+    previous = {key: os.environ.get(key) for key in values}
+    os.environ.update(values)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        get_settings.cache_clear()
 
 
 def env_value_loaded_from_file(key: str) -> bool:

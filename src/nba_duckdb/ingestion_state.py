@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from nba_duckdb import db
-from nba_duckdb.exceptions import PipelineStateNotInitializedError
 
 PENDING = "pending"
 RUNNING = "running"
@@ -16,16 +15,6 @@ FAILED = "failed"
 INTERRUPTED = "interrupted"
 DEFERRED = "deferred"
 ELIGIBLE_STATUSES = {PENDING, FAILED, INTERRUPTED, DEFERRED}
-
-
-def _missing_ops_state(exc: Exception) -> bool:
-    message = str(exc)
-    return (
-        "does not exist" in message
-        or "Catalog Error" in message
-        or "Cannot open file" in message
-        or "No such file" in message
-    )
 
 
 def normalize_source(source: str) -> str:
@@ -306,25 +295,18 @@ def summarize_sources(
         where_parts.append("source = ?")
         params.append(normalize_source(source))
     where = "WHERE " + " AND ".join(where_parts) if where_parts else ""
-    try:
-        rows = db.execute(
-            f"""
-            SELECT source, season, status, COUNT(*) AS item_count,
-                   COALESCE(SUM(rows_written), 0) AS rows_written
-            FROM ops.ingestion_items
-            {where}
-            GROUP BY source, season, status
-            ORDER BY source, season, status
-            """,
-            params,
-            read_only=read_only,
-        )
-    except Exception as exc:  # noqa: BLE001 - observability should be harmless pre-init
-        if read_only and _missing_ops_state(exc):
-            raise PipelineStateNotInitializedError(
-                "Run state tables not found; run `nba-duckdb init` first"
-            ) from exc
-        raise
+    rows = db.execute(
+        f"""
+        SELECT source, season, status, COUNT(*) AS item_count,
+               COALESCE(SUM(rows_written), 0) AS rows_written
+        FROM ops.ingestion_items
+        {where}
+        GROUP BY source, season, status
+        ORDER BY source, season, status
+        """,
+        params,
+        read_only=read_only,
+    )
     summaries: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         key = (str(row["source"]), str(row["season"]))

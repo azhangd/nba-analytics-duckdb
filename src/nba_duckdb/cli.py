@@ -95,25 +95,14 @@ def _default_smoke_warehouse_path(*, quick: bool) -> Path:
     return config.quick_smoke_warehouse_path() if quick else config.smoke_warehouse_path()
 
 
-def _use_smoke_warehouse_unless_explicit(*, quick: bool = False) -> dict[str, str | None] | None:
+def _smoke_warehouse_env(*, quick: bool) -> dict[str, str]:
+    """Point at the isolated smoke warehouse unless the shell chose a warehouse."""
     if _warehouse_is_explicit():
-        return None
-    previous = {key: os.environ.get(key) for key in WAREHOUSE_ENV_KEYS}
-    os.environ["NBA_DUCKDB_PATH"] = str(_default_smoke_warehouse_path(quick=quick))
-    os.environ["NBA_DUCKDB_DATABASE_URL"] = ""
-    config.get_settings.cache_clear()
-    return previous
-
-
-def _restore_default_warehouse_env(previous_env: dict[str, str | None] | None) -> None:
-    if previous_env is None:
-        return
-    for key, value in previous_env.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-    config.get_settings.cache_clear()
+        return {}
+    return {
+        "NBA_DUCKDB_PATH": str(_default_smoke_warehouse_path(quick=quick)),
+        "NBA_DUCKDB_DATABASE_URL": "",
+    }
 
 
 def _assert_smoke_warehouse_resolution(*, quick: bool = False) -> None:
@@ -188,12 +177,11 @@ def generate_test_fixtures(args: argparse.Namespace) -> dict[str, Any]:
 
 def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
     graph = QUICK_GRAPH if getattr(args, "quick", False) else DEFAULT_GRAPH
-    previous_warehouse_env = _use_smoke_warehouse_unless_explicit(
-        quick=graph == QUICK_GRAPH
-    )
-    try:
-        if previous_warehouse_env is not None:
-            _assert_smoke_warehouse_resolution(quick=graph == QUICK_GRAPH)
+    quick = graph == QUICK_GRAPH
+    warehouse_env = _smoke_warehouse_env(quick=quick)
+    with config.env_overrides(warehouse_env):
+        if warehouse_env:
+            _assert_smoke_warehouse_resolution(quick=quick)
 
         if graph == DEFAULT_GRAPH:
             require_optional_groups(
@@ -225,9 +213,7 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
             retry_failed=args.retry_failed,
         )
         context_scope = _task_scope_from_run_scope(context.scope)
-        previous_offline_smoke = os.environ.get("NBA_DUCKDB_OFFLINE_SMOKE")
-        os.environ["NBA_DUCKDB_OFFLINE_SMOKE"] = "1"
-        try:
+        with config.env_overrides({"NBA_DUCKDB_OFFLINE_SMOKE": "1"}):
             steps = _offline_smoke_steps(
                 graph=context.graph,
                 scope=context_scope,
@@ -239,13 +225,6 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 retries=args.retries,
                 retry_delay_seconds=args.retry_delay_seconds,
             )
-        finally:
-            if previous_offline_smoke is None:
-                os.environ.pop("NBA_DUCKDB_OFFLINE_SMOKE", None)
-            else:
-                os.environ["NBA_DUCKDB_OFFLINE_SMOKE"] = previous_offline_smoke
-    finally:
-        _restore_default_warehouse_env(previous_warehouse_env)
 
 
 def _require_live(*, with_ml: bool = False) -> None:
@@ -283,22 +262,21 @@ def _run_live_graph(
         resume_latest=args.resume_latest,
         retry_failed=args.retry_failed,
     )
-    if context.scope.get("team_ids"):
-        os.environ["NBA_DUCKDB_TEAM_IDS"] = ",".join(
-            str(team_id) for team_id in context.scope["team_ids"]
-        )
+    team_ids = context.scope.get("team_ids")
+    team_env = {"NBA_DUCKDB_TEAM_IDS": ",".join(str(team_id) for team_id in team_ids)} if team_ids else {}
     task_scope = _task_scope_from_run_scope(context.scope)
     steps = (
         _live_steps(context.graph, task_scope)
         if tasks is None
         else [_registry_task(task, scope=task_scope) for task in tasks]
     )
-    return run_steps(
-        context,
-        steps,
-        retries=args.retries,
-        retry_delay_seconds=args.retry_delay_seconds,
-    )
+    with config.env_overrides(team_env):
+        return run_steps(
+            context,
+            steps,
+            retries=args.retries,
+            retry_delay_seconds=args.retry_delay_seconds,
+        )
 
 
 def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:

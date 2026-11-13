@@ -732,6 +732,22 @@ def test_runs_show_before_init_returns_friendly_json(tmp_path, monkeypatch, caps
     assert "nba-duckdb init" in payload["error"]
 
 
+def test_runs_list_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
+    from nba_duckdb import cli
+
+    db_path = tmp_path / "missing.duckdb"
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
+    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "runs", "list"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    payload = json.loads(capsys.readouterr().err)
+    assert exc_info.value.code == 1
+    assert payload["status"] == "not_initialized"
+    assert not db_path.exists()
+
+
 def test_quality_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
     from nba_duckdb import cli
 

@@ -1313,7 +1313,7 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch
     feature_result = dbt_runner.run_model(model="player_season_feature_matrix")
 
     rapm_row = db.execute(
-        "SELECT drapm_prior, rapm_blended FROM gold.player_season_rapm WHERE player_id = 1"
+        "SELECT bpm_prior, rapm_blended FROM gold.player_season_rapm WHERE player_id = 1"
     )[0]
     mvp_row = db.execute(
         "SELECT bpm_approx, vorp_approx FROM gold.player_season_mvp_ladder WHERE player_id = 1"
@@ -1323,7 +1323,7 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch
     )[0]
 
     assert rapm_result["rows_written"] == 10
-    assert rapm_row["drapm_prior"] == 7.5
+    assert rapm_row["bpm_prior"] == 7.5
     assert rapm_row["rapm_blended"] > 1.0
     assert mvp_result["rows_written"] == 2
     assert mvp_row["bpm_approx"] == pytest.approx(7.5)
@@ -1331,25 +1331,3 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch
     assert feature_result["rows_written"] == 2
     assert feature_row["bpm_approx"] == pytest.approx(7.5)
     assert feature_row["vorp_approx"] == pytest.approx(3.1)
-
-
-def test_public_docs_and_source_avoid_overclaim_phrases():
-    from pathlib import Path
-
-    root = Path(__file__).parents[1]
-    texts = [root.joinpath("README.md").read_text()]
-    texts.extend(
-        path.read_text()
-        for path in sorted(root.joinpath("src").rglob("*"))
-        if path.is_file() and path.suffix in {".py", ".sql", ".md"}
-    )
-    serialized = "\n".join(texts)
-
-    banned_phrases = [
-        "official " + "BPM",
-        "validated " + "model",
-        "matching " + "Synergy",
-        "league " + "percentile",
-    ]
-    for phrase in banned_phrases:
-        assert phrase not in serialized

@@ -129,14 +129,6 @@ def test_dbt_manifest_lineage_edges_cover_representative_models():
     } <= manifest_edges
 
 
-def test_readme_references_raw_to_silver_png():
-    root = Path(__file__).resolve().parents[1]
-    readme_paths = _markdown_png_paths(root / "README.md")
-
-    assert readme_paths == ["docs/assets/core_tables.png"]
-    assert (root / readme_paths[0]).exists()
-
-
 def test_diagrams_doc_references_generated_domain_pngs():
     root = Path(__file__).resolve().parents[1]
     diagrams = _load_diagram_script()

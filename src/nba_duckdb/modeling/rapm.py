@@ -243,8 +243,9 @@ def bootstrap_ci(
     lam: float,
     n_boot: int = 100,
     ci: float = 0.90,
+    seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Bootstrap confidence intervals by resampling games.
+    """Bootstrap confidence intervals by resampling games, reproducibly for a given seed.
 
     Returns (lower_bounds, upper_bounds) arrays of shape (n_players,).
     """
@@ -258,9 +259,10 @@ def bootstrap_ci(
     alpha_lo = (1 - ci) / 2
     alpha_hi = 1 - alpha_lo
 
+    rng = np.random.default_rng(seed)
     for b in range(n_boot):
         # Resample games with replacement
-        sampled_games = np.random.choice(unique_games, size=n_games, replace=True)
+        sampled_games = rng.choice(unique_games, size=n_games, replace=True)
 
         # Find indices for sampled games
         indices = []

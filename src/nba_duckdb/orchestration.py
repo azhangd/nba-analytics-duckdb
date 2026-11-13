@@ -11,8 +11,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from nba_duckdb import db
-from nba_duckdb.exceptions import LiveEndpointUnavailableError, PipelineStateNotInitializedError
+from nba_duckdb import config, db
+from nba_duckdb.exceptions import LiveEndpointUnavailableError
 from nba_duckdb.ingestion_state import summarize_sources
 
 logger = logging.getLogger("nba_duckdb.orchestration")
@@ -416,21 +416,10 @@ def heartbeat_current_task(progress: dict[str, Any] | None = None) -> None:
 
 
 def _run_with_task_env(context: RunContext, task_name: str, action: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-    old_run_id = os.environ.get("NBA_DUCKDB_ACTIVE_RUN_ID")
-    old_task_name = os.environ.get("NBA_DUCKDB_ACTIVE_TASK_NAME")
-    os.environ["NBA_DUCKDB_ACTIVE_RUN_ID"] = context.run_id
-    os.environ["NBA_DUCKDB_ACTIVE_TASK_NAME"] = task_name
-    try:
+    with config.env_overrides(
+        {"NBA_DUCKDB_ACTIVE_RUN_ID": context.run_id, "NBA_DUCKDB_ACTIVE_TASK_NAME": task_name}
+    ):
         return action()
-    finally:
-        if old_run_id is None:
-            os.environ.pop("NBA_DUCKDB_ACTIVE_RUN_ID", None)
-        else:
-            os.environ["NBA_DUCKDB_ACTIVE_RUN_ID"] = old_run_id
-        if old_task_name is None:
-            os.environ.pop("NBA_DUCKDB_ACTIVE_TASK_NAME", None)
-        else:
-            os.environ["NBA_DUCKDB_ACTIVE_TASK_NAME"] = old_task_name
 
 
 def _execute_task_with_retries(
@@ -481,16 +470,6 @@ def _execute_task_with_retries(
                 return _task_result(context.run_id, task.name)
     assert last_error is not None
     raise last_error
-
-
-def _missing_ops_state(exc: Exception) -> bool:
-    message = str(exc)
-    return (
-        "does not exist" in message
-        or "Catalog Error" in message
-        or "Cannot open file" in message
-        or "No such file" in message
-    )
 
 
 def _expected_task_names(steps: Sequence[TaskSpec]) -> list[str]:
@@ -638,38 +617,26 @@ def run_steps(
 
 
 def list_pipeline_runs(limit: int = 20) -> list[dict[str, Any]]:
-    try:
-        return db.execute(
-            """
-            SELECT run_id, command, graph, status, started_at, updated_at, finished_at,
-                   task_count, success_count, degraded_count, deferred_count,
-                   failed_count, interrupted_count
-            FROM ops.pipeline_runs
-            ORDER BY updated_at DESC, started_at DESC
-            LIMIT ?
-            """,
-            [limit],
-            read_only=True,
-        )
-    except Exception as exc:  # noqa: BLE001 - observability should be harmless pre-init
-        if _missing_ops_state(exc):
-            return []
-        raise
+    return db.execute(
+        """
+        SELECT run_id, command, graph, status, started_at, updated_at, finished_at,
+               task_count, success_count, degraded_count, deferred_count,
+               failed_count, interrupted_count
+        FROM ops.pipeline_runs
+        ORDER BY updated_at DESC, started_at DESC
+        LIMIT ?
+        """,
+        [limit],
+        read_only=True,
+    )
 
 
 def get_run_detail(run_id: str) -> dict[str, Any]:
-    try:
-        run_rows = db.execute(
-            "SELECT * FROM ops.pipeline_runs WHERE run_id = ?",
-            [run_id],
-            read_only=True,
-        )
-    except Exception as exc:  # noqa: BLE001 - return a clear CLI-facing message
-        if _missing_ops_state(exc):
-            raise PipelineStateNotInitializedError(
-                "Run state tables not found; run `nba-duckdb init` first"
-            ) from exc
-        raise
+    run_rows = db.execute(
+        "SELECT * FROM ops.pipeline_runs WHERE run_id = ?",
+        [run_id],
+        read_only=True,
+    )
     if not run_rows:
         raise RuntimeError(f"Run not found: {run_id}")
     task_rows = db.execute(
