@@ -1,12 +1,14 @@
 """Contract tests for trained shot-model evaluation and artifacts."""
 
-import numpy as np
 import polars as pl
 import pytest
 
+pytest.importorskip("numpy")
 pytest.importorskip("joblib")
 pytest.importorskip("sklearn")
 pytest.importorskip("xgboost")
+
+import numpy as np
 
 from nba_duckdb.modeling.trained_shot_model import build_features, chronological_game_split
 

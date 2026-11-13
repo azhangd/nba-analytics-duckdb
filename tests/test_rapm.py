@@ -1,11 +1,13 @@
 """Tests for RAPM (Regularized Adjusted Plus-Minus)."""
 
-import numpy as np
 import polars as pl
 import pytest
 
+pytest.importorskip("numpy")
 pytest.importorskip("sklearn")
 pytest.importorskip("scipy")
+
+import numpy as np
 
 from nba_duckdb.modeling.rapm import (
     blend_with_prior,
