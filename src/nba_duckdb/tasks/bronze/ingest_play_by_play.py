@@ -25,9 +25,13 @@ from nba_duckdb.season_utils import (
     requested_or_default_seasons,
 )
 from nba_duckdb.utils import nba_client
-from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.play_by_play")
+
+FLUSH_EVERY = 10
+FAILURE_BACKOFF_AFTER = 10
+FAILURE_BACKOFF_SECONDS = 120
+ABORT_AFTER_FAILURES = 30
 SOURCE = "play-by-play"
 
 
@@ -119,23 +123,11 @@ def run(**kwargs):
     todo_items = eligible_items(SOURCE, items)
     max_retries = 2
 
-    flush_every = positive_int("NBA_DUCKDB_PBP_FLUSH_EVERY", 10, logger=logger)
-    progress_every = positive_int("NBA_DUCKDB_PBP_PROGRESS_EVERY", flush_every, logger=logger)
-    failure_backoff_after = positive_int(
-        "NBA_DUCKDB_PBP_FAILURE_BACKOFF_AFTER",
-        10,
-        logger=logger,
-    )
-    failure_backoff_seconds = positive_int(
-        "NBA_DUCKDB_PBP_FAILURE_BACKOFF_SECONDS",
-        120,
-        logger=logger,
-    )
-    abort_after_failures = positive_int(
-        "NBA_DUCKDB_PBP_ABORT_AFTER_FAILURES",
-        30,
-        logger=logger,
-    )
+    flush_every = FLUSH_EVERY
+    progress_every = flush_every
+    failure_backoff_after = FAILURE_BACKOFF_AFTER
+    failure_backoff_seconds = FAILURE_BACKOFF_SECONDS
+    abort_after_failures = ABORT_AFTER_FAILURES
     logger.info(
         "Fetching PBP for %d target games (flush_every=%d, max_retries=%d)",
         len(todo_items),

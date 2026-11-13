@@ -46,11 +46,6 @@ SUMMER_LEAGUE_GRAPH = registry.SUMMER_LEAGUE_GRAPH
 BACKFILL_ALIASES = {"pbp": "play-by-play", "shots": "shot-charts"}
 
 
-class SmokeWarehouseIsolationError(RuntimeError):
-    """Raised when run-smoke would write to a non-smoke warehouse by default."""
-
-
-WAREHOUSE_ENV_KEYS = ("NBA_DUCKDB_PATH", "NBA_DUCKDB_DATABASE_URL")
 UV_FULL_INSTALL_COMMAND = "uv sync --extra dev --extra full"
 UV_LIVE_INSTALL_COMMAND = "uv sync --extra dev --extra live"
 PIP_FULL_INSTALL_COMMAND = 'python -m pip install -e ".[dev,full]"'
@@ -68,26 +63,13 @@ LIVE_INSTALL_HINT = (
 )
 
 
-def _duckdb_path_from_url(raw: str) -> Path:
-    if raw.startswith("duckdb:///"):
-        raw = raw.removeprefix("duckdb:///")
-    elif raw.startswith("duckdb://"):
-        raw = raw.removeprefix("duckdb://")
-    return Path(raw)
-
-
-def _normalized_path(path: Path) -> Path:
-    return path.expanduser().resolve(strict=False)
-
-
 def _warehouse_is_explicit() -> bool:
     # Smoke runs may load `.env` before reaching this check in future CLI changes.
     # Only shell-provided values are explicit overrides; values inserted from `.env`
     # are background defaults and should not redirect smoke away from its isolated
     # full or quick smoke warehouse.
-    return any(
-        os.environ.get(key) and not config.env_value_loaded_from_file(key)
-        for key in WAREHOUSE_ENV_KEYS
+    return bool(os.environ.get("NBA_DUCKDB_PATH")) and not config.env_value_loaded_from_file(
+        "NBA_DUCKDB_PATH"
     )
 
 
@@ -99,24 +81,7 @@ def _smoke_warehouse_env(*, quick: bool) -> dict[str, str]:
     """Point at the isolated smoke warehouse unless the shell chose a warehouse."""
     if _warehouse_is_explicit():
         return {}
-    return {
-        "NBA_DUCKDB_PATH": str(_default_smoke_warehouse_path(quick=quick)),
-        "NBA_DUCKDB_DATABASE_URL": "",
-    }
-
-
-def _assert_smoke_warehouse_resolution(*, quick: bool = False) -> None:
-    from nba_duckdb import db
-
-    expected = _normalized_path(_default_smoke_warehouse_path(quick=quick))
-    actual = _normalized_path(_duckdb_path_from_url(db.get_database_url()))
-    if actual == expected:
-        return
-    raise SmokeWarehouseIsolationError(
-        "run-smoke resolved to a non-smoke warehouse "
-        f"({actual}) even though no explicit warehouse override was exported. "
-        f"Expected {expected}."
-    )
+    return {"NBA_DUCKDB_PATH": str(_default_smoke_warehouse_path(quick=quick))}
 
 
 def _registry_task(
@@ -180,9 +145,6 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
     quick = graph == QUICK_GRAPH
     warehouse_env = _smoke_warehouse_env(quick=quick)
     with config.env_overrides(warehouse_env):
-        if warehouse_env:
-            _assert_smoke_warehouse_resolution(quick=quick)
-
         if graph == DEFAULT_GRAPH:
             require_optional_groups(
                 "ml",
@@ -202,7 +164,7 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "season": SYNTHETIC_SEASON,
             "seasons": [SYNTHETIC_SEASON],
             "fixtures_dir": str(fixtures_dir),
-            "warehouse": db.get_database_url(),
+            "warehouse": str(db.database_path()),
         }
         context = prepare_run(
             command="run-smoke",
@@ -570,7 +532,6 @@ CLI_ERRORS = (
     (PipelineStateNotInitializedError, "not_initialized", 1),
     (DuckDBLockTimeoutError, "warehouse_busy", 2),
     (SyntheticDataInLiveWarehouseError, "synthetic_data_in_live_warehouse", 1),
-    (SmokeWarehouseIsolationError, "smoke_warehouse_isolation_error", 1),
     (MissingOptionalDependencyError, "missing_optional_dependency", 1),
     (MissingRequiredDependencyError, "missing_dependency", 1),
 )

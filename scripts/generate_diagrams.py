@@ -107,13 +107,11 @@ TABLES = (
     TableSpec("bronze.boxscores", "core", "bronze", "game payload"),
     TableSpec("bronze.play_by_play", "core", "bronze", "game payload"),
     TableSpec("bronze.shot_charts", "core", "bronze", "game, team payload"),
-    TableSpec("bronze.standings", "core", "bronze", "season payload"),
     TableSpec("bronze.tracking_stats", "core", "bronze", "season, category, level"),
     TableSpec("bronze.hustle", "core", "bronze", "season, level payload"),
     TableSpec("bronze.matchups", "core", "bronze", "season, team, direction"),
     TableSpec("bronze.defense", "core", "bronze", "season, play type, grouping"),
     TableSpec("bronze.game_detail", "core", "bronze", "game payload"),
-    TableSpec("bronze.tracking", "core", "bronze", "season payload"),
     TableSpec("bronze.injuries", "core", "bronze", "fetch date payload"),
     TableSpec("silver.dim_teams", "core", "silver_dim", "team"),
     TableSpec("silver.dim_players", "core", "silver_dim", "player"),
@@ -268,7 +266,7 @@ def _schema_datasets() -> set[str]:
     registry_datasets = {
         output
         for task in registry.task_defs_for(registry.DEFAULT_GRAPH, registry.LIVE_MODE)
-        for output in (*task.outputs, *task.mutates)
+        for output in task.outputs
     }
     return schema_datasets | registry_datasets
 
@@ -282,8 +280,8 @@ def _dbt_manifest_lineage_edges() -> set[tuple[str, str]]:
 def _registry_lineage_edges() -> set[tuple[str, str]]:
     edges: set[tuple[str, str]] = set()
     for task in registry.task_defs_for(registry.DEFAULT_GRAPH, registry.LIVE_MODE):
-        for output in (*task.outputs, *task.mutates):
-            for input_name in (*task.inputs, *task.optional_inputs):
+        for output in task.outputs:
+            for input_name in task.inputs:
                 edges.add((input_name, output))
     return edges
 

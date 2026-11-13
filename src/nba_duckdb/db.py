@@ -23,7 +23,6 @@ from nba_duckdb.sql.schema import schema_sql_text
 logger = logging.getLogger("nba_duckdb.db")
 
 DEFAULT_DUCKDB_PATH = "data/warehouse/nba.duckdb"
-DEFAULT_DATABASE_URL = DEFAULT_DUCKDB_PATH
 LOCK_RETRY_ATTEMPTS = 30
 LOCK_RETRY_DELAY_SECONDS = 2.0
 LIGHTWEIGHT_MIGRATIONS = (
@@ -124,22 +123,9 @@ class DuckDBLockTimeoutError(RuntimeError):
     """Raised when the warehouse remains locked beyond the bounded retry window."""
 
 
-def get_database_url() -> str:
+def database_path() -> Path:
     load_env_file()
-    return (
-        os.environ.get("NBA_DUCKDB_DATABASE_URL")
-        or os.environ.get("NBA_DUCKDB_PATH")
-        or DEFAULT_DUCKDB_PATH
-    )
-
-
-def _database_path() -> Path:
-    raw = get_database_url()
-    if raw.startswith("duckdb:///"):
-        raw = raw.removeprefix("duckdb:///")
-    elif raw.startswith("duckdb://"):
-        raw = raw.removeprefix("duckdb://")
-    return Path(raw)
+    return Path(os.environ.get("NBA_DUCKDB_PATH") or DEFAULT_DUCKDB_PATH)
 
 
 def _quote_ident(value: str) -> str:
@@ -318,7 +304,7 @@ class DuckConnection(AbstractContextManager["DuckConnection"]):
 
 
 def get_conn(*, read_only: bool = False) -> DuckConnection:
-    return DuckConnection(_database_path(), read_only=read_only)
+    return DuckConnection(database_path(), read_only=read_only)
 
 
 def init_schema() -> None:

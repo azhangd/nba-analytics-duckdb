@@ -111,8 +111,7 @@ DBT_TRANSFORM_INPUTS = (
     "bronze.injuries",
 )
 
-# Compatibility metadata for the local run ledger while the CLI wraps dbt as one
-# build phase. Airflow/Cosmos render the same manifest at model granularity.
+# The CLI runs each dbt group as one task; Airflow/Cosmos splits it per model.
 DBT_TRANSFORM_TASK_DEF = {
     "name": "dbt_build_warehouse",
     "dbt_selector": DBT_TRANSFORM_SELECTOR,
@@ -123,7 +122,6 @@ DBT_TRANSFORM_TASK_DEF = {
     "graphs": ("default",),
     "modes": ("live", "fixture"),
     "required": True,
-    "quality_outputs": DBT_CORE_MODEL_DATASETS,
     "live_order": 295,
     "fixture_order": 175,
 }
@@ -153,7 +151,6 @@ DBT_FEATURE_TASK_DEF = {
     "graphs": ("default",),
     "modes": ("live", "fixture"),
     "required": True,
-    "quality_outputs": DBT_FEATURE_MODEL_DATASETS,
     "live_order": 700,
     "fixture_order": 560,
 }
@@ -173,6 +170,5 @@ DBT_SUMMER_LEAGUE_TASK_DEF = {
     "modes": ("live",),
     "required": True,
     "regular_season_only": False,
-    "quality_outputs": DBT_SUMMER_LEAGUE_MODEL_DATASETS,
     "live_order": 100,
 }

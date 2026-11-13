@@ -24,9 +24,9 @@ from nba_duckdb.season_utils import resolved_target_seasons
 
 logger = logging.getLogger("nba_duckdb.tasks.gold.player_zone_season_shot_quality_trained")
 
-RETRAIN_DAYS = int(os.environ.get("SHOT_MODEL_RETRAIN_DAYS", "7"))
-MAX_TRAIN_SAMPLES = int(os.environ.get("SHOT_MODEL_MAX_TRAIN_SAMPLES", "75000"))
-TRAIN_SAMPLE_SEED = int(os.environ.get("SHOT_MODEL_RANDOM_SEED", "42"))
+RETRAIN_DAYS = 7
+MAX_TRAIN_SAMPLES = 75_000
+TRAIN_SAMPLE_SEED = 42
 
 
 def _model_is_stale(season: str) -> bool:

@@ -21,7 +21,6 @@ from nba_duckdb.competitions import (
     NBA,
     SUMMER_LEAGUE_SLUGS,
 )
-from nba_duckdb.dbt_models import DBT_MODEL_DATASETS
 from nba_duckdb.dbt_runner import dbt_project_dir
 from nba_duckdb.defaults import get_default_season
 from nba_duckdb.exceptions import LiveEndpointUnavailableError
@@ -55,7 +54,6 @@ def _warehouse_env(*, mode: str, quick: bool) -> dict[str, str]:
     settings = config.get_settings()
     env = {
         "NBA_DUCKDB_PATH": str(_warehouse_path(mode=mode, quick=quick)),
-        "NBA_DUCKDB_DATABASE_URL": "",
         "NBA_DUCKDB_ARTIFACT_ROOT": str(
             _project_path(settings.artifact_root).resolve(strict=False)
         ),
@@ -143,7 +141,7 @@ def initialize_warehouse(*, mode: str, quick: bool) -> dict[str, Any]:
         db.init_schema()
         if mode == registry.LIVE_MODE:
             assert_no_synthetic_rows()
-        return {"status": "success", "warehouse": db.get_database_url()}
+        return {"status": "success", "warehouse": str(db.database_path())}
 
 
 def execute_registered_task(
@@ -290,8 +288,6 @@ def _cosmos_group(
             f"dbt manifest not found at {DBT_MANIFEST_PATH}; run `make dbt-parse` "
             "before Airflow parses this DAG"
         )
-    if not task.dbt_selector:
-        raise ValueError(f"Task {task.name} has no dbt selector")
 
     group_id = {
         "dbt_build_feature_matrices": "dbt_feature_matrices",
@@ -337,32 +333,6 @@ def _cosmos_group(
         ),
         operator_args=operator_args,
     )
-
-
-def _task_dependencies(tasks: list[registry.TaskDef]) -> dict[str, set[str]]:
-    producer_by_dataset: dict[str, str] = {}
-    mutators_by_dataset: dict[str, set[str]] = {}
-    for task in tasks:
-        for output in task.outputs:
-            producer_by_dataset[output] = task.name
-        for dataset in task.mutates:
-            mutators_by_dataset.setdefault(dataset, set()).add(task.name)
-
-    dependencies: dict[str, set[str]] = {}
-    for task in tasks:
-        inputs = (*task.inputs, *task.optional_inputs)
-        dependencies[task.name] = {
-            producer_by_dataset[dataset]
-            for dataset in inputs
-            if dataset in producer_by_dataset and producer_by_dataset[dataset] != task.name
-        } | {
-            mutator
-            for dataset in inputs
-            if dataset not in task.mutates
-            for mutator in mutators_by_dataset.get(dataset, set())
-            if mutator != task.name
-        }
-    return dependencies
 
 
 def build_pipeline_dag(
@@ -411,7 +381,6 @@ def build_pipeline_dag(
         )
 
         nodes: dict[str, Any] = {}
-        dbt_owned = set(DBT_MODEL_DATASETS)
         for task in selected_tasks:
             if task.dbt_selector:
                 nodes[task.name] = _cosmos_group(
@@ -420,8 +389,6 @@ def build_pipeline_dag(
                     quick=quick,
                     retries=retries,
                 )
-                continue
-            if task.outputs and set(task.outputs).issubset(dbt_owned):
                 continue
             nodes[task.name] = PythonOperator(
                 task_id=task.name,
@@ -432,15 +399,15 @@ def build_pipeline_dag(
                     "graph": graph,
                     "quick": quick,
                 },
-                inlets=[_asset(dataset) for dataset in (*task.inputs, *task.optional_inputs)],
-                outlets=[_asset(dataset) for dataset in (*task.outputs, *task.mutates)],
+                inlets=[_asset(dataset) for dataset in task.inputs],
+                outlets=[_asset(dataset) for dataset in task.outputs],
                 pool=PIPELINE_POOL,
                 retries=retries,
                 retry_delay=timedelta(seconds=120),
                 show_return_value_in_logs=True,
             )
 
-        dependencies = _task_dependencies(selected_tasks)
+        dependencies = registry.task_dependencies(selected_tasks)
         for task_name, upstream_names in dependencies.items():
             if task_name not in nodes:
                 continue
