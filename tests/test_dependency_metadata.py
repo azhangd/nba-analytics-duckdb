@@ -18,12 +18,6 @@ def _package_names(requirements: list[str]) -> set[str]:
     return {_package_name(requirement) for requirement in requirements}
 
 
-def test_full_extra_is_exact_union_of_ml_and_live_extras():
-    optional = _pyproject_optional_dependencies()
-
-    assert sorted(optional["full"]) == sorted({*optional["ml"], *optional["live"]})
-
-
 def test_optional_dependency_groups_match_pyproject_extras():
     from nba_duckdb.dependencies import OPTIONAL_GROUPS
 

@@ -10,15 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-  "dbt-core>=1.10,<2",
   "dbt-duckdb>=1.10",
   "duckdb>=1.1.0",
   "httpx>=0.28",
-  "numpy>=2.0",
   "pyarrow>=16.0",
   "polars>=1.20",
-  "pydantic>=2.8.0",
-  "pydantic-settings>=2.4.0",
 ]
 
 [project.optional-dependencies]
@@ -29,24 +25,16 @@ airflow = [
 ]
 ml = [
   "joblib>=1.4",
+  "numpy>=2.0",
   "scikit-learn>=1.5",
   "scipy>=1.13",
-  "umap-learn>=0.5",
   "xgboost>=2.1",
 ]
 live = [
   "nba-api>=1.11",
   "pdfplumber>=0.11.9",
 ]
-full = [
-  "joblib>=1.4",
-  "nba-api>=1.11",
-  "pdfplumber>=0.11.9",
-  "scikit-learn>=1.5",
-  "scipy>=1.13",
-  "umap-learn>=0.5",
-  "xgboost>=2.1",
-]
+full = ["nba-analytics-duckdb[ml,live]"]
 dev = [
   "pytest>=8.0.0",
   "ruff>=0.8.0",

@@ -1,11 +1,13 @@
 """Tests for win probability model."""
 
 
-import numpy as np
 import polars as pl
 import pytest
 
+pytest.importorskip("numpy")
 pytest.importorskip("sklearn")
+
+import numpy as np
 
 from nba_duckdb.modeling.win_probability import (
     build_training_data,

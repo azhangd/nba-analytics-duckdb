@@ -279,7 +279,7 @@ def run(**kwargs):
             sql = "SELECT game_id, detail_json FROM bronze.game_detail"
             params: list = []
             if game_ids:
-                sql += " WHERE game_id = ANY(%s)"
+                sql += " WHERE game_id = ANY(?)"
                 params.append(game_ids)
             cur.execute(sql, params)
             existing_details = {

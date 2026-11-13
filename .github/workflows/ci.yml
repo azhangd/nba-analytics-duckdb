@@ -130,7 +130,6 @@ jobs:
               "pdfplumber",
               "scipy",
               "sklearn",
-              "umap",
               "xgboost",
           ):
               assert find_spec(module), module

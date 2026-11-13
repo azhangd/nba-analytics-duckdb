@@ -288,7 +288,7 @@ def run(**kwargs):
     if not results:
         return {"status": "skipped", "rows_written": 0, "seasons": target_seasons}
 
-    delete_where("gold", "player_zone_season_shot_quality_trained", "season = ANY(%s)", [target_seasons])
+    delete_where("gold", "player_zone_season_shot_quality_trained", "season = ANY(?)", [target_seasons])
     count = insert_rows("gold", "player_zone_season_shot_quality_trained", results)
     logger.info("Wrote %d shot quality rows across %d seasons", count, len(target_seasons))
 

@@ -90,9 +90,9 @@ def run(**kwargs):
         logger.warning("No embeddings computed for %s", target_seasons)
         return {"status": "skipped", "seasons": target_seasons}
 
-    delete_where("gold", "player_season_embeddings", "season = ANY(%s)", [target_seasons])
+    delete_where("gold", "player_season_embeddings", "season = ANY(?)", [target_seasons])
     emb_count = insert_rows("gold", "player_season_embeddings", embeddings_rows)
-    delete_where("gold", "player_season_similarity", "season = ANY(%s)", [target_seasons])
+    delete_where("gold", "player_season_similarity", "season = ANY(?)", [target_seasons])
     sim_count = insert_rows("gold", "player_season_similarity", similarity_rows) if similarity_rows else 0
     latest = summary[-1]
 

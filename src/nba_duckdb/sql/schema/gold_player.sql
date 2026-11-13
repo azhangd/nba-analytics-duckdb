@@ -58,8 +58,6 @@ CREATE TABLE IF NOT EXISTS gold.player_season_embeddings (
     pca_3           REAL,
     pca_4           REAL,
     pca_5           REAL,
-    umap_x          REAL,
-    umap_y          REAL,
     cluster_id      INTEGER,
     cluster_label   TEXT,
     PRIMARY KEY (player_id, season)

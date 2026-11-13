@@ -30,7 +30,7 @@ from nba_duckdb.warehouse_guard import assert_no_synthetic_rows
 
 PIPELINE_POOL = "nba_pipeline"
 PIPELINE_OWNER = "nba-analytics"
-PROJECT_ROOT = config.get_settings().project_root
+PROJECT_ROOT = config.PROJECT_ROOT
 DBT_PROJECT_PATH = dbt_project_dir()
 DBT_MANIFEST_PATH = DBT_PROJECT_PATH / "dbt" / "target" / "manifest.json"
 DBT_PROFILES_PATH = DBT_PROJECT_PATH / "dbt" / "profiles.yml"
@@ -46,16 +46,15 @@ def _warehouse_path(*, mode: str, quick: bool) -> Path:
             else config.smoke_warehouse_path()
         )
     else:
-        configured = config.get_settings().duckdb_path
+        configured = db.database_path()
     return _project_path(configured).resolve(strict=False)
 
 
 def _warehouse_env(*, mode: str, quick: bool) -> dict[str, str]:
-    settings = config.get_settings()
     env = {
         "NBA_DUCKDB_PATH": str(_warehouse_path(mode=mode, quick=quick)),
         "NBA_DUCKDB_ARTIFACT_ROOT": str(
-            _project_path(settings.artifact_root).resolve(strict=False)
+            _project_path(config.artifact_root()).resolve(strict=False)
         ),
     }
     if mode == registry.FIXTURE_MODE:

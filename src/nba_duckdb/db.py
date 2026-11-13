@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
@@ -116,6 +115,16 @@ LIGHTWEIGHT_MIGRATIONS = (
         "player_season_rapm",
         "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS drapm_prior",
     ),
+    (
+        "gold",
+        "player_season_embeddings",
+        "ALTER TABLE gold.player_season_embeddings DROP COLUMN IF EXISTS umap_x",
+    ),
+    (
+        "gold",
+        "player_season_embeddings",
+        "ALTER TABLE gold.player_season_embeddings DROP COLUMN IF EXISTS umap_y",
+    ),
 )
 
 
@@ -151,53 +160,9 @@ def _decode_row(columns: Sequence[str], row: Sequence[Any]) -> dict[str, Any]:
     }
 
 
-def _coerce_params(params: Iterable[Any] | None) -> list[Any]:
-    return [_coerce_value(value) for value in params or []]
-
-
-def _expand_list_param(value: Any) -> tuple[str, list[Any]]:
-    values = list(value) if isinstance(value, list | tuple | set) else [value]
-    if not values:
-        return "NULL", []
-    return ", ".join("?" for _ in values), [_coerce_value(item) for item in values]
-
-
-def _translate_sql(sql_text: str, params: Iterable[Any] | None = None) -> tuple[str, list[Any]]:
-    """Translate the internal DB-API convenience surface used by pipeline tasks."""
-    param_values = list(params or [])
-    output_params: list[Any] = []
-    param_index = 0
-
-    sql_text = re.sub(
-        r"to_date\(([^,]+),\s*'MM/DD/YYYY HH24:MI:SS'\)",
-        r"strptime(\1, '%m/%d/%Y %H:%M:%S')",
-        sql_text,
-        flags=re.IGNORECASE,
-    )
-
-    def replace_any(_: re.Match[str]) -> str:
-        nonlocal param_index
-        if param_index >= len(param_values):
-            raise ValueError("Not enough parameters supplied for ANY(%s)")
-        placeholders, expanded = _expand_list_param(param_values[param_index])
-        param_index += 1
-        output_params.extend(expanded)
-        return f"IN ({placeholders})"
-
-    sql_text = re.sub(r"=\s*ANY\(\s*%s\s*\)", replace_any, sql_text, flags=re.IGNORECASE)
-
-    def replace_placeholder(_: re.Match[str]) -> str:
-        nonlocal param_index
-        if param_index >= len(param_values):
-            raise ValueError("Not enough parameters supplied for %s placeholder")
-        output_params.append(_coerce_value(param_values[param_index]))
-        param_index += 1
-        return "?"
-
-    sql_text = re.sub(r"%s", replace_placeholder, sql_text)
-    if param_index < len(param_values):
-        output_params.extend(_coerce_params(param_values[param_index:]))
-    return sql_text, output_params
+def _query_params(params: Iterable[Any] | None) -> list[Any]:
+    """Bind dicts as JSON text; lists stay lists so `col = ANY(?)` works."""
+    return [json.dumps(value) if isinstance(value, dict) else value for value in params or []]
 
 
 class DuckCursor(AbstractContextManager["DuckCursor"]):
@@ -214,18 +179,14 @@ class DuckCursor(AbstractContextManager["DuckCursor"]):
         return None
 
     def execute(self, sql_text: str, params: Iterable[Any] | None = None) -> DuckCursor:
-        translated_sql, translated_params = _translate_sql(sql_text, params)
-        self._result = self._conn.execute(translated_sql, translated_params)
+        self._result = self._conn.execute(sql_text, _query_params(params))
         self.description = self._result.description
         self.rowcount = -1
         return self
 
     def executemany(self, sql_text: str, rows: Iterable[Iterable[Any]]) -> DuckCursor:
-        translated_sql, translated_params = _translate_sql(sql_text, [])
-        if translated_params:
-            raise ValueError("executemany does not support pre-bound translated parameters")
         prepared_rows = [tuple(_coerce_value(value) for value in row) for row in rows]
-        self._result = self._conn.executemany(translated_sql, prepared_rows)
+        self._result = self._conn.executemany(sql_text, prepared_rows)
         self.description = self._result.description
         self.rowcount = len(prepared_rows)
         return self
@@ -456,15 +417,12 @@ def upsert_rows(
     schema: str,
     table: str,
     rows: list[Mapping[str, Any]],
-    conflict_cols: list[str] | None = None,
-    conflict_columns: list[str] | None = None,
+    conflict_cols: list[str],
 ) -> int:
     if not rows:
         return 0
 
-    conflicts = conflict_cols or conflict_columns
-    if not conflicts:
-        raise ValueError("upsert_rows requires conflict_cols or conflict_columns")
+    conflicts = conflict_cols
 
     columns = list(rows[0].keys())
     insert_query = _insert_sql(schema, table, columns)

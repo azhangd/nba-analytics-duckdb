@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 
@@ -1165,6 +1164,7 @@ def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
 
 
 def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_path, monkeypatch):
+    np = pytest.importorskip("numpy")
     pytest.importorskip("sklearn")
     pytest.importorskip("scipy")
     db = _init_tmp_db(tmp_path, monkeypatch)
