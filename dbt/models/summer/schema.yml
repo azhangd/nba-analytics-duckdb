@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: summer_league_games
-    description: One row per NBA-operated Summer League game with explicit competition provenance.
+    description: Summer League games
     columns:
       - name: game_id
         data_tests:
@@ -19,7 +19,7 @@ models:
           - not_null
 
   - name: summer_league_boxscores
-    description: One row per Summer League player-game box score.
+    description: Summer League box scores
     columns:
       - name: game_id
         data_tests:
@@ -29,7 +29,7 @@ models:
           - not_null
 
   - name: summer_league_play_by_play
-    description: One row per official Summer League play-by-play action.
+    description: Summer League play-by-play
     columns:
       - name: game_id
         data_tests:
@@ -39,7 +39,7 @@ models:
           - not_null
 
   - name: summer_league_shots
-    description: One row per official Summer League shot-chart attempt.
+    description: Summer League shots
     columns:
       - name: game_id
         data_tests:

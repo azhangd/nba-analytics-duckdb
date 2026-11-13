@@ -253,11 +253,6 @@ def test_game_detail_opens_rotation_circuit_and_uses_pbp_fallback(tmp_db, monkey
         "get_boxscore_misc",
         lambda **_kwargs: _game_detail_payload("boxScoreMisc"),
     )
-    monkeypatch.setattr(
-        ingest_game_detail.nba_client,
-        "get_boxscore_scoring",
-        lambda **_kwargs: _game_detail_payload("boxScoreScoring"),
-    )
     rotation_calls = []
 
     def fail_rotation(**kwargs):
@@ -295,14 +290,9 @@ def test_game_detail_strict_rotation_fails_when_circuit_opens(tmp_db, monkeypatc
     )
     monkeypatch.setattr(
         ingest_game_detail.nba_client,
-        "get_boxscore_scoring",
-        lambda **_kwargs: _game_detail_payload("boxScoreScoring"),
-    )
-    monkeypatch.setattr(
-        ingest_game_detail.nba_client,
         "get_game_rotation",
         lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("rotation unavailable")),
     )
 
     with pytest.raises(RuntimeError, match="rotation endpoint unavailable"):
-        ingest_game_detail.run(season="2099-00", strict_rotation_detail=True)
+        ingest_game_detail.run(season="2099-00", full_refresh=True)

@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: dim_teams
-    description: One row per NBA team loaded into the warehouse.
+    description: Team names, conference and division
     columns:
       - name: team_id
         data_tests:
@@ -10,7 +10,7 @@ models:
           - unique
 
   - name: dim_players
-    description: One row per player currently known from rosters or boxscores.
+    description: Position, height, weight and current team
     columns:
       - name: player_id
         data_tests:
@@ -18,7 +18,7 @@ models:
           - unique
 
   - name: dim_coaches
-    description: One row per coach loaded from roster payloads.
+    description: Coach names, school and birth date
     columns:
       - name: coach_id
         data_tests:
@@ -26,7 +26,7 @@ models:
           - unique
 
   - name: dim_player_external_identities
-    description: Deterministic local identity hints for optional external signal joins.
+    description: Wikidata and Wikipedia IDs for each player
     columns:
       - name: player_id
         data_tests:
@@ -34,7 +34,7 @@ models:
           - unique
 
   - name: dim_injuries
-    description: One row per injury-report athlete entry after deterministic deduping.
+    description: Current injuries with status, type and return date
     columns:
       - name: athlete_espn_id
         data_tests:
@@ -42,7 +42,7 @@ models:
           - unique
 
   - name: fct_team_coach_seasons
-    description: One row per team, season, and coach assignment.
+    description: Coaching staff for each team and season
     columns:
       - name: team_id
         data_tests:
@@ -55,7 +55,7 @@ models:
           - not_null
 
   - name: fct_games
-    description: One row per game.
+    description: Each game with date, teams, score and game type
     columns:
       - name: game_id
         data_tests:
@@ -71,7 +71,7 @@ models:
           - not_null
 
   - name: fct_boxscores
-    description: One row per player-game boxscore.
+    description: Traditional and advanced stats per player per game
     columns:
       - name: game_id
         data_tests:
@@ -81,7 +81,7 @@ models:
           - not_null
 
   - name: fct_play_by_play
-    description: One row per play-by-play action.
+    description: Every play with type, player, score and location
     columns:
       - name: game_id
         data_tests:
@@ -92,14 +92,14 @@ models:
           - not_null
 
   - name: fct_possessions
-    description: One row per parsed possession.
+    description: Every possession with how it started and ended
     columns:
       - name: game_id
         data_tests:
           - not_null
 
   - name: fct_shots
-    description: One row per shot-chart attempt.
+    description: Every shot with zone, distance, location and result
     columns:
       - name: game_id
         data_tests:
@@ -110,23 +110,23 @@ models:
           - not_null
 
   - name: fct_lineups
-    description: One row per lineup stint.
+    description: Lineup stints with points for and against
     columns:
       - name: game_id
         data_tests:
           - not_null
 
   - name: fct_hustle
-    description: One row per player hustle-stat line.
+    description: Contests, deflections, screen assists and box-outs
 
   - name: fct_tracking
-    description: One row per player and tracking-stat category.
+    description: Player tracking stats by category
 
   - name: fct_matchups
-    description: One row per offensive and defensive player matchup.
+    description: Who guarded whom, with points and shooting
 
   - name: fct_defense_play_types
-    description: One row per Synergy-style defensive play-type stat line.
+    description: Defensive efficiency by play type
 
   - name: fct_game_detail
-    description: One row per game and team detail payload.
+    description: Points off turnovers, second chance, fast break and paint

@@ -3,26 +3,50 @@ version: 2
 sources:
   - name: bronze
     schema: bronze
-    description: Raw NBA-shaped source payloads loaded by registered Python tasks.
+    description: Raw API responses, written by the Python ingest tasks.
     tables:
       - name: schedule
+        description: Game dates, teams and scores
       - name: rosters
+        description: Team rosters by season
       - name: coaches
+        description: Coaching staffs by season
       - name: boxscores
+        description: Box score JSON per game
       - name: play_by_play
+        description: Play-by-play JSON per game
       - name: shot_charts
+        description: Shot chart JSON per game and team
       - name: tracking_stats
+        description: Player tracking JSON by category
       - name: hustle
+        description: Hustle stats JSON per season
       - name: matchups
+        description: Matchup JSON per team
       - name: defense
+        description: Defensive play-type JSON
       - name: game_detail
-      - name: tracking
+        description: Game summary JSON
       - name: injuries
+        description: Daily injury report JSON
 
   - name: gold_runtime
     schema: gold
-    description: Gold tables produced outside dbt by side-effectful Python tasks.
+    description: Gold tables written by Python tasks instead of dbt.
     tables:
       - name: model_artifacts
+        description: Metadata for trained models
       - name: player_season_embeddings
+        description: PCA components and style clusters
       - name: player_season_rapm
+        description: Ridge-regression RAPM with confidence intervals
+      - name: player_season_similarity
+        description: Most similar players each season
+      - name: player_zone_season_shot_quality_trained
+        description: Actual vs. expected FG% by zone, from a trained model
+      - name: player_pageviews_daily
+        description: Daily Wikipedia page views
+      - name: player_media_mentions_daily
+        description: Daily news mentions and tone
+      - name: player_jersey_rank_snapshots
+        description: Jersey sales rankings

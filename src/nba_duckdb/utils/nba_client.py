@@ -69,7 +69,6 @@ _nba_live_http.NBALiveHTTP.headers = _LIVE_HEADERS
 from nba_api.stats.endpoints import (
     BoxScoreAdvancedV3,
     BoxScoreMiscV3,
-    BoxScoreScoringV3,
     BoxScoreTraditionalV3,
     CommonTeamRoster,
     GameRotation,
@@ -82,7 +81,6 @@ from nba_api.stats.endpoints import (
     ScheduleLeagueV2,
     ShotChartDetail,
     SynergyPlayTypes,
-    WinProbabilityPBP,
 )
 
 from nba_duckdb.utils.rate_limiter import nba_api_limiter
@@ -500,7 +498,7 @@ def get_season_matchups(
     return _call_with_rate_limit(LeagueSeasonMatchups, **kwargs)
 
 
-# --- Misc & Scoring box scores ---
+# --- Misc box score ---
 
 
 def get_boxscore_misc(game_id: str, max_retries: int = 1) -> dict:
@@ -512,25 +510,6 @@ def get_boxscore_misc(game_id: str, max_retries: int = 1) -> dict:
         game_id=game_id,
         result_validator=lambda result: _has_v3_boxscore_payload(result, "boxScoreMisc"),
     )
-
-
-def get_boxscore_scoring(game_id: str, max_retries: int = 1) -> dict:
-    """Fetch scoring box score: assisted/unassisted FG%, pct of points by type."""
-    return _call_with_rate_limit(
-        BoxScoreScoringV3,
-        max_retries=max_retries,
-        timeout=10,
-        game_id=game_id,
-        result_validator=lambda result: _has_v3_boxscore_payload(result, "boxScoreScoring"),
-    )
-
-
-# --- Win probability ---
-
-
-def get_win_probability(game_id: str, max_retries: int = 1) -> dict:
-    """Fetch NBA-computed win probability for every PBP event."""
-    return _call_with_rate_limit(WinProbabilityPBP, max_retries=max_retries, timeout=10, game_id=game_id)
 
 
 # --- Game rotations ---

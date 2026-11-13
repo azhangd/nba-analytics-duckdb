@@ -517,77 +517,9 @@ def test_default_live_gold_tasks_are_recorded_as_gold():
     assert task_types["dbt_build_feature_matrices"] == "dbt"
 
 
-def test_datasets_graph_cli_can_write_html(tmp_path):
-    from nba_duckdb import cli
-
-    output = tmp_path / "lineage.html"
-    result = cli.graph_datasets(
-        argparse.Namespace(
-            quick=False,
-            mode="live",
-            format="html",
-            output=str(output),
-        )
-    )
-
-    assert result["status"] == "ok"
-    assert output.exists()
-    assert "NBA DuckDB Dataset Graph" in output.read_text()
-
-
-def test_datasets_graph_cli_returns_json_graph():
-    from nba_duckdb import cli
-
-    result = cli.graph_datasets(
-        argparse.Namespace(
-            quick=True,
-            mode="fixture",
-            format="json",
-            output=None,
-        )
-    )
-
-    assert result["graph"] == "quick"
-    assert result["mode"] == "fixture"
-    assert [task["task"] for task in result["tasks"]] == ["load_synthetic_fixtures"]
-
-
-def test_datasets_graph_cli_returns_manifest_backed_default_json_graph():
-    from nba_duckdb import cli
-
-    result = cli.graph_datasets(
-        argparse.Namespace(
-            quick=False,
-            mode="live",
-            format="json",
-            output=None,
-        )
-    )
-    edges = {(edge["from"], edge["to"], edge["task"]) for edge in result["edges"]}
-
-    assert result["graph"] == "default"
-    assert result["mode"] == "live"
-    assert (
-        "gold.player_game_stats",
-        "gold.player_season_stats",
-        "dbt_build_warehouse",
-    ) in edges
-    assert (
-        "gold.team_season_four_factors",
-        "gold.team_season_feature_matrix",
-        "dbt_build_warehouse",
-    ) in edges
-    assert (
-        "bronze.boxscores",
-        "gold.team_season_feature_matrix",
-        "dbt_build_warehouse",
-    ) not in edges
-
-
 @pytest.mark.parametrize(
     "argv",
     [
-        ["ingestion-status"],
         ["runs", "show", "missing-run"],
         ["runs", "list"],
         ["quality"],

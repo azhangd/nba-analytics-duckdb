@@ -5,4 +5,4 @@ A fake season (2099-00) with made-up teams and players, used by the tests and
 
 To regenerate it:
 
-    uv run nba-duckdb generate-test-fixtures --fixtures-dir tests/fixtures/generated
+    uv run python -m nba_duckdb.fixtures.generate_synthetic_fixtures

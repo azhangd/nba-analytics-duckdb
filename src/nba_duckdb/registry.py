@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ast
-import html
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -138,13 +136,6 @@ def task_def_named(name: str) -> TaskDef:
         raise KeyError(f"Unknown pipeline task: {name}") from exc
 
 
-@lru_cache(maxsize=1)
-def _dbt_manifest_lineage_edges() -> frozenset[tuple[str, str]]:
-    from nba_duckdb.dbt_manifest import dbt_manifest_edges, load_dbt_manifest
-
-    return frozenset(dbt_manifest_edges(load_dbt_manifest()))
-
-
 def task_defs_for(graph: str, mode: str) -> list[TaskDef]:
     from nba_duckdb.dbt_models import DBT_MODEL_DATASETS
 
@@ -225,146 +216,3 @@ def quality_required_tables() -> list[tuple[str, str]]:
                 seen.add(key)
                 tables.append(key)
     return tables
-
-
-def _dataset_layer(dataset: str) -> str:
-    return dataset.split(".", 1)[0]
-
-
-def dataset_rows() -> list[dict[str, object]]:
-    rows = []
-    seen: set[tuple[str, str]] = set()
-    for graph in ALL_GRAPHS:
-        for mode in ALL_MODES:
-            for task in task_defs_for(graph, mode):
-                for output in task.outputs:
-                    key = (output, task.name)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append({
-                        "dataset": output,
-                        "task": task.name,
-                        "layer": _dataset_layer(output),
-                        "inputs": list(task.inputs),
-                        "graphs": sorted(task.graphs),
-                        "modes": sorted(task.modes),
-                        "required": task.required,
-                    })
-    return rows
-
-
-def dataset_graph(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> dict[str, object]:
-    tasks = task_defs_for(graph, mode)
-    nodes: dict[str, dict[str, object]] = {}
-    edges: list[dict[str, object]] = []
-
-    def ensure_node(dataset: str) -> None:
-        layer, _, table = dataset.partition(".")
-        nodes.setdefault(
-            dataset,
-            {
-                "dataset": dataset,
-                "schema": layer,
-                "table": table,
-                "producers": [],
-                "consumers": [],
-            },
-        )
-
-    def append_consumer(dataset: str, task_name: str) -> None:
-        consumer = {"task": task_name}
-        if consumer not in nodes[dataset]["consumers"]:
-            nodes[dataset]["consumers"].append(consumer)
-
-    for task in tasks:
-        task_outputs = task.outputs
-        dbt_edges: tuple[tuple[str, str], ...] = ()
-        if task.dbt_selector:
-            output_set = set(task_outputs)
-            dbt_edges = tuple(
-                sorted(
-                    edge
-                    for edge in _dbt_manifest_lineage_edges()
-                    if edge[1] in output_set
-                )
-            )
-        for dataset in (*task.inputs, *task_outputs):
-            ensure_node(dataset)
-        for source, target in dbt_edges:
-            ensure_node(source)
-            ensure_node(target)
-        for dataset in task_outputs:
-            nodes[dataset]["producers"].append({"task": task.name})
-        for dataset in task.inputs:
-            append_consumer(dataset, task.name)
-        if task.dbt_selector:
-            for source, target in dbt_edges:
-                append_consumer(source, task.name)
-                edges.append({"from": source, "to": target, "task": task.name})
-            continue
-        for dataset in task.inputs:
-            for output in task_outputs:
-                edges.append({"from": dataset, "to": output, "task": task.name})
-
-    task_rows = [
-        {
-            "task": task.name,
-            "layer": task.layer,
-            "task_type": task.task_type,
-            "inputs": list(task.inputs),
-            "outputs": list(task.outputs),
-            "required": task.required,
-        }
-        for task in tasks
-    ]
-    return {
-        "graph": graph,
-        "mode": mode,
-        "tasks": task_rows,
-        "nodes": [nodes[key] for key in sorted(nodes)],
-        "edges": edges,
-    }
-
-
-def dataset_graph_html(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> str:
-    payload = dataset_graph(graph=graph, mode=mode)
-    nodes = payload["nodes"]
-    edges = payload["edges"]
-    tasks = payload["tasks"]
-    graph_json = html.escape(json.dumps(payload, indent=2), quote=False)
-    rows = "\n".join(
-        "<tr>"
-        f"<td>{html.escape(str(row['task']))}</td>"
-        f"<td>{html.escape(str(row['layer']))}</td>"
-        f"<td>{html.escape(', '.join(row['outputs']))}</td>"
-        f"<td>{html.escape(', '.join(row['inputs']))}</td>"
-        "</tr>"
-        for row in tasks
-    )
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>NBA DuckDB Dataset Graph</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; margin: 2rem; color: #1f2937; }}
-    h1 {{ margin-bottom: 0.25rem; }}
-    table {{ border-collapse: collapse; width: 100%; margin-top: 1rem; }}
-    th, td {{ border: 1px solid #d1d5db; padding: 0.5rem; text-align: left; vertical-align: top; }}
-    th {{ background: #f3f4f6; }}
-    pre {{ background: #111827; color: #f9fafb; padding: 1rem; overflow: auto; }}
-  </style>
-</head>
-<body>
-  <h1>NBA DuckDB Dataset Graph</h1>
-  <p>Graph: {html.escape(graph)} | Mode: {html.escape(mode)} | Tasks: {len(tasks)} | Datasets: {len(nodes)} | Edges: {len(edges)}</p>
-  <table>
-    <thead><tr><th>Task</th><th>Layer</th><th>Writes</th><th>Reads</th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-  <h2>Machine-readable graph</h2>
-  <pre>{graph_json}</pre>
-</body>
-</html>
-"""

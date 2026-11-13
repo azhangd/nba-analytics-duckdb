@@ -11,14 +11,7 @@ stats endpoints, then builds a few dozen tables on top:
 - shot quality: actual vs. expected FG% by zone
 - lineup and on/off numbers, clutch splits, play types
 
-```mermaid
-flowchart LR
-    api["NBA stats API"] --> bronze["bronze<br/>raw responses"]
-    bronze --> silver["silver<br/>games, box scores,<br/>play-by-play, shots"]
-    silver --> gold["gold<br/>player and team stats"]
-    silver --> models["models<br/>RAPM, win probability,<br/>shot quality"]
-    models --> gold
-```
+![Every table in the warehouse, grouped by layer](docs/assets/schema.png)
 
 Not affiliated with the NBA, and no NBA data lives in this repo.
 
@@ -69,7 +62,6 @@ Summer League works too: `uv run nba-duckdb run-summer-league --season 2026-27`.
 
 ## More
 
-- [docs/DIAGRAMS.md](docs/DIAGRAMS.md) has diagrams of how the tables fit together
 - [VALIDATION.md](VALIDATION.md) covers how the metrics are calculated and where they're approximate
 - `.env.example` lists the settings (database path, seasons, rate limits)
 - [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help out

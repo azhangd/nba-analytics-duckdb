@@ -25,10 +25,7 @@ from nba_duckdb.exceptions import (
 from nba_duckdb.fixtures.generate_synthetic_fixtures import (
     SEASON as SYNTHETIC_SEASON,
 )
-from nba_duckdb.fixtures.generate_synthetic_fixtures import (
-    generate_fixtures as generate,
-)
-from nba_duckdb.ingestion_state import normalize_source, summarize_sources
+from nba_duckdb.ingestion_state import normalize_source
 from nba_duckdb.orchestration import (
     TaskSpec,
     get_run_detail,
@@ -132,12 +129,6 @@ def init_db(_: argparse.Namespace) -> dict[str, Any]:
 
     db.init_schema()
     return {"schema_initialized": True}
-
-
-def generate_test_fixtures(args: argparse.Namespace) -> dict[str, Any]:
-    output_dir = config.fixtures_dir(args.fixtures_dir)
-    files = generate(output_dir)
-    return {"fixtures_dir": str(output_dir), "files": [str(path) for path in files]}
 
 
 def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
@@ -327,16 +318,6 @@ def backfill_source(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def ingestion_status(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "ingestion_items": summarize_sources(
-            season=args.season,
-            source=args.source,
-            read_only=True,
-        )
-    }
-
-
 def check_quality(_: argparse.Namespace) -> dict[str, Any]:
     from nba_duckdb import quality
 
@@ -349,30 +330,6 @@ def list_runs(args: argparse.Namespace) -> dict[str, Any]:
 
 def show_run(args: argparse.Namespace) -> dict[str, Any]:
     return get_run_detail(args.run_id)
-
-
-def list_datasets(_: argparse.Namespace) -> dict[str, Any]:
-    return {"datasets": registry.dataset_rows()}
-
-
-def graph_datasets(args: argparse.Namespace) -> dict[str, Any]:
-    graph = QUICK_GRAPH if args.quick else DEFAULT_GRAPH
-    mode = args.mode
-    if args.format == "html":
-        html = registry.dataset_graph_html(graph=graph, mode=mode)
-        if args.output:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(html)
-            return {
-                "status": "ok",
-                "format": "html",
-                "graph": graph,
-                "mode": mode,
-                "output": str(output_path),
-            }
-        return {"format": "html", "graph": graph, "mode": mode, "html": html}
-    return registry.dataset_graph(graph=graph, mode=mode)
 
 
 def _add_runner_args(
@@ -398,13 +355,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init")
     init_parser.set_defaults(func=init_db)
-
-    fixtures_parser = subparsers.add_parser(
-        "generate-test-fixtures",
-        help="Generate deterministic fixtures for tests and offline smoke checks.",
-    )
-    fixtures_parser.add_argument("--fixtures-dir")
-    fixtures_parser.set_defaults(func=generate_test_fixtures)
 
     run_parser = subparsers.add_parser(
         "run-smoke",
@@ -475,42 +425,6 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--no-init-schema", action="store_false", dest="init_schema")
     _add_runner_args(backfill_parser, default_retries=2, default_retry_delay_seconds=120.0)
     backfill_parser.set_defaults(func=backfill_source, init_schema=True)
-
-    ingestion_status_parser = subparsers.add_parser(
-        "ingestion-status",
-        help="Show item-level live ingestion progress by source and season.",
-    )
-    ingestion_status_parser.add_argument("--season")
-    ingestion_status_parser.add_argument("--source")
-    ingestion_status_parser.set_defaults(func=ingestion_status)
-
-    datasets_parser = subparsers.add_parser(
-        "datasets",
-        help="Inspect declared pipeline datasets and lineage.",
-    )
-    datasets_subparsers = datasets_parser.add_subparsers(
-        dest="datasets_command",
-        required=True,
-    )
-    datasets_list_parser = datasets_subparsers.add_parser("list")
-    datasets_list_parser.set_defaults(func=list_datasets)
-    datasets_graph_parser = datasets_subparsers.add_parser(
-        "graph",
-        help="Emit dataset lineage from task metadata and dbt refs.",
-    )
-    datasets_graph_parser.add_argument("--quick", action="store_true")
-    datasets_graph_parser.add_argument(
-        "--mode",
-        choices=[registry.LIVE_MODE, registry.FIXTURE_MODE],
-        default=registry.LIVE_MODE,
-    )
-    datasets_graph_parser.add_argument(
-        "--format",
-        choices=["json", "html"],
-        default="json",
-    )
-    datasets_graph_parser.add_argument("--output")
-    datasets_graph_parser.set_defaults(func=graph_datasets)
 
     quality_parser = subparsers.add_parser("quality")
     quality_parser.set_defaults(func=check_quality)

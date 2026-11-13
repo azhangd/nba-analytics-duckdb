@@ -186,61 +186,21 @@ def test_quality_required_tables_are_derived_from_full_registry():
     assert set(quality.REQUIRED_TABLES) == _warehouse_tables() - summer_tables
 
 
-def test_dataset_rows_advertise_every_registered_output():
+def test_every_warehouse_table_has_a_producing_task():
     from nba_duckdb import registry
 
-    rows = registry.dataset_rows()
-    datasets = {tuple(str(row["dataset"]).split(".", 1)) for row in rows}
+    owners = {
+        output: task.name
+        for graph in registry.ALL_GRAPHS
+        for mode in registry.ALL_MODES
+        for task in registry.task_defs_for(graph, mode)
+        for output in task.outputs
+    }
 
-    assert datasets == _warehouse_tables()
-    assert all(
-        {"quick", "default", "summer_league"}.intersection(row["graphs"])
-        for row in rows
-    )
-    assert not any("library" in row["graphs"] for row in rows)
-    owners = {row["dataset"]: (row["task"], row["layer"]) for row in rows}
-    assert owners["gold.player_season_stats"] == ("dbt_build_warehouse", "gold")
-    assert owners["gold.player_season_feature_matrix"] == ("dbt_build_feature_matrices", "gold")
-    assert owners["gold.team_season_feature_matrix"] == ("dbt_build_warehouse", "gold")
-    assert owners["silver.fct_games"][1] == "silver"
-
-
-def test_dataset_graph_exposes_lineage_without_task_imports():
-    from nba_duckdb import registry
-
-    graph = registry.dataset_graph()
-    nodes = {node["dataset"]: node for node in graph["nodes"]}
-    edges = {(edge["from"], edge["to"], edge["task"]) for edge in graph["edges"]}
-
-    assert "gold.player_season_stats" in nodes
-    assert nodes["gold.player_season_stats"]["producers"] == [
-        {"task": "dbt_build_warehouse"}
-    ]
-    assert (
-        "gold.player_game_stats",
-        "gold.player_season_stats",
-        "dbt_build_warehouse",
-    ) in edges
-    assert (
-        "silver.fct_games",
-        "gold.player_season_stats",
-        "dbt_build_warehouse",
-    ) in edges
-    assert (
-        "gold.team_season_four_factors",
-        "gold.team_season_feature_matrix",
-        "dbt_build_warehouse",
-    ) in edges
-    assert (
-        "bronze.boxscores",
-        "gold.player_season_stats",
-        "dbt_build_warehouse",
-    ) not in edges
-    assert (
-        "bronze.boxscores",
-        "gold.team_season_feature_matrix",
-        "dbt_build_warehouse",
-    ) not in edges
+    assert {tuple(dataset.split(".", 1)) for dataset in owners} == _warehouse_tables()
+    assert owners["gold.player_season_stats"] == "dbt_build_warehouse"
+    assert owners["gold.player_season_feature_matrix"] == "dbt_build_feature_matrices"
+    assert owners["gold.team_season_feature_matrix"] == "dbt_build_warehouse"
 
 
 def test_bronze_ownership_is_mode_specific():
