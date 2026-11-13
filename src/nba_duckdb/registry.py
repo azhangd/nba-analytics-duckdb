@@ -214,11 +214,6 @@ def _toposort(tasks: Sequence[TaskDef], *, mode: str) -> list[TaskDef]:
     return ordered
 
 
-def module_paths(*, graph: str | None = None, mode: str | None = None) -> list[str]:
-    tasks = TASK_DEFS if graph is None or mode is None else task_defs_for(graph, mode)
-    return [task.module_path for task in tasks if task.module_path]
-
-
 def quality_required_tables() -> list[tuple[str, str]]:
     seen: set[tuple[str, str]] = set()
     tables: list[tuple[str, str]] = []

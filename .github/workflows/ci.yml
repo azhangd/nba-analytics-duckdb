@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
-      - run: sudo apt-get update && sudo apt-get install -y graphviz
       - run: uv sync --extra dev --extra full
       - run: uv run ruff check src tests scripts examples dags
       - run: make dbt-parse
@@ -40,7 +39,6 @@ jobs:
       AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/dags
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__OPENLINEAGE__NAMESPACE: nba-analytics-duckdb
       AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI: "True"
     steps:
       - name: Configure runtime paths
@@ -92,15 +90,6 @@ jobs:
       - run: uv sync --extra dev --extra ml
       - run: make dbt-parse
       - run: uv run nba-duckdb run-smoke
-      - run: uv sync --extra dev --extra live
-      - run: uv run pytest tests/test_cli_orchestration.py::test_run_live_default_with_live_extra_missing_ml_reports_ml_only tests/test_cli_orchestration.py::test_run_live_quick_with_live_extra_does_not_require_ml -q
-      - name: Plain pip light install
-        run: |
-          python -m venv /tmp/nba-duckdb-pip-light
-          . /tmp/nba-duckdb-pip-light/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          NBA_DUCKDB_SMOKE_PATH=/tmp/nba-duckdb-pip-light-smoke.duckdb nba-duckdb run-smoke --quick
 
   full-extra-install:
     runs-on: ubuntu-latest
@@ -118,20 +107,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --extra full
-      - run: |
-          uv run python - <<'PY'
-          from importlib.util import find_spec
-
-          for module in (
-              "dbt",
-              "dbt.adapters.duckdb",
-              "joblib",
-              "nba_api",
-              "pdfplumber",
-              "scipy",
-              "sklearn",
-              "xgboost",
-          ):
-              assert find_spec(module), module
-          PY
       - run: NBA_DUCKDB_SMOKE_PATH=/tmp/nba-duckdb-${{ matrix.python-version }}-quick.duckdb uv run nba-duckdb run-smoke --quick

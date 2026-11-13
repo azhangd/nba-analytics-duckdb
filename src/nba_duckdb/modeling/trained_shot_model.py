@@ -20,7 +20,7 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import log_loss, roc_auc_score
 from sklearn.model_selection import GroupKFold
 
-from nba_duckdb.modeling.artifact_paths import artifact_dir
+from nba_duckdb.modeling import artifact_paths
 
 logger = logging.getLogger("nba_duckdb.modeling.trained_shot_model")
 SHOT_MODEL_N_JOBS = 1
@@ -43,7 +43,6 @@ TOP_ACTION_TYPES = [
 
 SHOT_CONTEXTS = ["pull_up", "catch_and_shoot", "off_dribble", "other"]
 
-ARTIFACT_DIR = artifact_dir("shot_model")
 
 
 def chronological_game_split(
@@ -88,9 +87,7 @@ def artifact_dir_for_season(
     if artifact_dir:
         return artifact_dir
     season_value = str(season or "").strip()
-    if season_value:
-        return os.path.join(ARTIFACT_DIR, season_value)
-    return ARTIFACT_DIR
+    return artifact_paths.artifact_dir("shot_model", *([season_value] if season_value else []))
 
 
 def build_features(

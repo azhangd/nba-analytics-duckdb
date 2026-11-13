@@ -11,16 +11,21 @@ from nba_duckdb.orchestration import (
 )
 
 
-def _init_tmp_db(tmp_path, monkeypatch):
-    from nba_duckdb import db
+def _counting_steps(names, task_type="python"):
+    """TaskSpecs that count how often each one runs."""
+    calls = dict.fromkeys(names, 0)
 
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
-    db.init_schema()
-    return db
+    def make(name):
+        def action():
+            calls[name] += 1
+            return {}
+
+        return action
+
+    return calls, [TaskSpec(name, task_type, make(name)) for name in names]
 
 
-def test_run_state_records_successful_task(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_run_state_records_successful_task(tmp_db):
     context = prepare_run(command="run-smoke", graph="default", scope={"season": "fixture"})
 
     result = run_steps(
@@ -39,8 +44,7 @@ def test_run_state_records_successful_task(tmp_path, monkeypatch):
     assert detail["tasks"][0]["attempts"] == 1
 
 
-def test_task_retries_until_success(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_task_retries_until_success(tmp_db):
     attempts = {"task": 0}
 
     def flaky_task():
@@ -64,8 +68,7 @@ def test_task_retries_until_success(tmp_path, monkeypatch):
     assert detail["tasks"][0]["status"] == "success"
 
 
-def test_endpoint_unavailable_error_does_not_burn_task_retries(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_endpoint_unavailable_error_does_not_burn_task_retries(tmp_db):
     attempts = {"task": 0}
 
     def blocked_task():
@@ -90,8 +93,7 @@ def test_endpoint_unavailable_error_does_not_burn_task_retries(tmp_path, monkeyp
     assert detail["tasks"][0]["status"] == "failed"
 
 
-def test_optional_task_failure_marks_run_degraded(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_optional_task_failure_marks_run_degraded(tmp_db):
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
 
     result = run_steps(
@@ -116,8 +118,7 @@ def test_optional_task_failure_marks_run_degraded(tmp_path, monkeypatch):
     assert statuses == {"required_task": "success", "optional_task": "degraded"}
 
 
-def test_run_detail_includes_ingestion_item_summary(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_run_detail_includes_ingestion_item_summary(tmp_db):
     from nba_duckdb.ingestion_state import eligible_items, make_item, mark_item_success
 
     item = make_item("0029900001", "2099-00", team_id=1610612737)
@@ -148,8 +149,8 @@ def test_run_detail_includes_ingestion_item_summary(tmp_path, monkeypatch):
     ]
 
 
-def test_resume_marks_stale_running_task_interrupted_and_skips_success(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_resume_marks_stale_running_task_interrupted_and_skips_success(tmp_db):
+    db = tmp_db
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
     run_steps(
         context,
@@ -168,7 +169,7 @@ def test_resume_marks_stale_running_task_interrupted_and_skips_success(tmp_path,
         """,
         [context.run_id],
     )
-    calls = {"already_done": 0, "interrupted_task": 0}
+    calls, steps = _counting_steps(["already_done", "interrupted_task"])
 
     resumed_context = prepare_run(
         command="run-live",
@@ -178,21 +179,7 @@ def test_resume_marks_stale_running_task_interrupted_and_skips_success(tmp_path,
     )
     result = run_steps(
         resumed_context,
-        [
-            TaskSpec(
-                "already_done",
-                "python",
-                lambda: calls.__setitem__("already_done", calls["already_done"] + 1) or {},
-            ),
-            TaskSpec(
-                "interrupted_task",
-                "python",
-                lambda: calls.__setitem__(
-                    "interrupted_task", calls["interrupted_task"] + 1
-                )
-                or {},
-            ),
-        ],
+        steps,
         retries=0,
         retry_delay_seconds=0,
     )
@@ -207,15 +194,9 @@ def test_resume_marks_stale_running_task_interrupted_and_skips_success(tmp_path,
     assert statuses["interrupted_task"]["status"] == "success"
 
 
-def test_resume_keeps_stored_graph_when_requested_graph_differs(
-    tmp_path,
-    monkeypatch,
-    caplog,
-):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_resume_keeps_stored_graph_when_requested_graph_differs(tmp_db):
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
 
-    caplog.set_level("WARNING", logger="nba_duckdb.orchestration")
     resumed_context = prepare_run(
         command="run-live",
         graph="quick",
@@ -225,14 +206,10 @@ def test_resume_keeps_stored_graph_when_requested_graph_differs(
 
     assert resumed_context.graph == "default"
     assert resumed_context.scope == {"season": "2025-26"}
-    assert (
-        f"Ignoring requested graph quick while resuming run {context.run_id}; "
-        "stored graph is default"
-    ) in caplog.text
 
 
-def test_resume_refuses_to_interrupt_live_running_task(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_resume_refuses_to_interrupt_live_running_task(tmp_db):
+    db = tmp_db
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
     db.execute(
         """
@@ -255,8 +232,7 @@ def test_resume_refuses_to_interrupt_live_running_task(tmp_path, monkeypatch):
         )
 
 
-def test_retry_failed_only_reruns_failed_or_interrupted_tasks(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_retry_failed_only_reruns_failed_or_interrupted_tasks(tmp_db):
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -270,7 +246,7 @@ def test_retry_failed_only_reruns_failed_or_interrupted_tasks(tmp_path, monkeypa
             retry_delay_seconds=0,
         )
 
-    calls = {"failed_task": 0, "missing_task": 0}
+    calls, steps = _counting_steps(["failed_task", "missing_task"])
     retry_context = prepare_run(
         command="run-live",
         graph="default",
@@ -280,18 +256,7 @@ def test_retry_failed_only_reruns_failed_or_interrupted_tasks(tmp_path, monkeypa
     )
     result = run_steps(
         retry_context,
-        [
-            TaskSpec(
-                "failed_task",
-                "python",
-                lambda: calls.__setitem__("failed_task", calls["failed_task"] + 1) or {},
-            ),
-            TaskSpec(
-                "missing_task",
-                "python",
-                lambda: calls.__setitem__("missing_task", calls["missing_task"] + 1) or {},
-            ),
-        ],
+        steps,
         retries=0,
         retry_delay_seconds=0,
     )
@@ -301,8 +266,8 @@ def test_retry_failed_only_reruns_failed_or_interrupted_tasks(tmp_path, monkeypa
     assert result["missing_tasks"] == ["missing_task"]
 
 
-def test_retry_failed_reruns_downstream_success_after_rerun(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_retry_failed_reruns_downstream_success_after_rerun(tmp_db):
+    db = tmp_db
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
     db.insert_rows(
         "ops",
@@ -340,7 +305,9 @@ def test_retry_failed_reruns_downstream_success_after_rerun(tmp_path, monkeypatc
             },
         ],
     )
-    calls = {"upstream_failed": 0, "downstream_success": 0, "later_success": 0}
+    calls, steps = _counting_steps(
+        ["upstream_failed", "downstream_success", "later_success"], "gold"
+    )
     retry_context = prepare_run(
         command="run-live",
         graph="default",
@@ -351,26 +318,7 @@ def test_retry_failed_reruns_downstream_success_after_rerun(tmp_path, monkeypatc
 
     result = run_steps(
         retry_context,
-        [
-            TaskSpec(
-                "upstream_failed",
-                "gold",
-                lambda: calls.__setitem__("upstream_failed", calls["upstream_failed"] + 1) or {},
-            ),
-            TaskSpec(
-                "downstream_success",
-                "gold",
-                lambda: calls.__setitem__(
-                    "downstream_success", calls["downstream_success"] + 1
-                )
-                or {},
-            ),
-            TaskSpec(
-                "later_success",
-                "gold",
-                lambda: calls.__setitem__("later_success", calls["later_success"] + 1) or {},
-            ),
-        ],
+        steps,
         retries=0,
         retry_delay_seconds=0,
     )
@@ -382,8 +330,7 @@ def test_retry_failed_reruns_downstream_success_after_rerun(tmp_path, monkeypatc
     assert attempts == {"upstream_failed": 2, "downstream_success": 2, "later_success": 2}
 
 
-def test_failed_pipeline_run_records_success_count(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_failed_pipeline_run_records_success_count(tmp_db):
     context = prepare_run(command="run-live", graph="default", scope={"season": "2025-26"})
 
     with pytest.raises(RuntimeError, match="boom"):

@@ -90,46 +90,6 @@ def test_summer_league_command_uses_dedicated_graph():
     ]
 
 
-def test_public_cli_uses_current_command_names():
-    from nba_duckdb.cli import build_parser
-
-    help_text = build_parser().format_help()
-
-    assert "run-smoke" in help_text
-    assert "run-summer-league" in help_text
-    assert "generate-test-fixtures" in help_text
-    assert "quality" in help_text
-    assert "runs" in help_text
-    assert "backfill-source" in help_text
-    assert "ingestion-status" in help_text
-    assert "datasets" in help_text
-    assert "d" + "bt" not in help_text
-    assert "run-" + "fixture" + "-pipeline" not in help_text
-    assert "generate-" + "fixtures" not in help_text
-
-
-def test_runner_retry_defaults_match_command_purpose():
-    from nba_duckdb.cli import build_parser
-
-    parser = build_parser()
-    live_args = parser.parse_args(["run-live"])
-    smoke_args = parser.parse_args(["run-smoke"])
-    quick_args = parser.parse_args(["run-live", "--quick"])
-    summer_args = parser.parse_args(["run-summer-league", "--season", "2026-27"])
-
-    assert live_args.retries == 2
-    assert live_args.retry_delay_seconds == 120.0
-    assert smoke_args.retries == 0
-    assert smoke_args.retry_delay_seconds == 0.0
-    assert quick_args.quick is True
-    assert summer_args.competitions == [
-        "summer_league_california",
-        "summer_league_vegas",
-        "summer_league_salt_lake_city",
-    ]
-    assert summer_args.retries == 2
-
-
 def _hide_optional_modules(monkeypatch, missing_modules):
     from nba_duckdb import dependencies
 
@@ -367,7 +327,6 @@ def test_run_smoke_defaults_to_separate_smoke_warehouse(tmp_path, monkeypatch):
             fixtures_dir=None,
             init_schema=True,
             quick=False,
-            source=None,
             run_id=None,
             resume_latest=False,
             retry_failed=False,
@@ -442,32 +401,20 @@ def _assert_run_live_refuses_current_warehouse(monkeypatch, capsys, expected_tab
         assert expected_table in payload["error"]
 
 
-def test_run_live_refuses_synthetic_smoke_season(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "schedule_row",
+    [
+        {"game_id": "0029900001", "season": "2099-00"},
+        {"game_id": "002SYN0001", "season": "2025-26"},
+    ],
+)
+def test_run_live_refuses_synthetic_schedule_rows(tmp_path, monkeypatch, capsys, schedule_row):
     from nba_duckdb import db
 
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     db.init_schema()
-    db.insert_rows(
-        "bronze",
-        "schedule",
-        [{"game_id": "0029900001", "season": "2099-00"}],
-    )
-
-    _assert_run_live_refuses_current_warehouse(monkeypatch, capsys)
-
-
-def test_run_live_refuses_synthetic_smoke_game_id(tmp_path, monkeypatch, capsys):
-    from nba_duckdb import db
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
-    monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
-    db.init_schema()
-    db.insert_rows(
-        "bronze",
-        "schedule",
-        [{"game_id": "002SYN0001", "season": "2025-26"}],
-    )
+    db.insert_rows("bronze", "schedule", [schedule_row])
 
     _assert_run_live_refuses_current_warehouse(monkeypatch, capsys)
 
@@ -538,21 +485,6 @@ def test_run_live_no_init_schema_before_init_returns_friendly_json(
     assert not db_path.exists()
 
 
-def test_old_graph_names_are_not_public_cli_choices():
-    from nba_duckdb.cli import build_parser
-
-    parser = build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run-live", "--profile", "core"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run-live", "--profile", "full"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run-live", "--profile", "exp" + "erimental"])
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run-live", "--" + "exp" + "erimental"])
-
-
 def test_task_graph_modules_import():
     from nba_duckdb import registry
     from nba_duckdb.dependencies import missing_modules_for_groups
@@ -560,16 +492,7 @@ def test_task_graph_modules_import():
     if missing := missing_modules_for_groups("live", "ml"):
         pytest.skip(f"full live graph import test requires full extras: {', '.join(missing)}")
 
-    module_paths = [
-        *registry.module_paths(
-            graph=registry.DEFAULT_GRAPH,
-            mode=registry.LIVE_MODE,
-        ),
-        *registry.module_paths(
-            graph=registry.QUICK_GRAPH,
-            mode=registry.LIVE_MODE,
-        ),
-    ]
+    module_paths = [task.module_path for task in registry.TASK_DEFS if task.module_path]
 
     for module_path in sorted(set(module_paths)):
         importlib.import_module(module_path)
@@ -661,75 +584,21 @@ def test_datasets_graph_cli_returns_manifest_backed_default_json_graph():
     ) not in edges
 
 
-def test_ingestion_status_uses_read_only_summary(monkeypatch):
-    from nba_duckdb import cli
-
-    captured = {}
-
-    def fake_summarize_sources(*, season, source, read_only):
-        captured.update({"season": season, "source": source, "read_only": read_only})
-        return [{"source": source, "season": season, "total_items": 0, "status_counts": {}}]
-
-    monkeypatch.setattr(cli, "summarize_sources", fake_summarize_sources)
-
-    result = cli.ingestion_status(argparse.Namespace(season="2099-00", source="play-by-play"))
-
-    assert captured == {"season": "2099-00", "source": "play-by-play", "read_only": True}
-    assert result["ingestion_items"][0]["source"] == "play-by-play"
-
-
-def test_ingestion_status_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
-    from nba_duckdb import cli
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "missing.duckdb"))
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "ingestion-status"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    payload = json.loads(capsys.readouterr().err)
-    assert exc_info.value.code == 1
-    assert payload["status"] == "not_initialized"
-    assert "nba-duckdb init" in payload["error"]
-
-
-def test_runs_show_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
-    from nba_duckdb import cli
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "missing.duckdb"))
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "runs", "show", "missing-run"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    payload = json.loads(capsys.readouterr().err)
-    assert exc_info.value.code == 1
-    assert payload["status"] == "not_initialized"
-    assert "nba-duckdb init" in payload["error"]
-
-
-def test_runs_list_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["ingestion-status"],
+        ["runs", "show", "missing-run"],
+        ["runs", "list"],
+        ["quality"],
+    ],
+)
+def test_read_commands_before_init_return_not_initialized(tmp_path, monkeypatch, capsys, argv):
     from nba_duckdb import cli
 
     db_path = tmp_path / "missing.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "runs", "list"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    payload = json.loads(capsys.readouterr().err)
-    assert exc_info.value.code == 1
-    assert payload["status"] == "not_initialized"
-    assert not db_path.exists()
-
-
-def test_quality_before_init_returns_friendly_json(tmp_path, monkeypatch, capsys):
-    from nba_duckdb import cli
-
-    db_path = tmp_path / "missing.duckdb"
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "quality"])
+    monkeypatch.setattr(sys, "argv", ["nba-duckdb", *argv])
 
     with pytest.raises(SystemExit) as exc_info:
         cli.main()

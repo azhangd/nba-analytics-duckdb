@@ -9,16 +9,7 @@ from nba_duckdb.ingestion_state import (
 )
 
 
-def _init_tmp_db(tmp_path, monkeypatch):
-    from nba_duckdb import db
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
-    db.init_schema()
-    return db
-
-
-def test_ingestion_items_track_success_failure_and_retry(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_ingestion_items_track_success_failure_and_retry(tmp_db):
     item_a = make_item("0029900001", "2099-00")
     item_b = make_item("0029900002", "2099-00")
 
@@ -36,8 +27,7 @@ def test_ingestion_items_track_success_failure_and_retry(tmp_path, monkeypatch):
     assert summary["status_counts"] == {"failed": 1, "success": 1}
 
 
-def test_running_items_can_be_marked_interrupted_for_crash_recovery(tmp_path, monkeypatch):
-    _init_tmp_db(tmp_path, monkeypatch)
+def test_running_items_can_be_marked_interrupted_for_crash_recovery(tmp_db):
     item = make_item("0029900001", "2099-00", team_id=1610612737)
 
     eligible_items("shot-charts", [item])

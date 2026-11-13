@@ -1,7 +1,7 @@
-.PHONY: install install-full install-airflow lint test init generate-test-fixtures dbt-parse smoke smoke-quick quality runs ingestion-status airflow-prepare airflow-check airflow-smoke airflow-dev diagrams check-diagrams check-artifacts check-wheel example-basic-team-summary clean clean-data
+.PHONY: install install-full install-airflow lint test dbt-parse smoke smoke-quick quality airflow-prepare airflow-check airflow-smoke airflow-dev diagrams check-diagrams check-artifacts check-wheel example-basic-team-summary clean clean-data
 
 AIRFLOW_HOME ?= $(CURDIR)/.airflow
-AIRFLOW_ENV = AIRFLOW_HOME="$(AIRFLOW_HOME)" AIRFLOW__CORE__DAGS_FOLDER="$(CURDIR)/dags" AIRFLOW__CORE__EXECUTOR=LocalExecutor AIRFLOW__CORE__LOAD_EXAMPLES=False AIRFLOW__OPENLINEAGE__NAMESPACE=nba-analytics-duckdb AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI=True
+AIRFLOW_ENV = AIRFLOW_HOME="$(AIRFLOW_HOME)" AIRFLOW__CORE__DAGS_FOLDER="$(CURDIR)/dags" AIRFLOW__CORE__EXECUTOR=LocalExecutor AIRFLOW__CORE__LOAD_EXAMPLES=False AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI=True
 
 install:
 	uv sync --extra dev
@@ -18,12 +18,6 @@ lint:
 test:
 	uv run pytest
 
-init:
-	uv run nba-duckdb init
-
-generate-test-fixtures:
-	uv run nba-duckdb generate-test-fixtures
-
 dbt-parse:
 	uv run dbt parse --project-dir . --profiles-dir dbt --target-path dbt/target
 
@@ -35,12 +29,6 @@ smoke-quick:
 
 quality:
 	NBA_DUCKDB_PATH=$${NBA_DUCKDB_PATH:-data/warehouse/smoke.duckdb} uv run nba-duckdb quality
-
-runs:
-	uv run nba-duckdb runs list
-
-ingestion-status:
-	uv run nba-duckdb ingestion-status
 
 airflow-prepare: dbt-parse
 	$(AIRFLOW_ENV) uv run airflow db migrate

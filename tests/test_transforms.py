@@ -2,6 +2,7 @@ import json
 
 import polars as pl
 import pytest
+from conftest import schedule_row
 
 from nba_duckdb.fixtures.generate_synthetic_fixtures import (
     BOXSCORES,
@@ -14,14 +15,6 @@ from nba_duckdb.transforms.frames import require_columns, select_columns
 from nba_duckdb.transforms.silver.boxscores import build_fct_boxscore_rows
 from nba_duckdb.transforms.silver.play_by_play import build_fct_play_by_play_rows
 from nba_duckdb.transforms.silver.shots import build_fct_shot_rows
-
-
-def _init_tmp_db(tmp_path, monkeypatch):
-    from nba_duckdb import db
-
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
-    db.init_schema()
-    return db
 
 
 def test_build_fct_boxscore_rows_from_fixture_payload():
@@ -87,27 +80,16 @@ def test_build_fct_shots_preserves_game_event_id():
     assert rows[0]["game_event_id"] == 1
 
 
-def test_sql_fct_games_derives_status_scores_and_type(tmp_path, monkeypatch):
+def test_sql_fct_games_derives_status_scores_and_type(tmp_db):
     from nba_duckdb import dbt_runner
 
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     game = SCHEDULE[0]
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": game["gameId"],
-                "game_date": game["gameDate"],
-                "home_team_id": game["homeTeam"]["teamId"],
-                "away_team_id": game["awayTeam"]["teamId"],
-                "home_team_abbr": game["homeTeam"]["teamTricode"],
-                "away_team_abbr": game["awayTeam"]["teamTricode"],
-                "game_status": game["gameStatus"],
-                "game_status_text": "Final",
-                "season": game["season"],
-                "raw_json": json.dumps(game),
-            }
+            schedule_row(game_id=game["gameId"], game_date=game["gameDate"], home_team_id=game["homeTeam"]["teamId"], away_team_id=game["awayTeam"]["teamId"], home_team_abbr=game["homeTeam"]["teamTricode"], away_team_abbr=game["awayTeam"]["teamTricode"], game_status=game["gameStatus"], season=game["season"], raw_json=json.dumps(game))
         ],
     )
 
@@ -130,10 +112,10 @@ def test_sql_fct_games_derives_status_scores_and_type(tmp_path, monkeypatch):
     ]
 
 
-def test_sql_coach_models_shape_dimensions_and_roles(tmp_path, monkeypatch):
+def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
     from nba_duckdb import dbt_runner
 
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     db.insert_rows(
         "bronze",
         "coaches",
@@ -198,10 +180,10 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_path, monkeypatch):
     ]
 
 
-def test_sql_external_identities_are_name_derived(tmp_path, monkeypatch):
+def test_sql_external_identities_are_name_derived(tmp_db):
     from nba_duckdb import dbt_runner
 
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     db.execute(
         """
         CREATE TABLE silver.dim_players (
@@ -254,10 +236,10 @@ def test_build_fct_shot_rows_filters_to_bronze_team():
     assert {row["shot_context"] for row in rows}
 
 
-def test_sql_player_game_stats_adds_game_score_and_shot_splits(tmp_path, monkeypatch):
+def test_sql_player_game_stats_adds_game_score_and_shot_splits(tmp_db):
     from nba_duckdb import dbt_runner
 
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     db.execute(
         """
         CREATE TABLE silver.fct_boxscores (
@@ -382,10 +364,10 @@ def test_sql_player_game_stats_adds_game_score_and_shot_splits(tmp_path, monkeyp
     ]
 
 
-def test_sql_team_game_stats_computes_ratings_and_margins(tmp_path, monkeypatch):
+def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
     from nba_duckdb import dbt_runner
 
-    db = _init_tmp_db(tmp_path, monkeypatch)
+    db = tmp_db
     db.execute(
         """
         CREATE TABLE silver.fct_boxscores (
@@ -492,38 +474,15 @@ def test_frame_helpers_fail_with_clear_missing_column_message():
     assert select_columns(frame, ["game_id"], context="test frame").columns == ["game_id"]
 
 
-def test_full_refresh_task_reads_all_upstream_and_removes_stale_rows(tmp_path, monkeypatch):
+def test_full_refresh_task_reads_all_upstream_and_removes_stale_rows(tmp_db):
     from nba_duckdb import db, dbt_runner
 
-    _init_tmp_db(tmp_path, monkeypatch)
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0029900001",
-                "game_date": "01/01/2100 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            },
-            {
-                "game_id": "0029800001",
-                "game_date": "01/01/2099 00:00:00",
-                "home_team_id": 1610612739,
-                "away_team_id": 1610612740,
-                "home_team_abbr": "CCC",
-                "away_team_abbr": "DDD",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2098-99",
-                "raw_json": "{}",
-            },
+            schedule_row(),
+            schedule_row(game_id="0029800001", game_date="01/01/2099 00:00:00", home_team_id=1610612739, away_team_id=1610612740, home_team_abbr="CCC", away_team_abbr="DDD", season="2098-99"),
         ],
     )
     db.execute("CREATE TABLE silver.fct_games (game_id TEXT, season TEXT)")

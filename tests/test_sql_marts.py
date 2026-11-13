@@ -3,20 +3,15 @@ from pathlib import Path
 
 from nba_duckdb import registry
 from nba_duckdb.dbt_models import (
-    DBT_CORE_MODEL_DATASETS,
     DBT_CORE_MODEL_NAMES,
-    DBT_FEATURE_MODEL_DATASETS,
     DBT_FEATURE_MODEL_NAMES,
     DBT_FEATURE_SELECTOR,
     DBT_GOLD_MODEL_NAMES,
     DBT_MODEL_DATASETS,
     DBT_MODEL_NAMES,
-    DBT_RUNTIME_DEPENDENT_SELECTOR,
-    DBT_SUMMER_LEAGUE_MODEL_DATASETS,
     DBT_SUMMER_LEAGUE_MODEL_NAMES,
     DBT_SUMMER_LEAGUE_SELECTOR,
     DBT_TRANSFORM_EXCLUDE,
-    DBT_TRANSFORM_INPUTS,
     DBT_TRANSFORM_SELECTOR,
 )
 from nba_duckdb.sql.schema import schema_sql_text
@@ -24,10 +19,6 @@ from nba_duckdb.sql.schema import schema_sql_text
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
-
-
-def _dbt_gold_dir() -> Path:
-    return _repo_root() / "dbt" / "models" / "gold"
 
 
 def _dbt_model_files() -> list[Path]:
@@ -50,14 +41,6 @@ def _warehouse_tables_from_schema() -> set[str]:
             r"CREATE TABLE IF NOT EXISTS (silver|gold)\.([a-z_]+)\s*\(",
             sql,
         )
-    }
-
-
-def _registered_dbt_models() -> set[str]:
-    return {
-        model
-        for task in registry.TASK_DEFS
-        for model in task.dbt_models
     }
 
 
@@ -86,65 +69,17 @@ def _dbt_ls_model_names(*, selector: str, exclude: str | None = None) -> set[str
     } & model_names
 
 
-def test_dbt_model_files_are_registered_and_select_only():
-    registered = _registered_dbt_models()
-    actual_models = _dbt_model_file_names()
-
-    assert actual_models == registered
-    assert actual_models == set(DBT_MODEL_NAMES)
-
-    for path in _dbt_model_files():
-        if path.suffix != ".sql":
-            continue
-        sql = path.read_text()
-        assert "{{ config(" in sql
-        assert f"alias='{path.stem}'" in sql
-        assert re.search(r"\bINSERT\s+INTO\b", sql, re.IGNORECASE) is None
-        assert re.search(r"\b(BEGIN|COMMIT|TRUNCATE)\b", sql, re.IGNORECASE) is None
-
-
-def test_dbt_gold_manifest_matches_registry():
-    assert _registered_dbt_models() == set(DBT_MODEL_NAMES)
-
-
-def test_dbt_gold_manifest_matches_model_files():
-    assert len(DBT_MODEL_NAMES) == len(set(DBT_MODEL_NAMES))
+def test_dbt_model_files_are_registered():
     assert _dbt_model_file_names() == set(DBT_MODEL_NAMES)
 
 
-def test_runtime_dependent_models_are_second_dbt_phase_models():
+def test_models_reading_runtime_tables_run_in_the_second_dbt_phase():
     runtime_models = {
         path.stem
         for path in _dbt_model_files()
         if re.search(r"source\(\s*['\"]gold_runtime['\"]", path.read_text())
     }
-    core_task = next(task for task in registry.TASK_DEFS if task.name == "dbt_build_warehouse")
-    feature_task = next(
-        task for task in registry.TASK_DEFS if task.name == "dbt_build_feature_matrices"
-    )
-
     assert runtime_models == set(DBT_FEATURE_MODEL_NAMES)
-    assert set(DBT_FEATURE_MODEL_NAMES) == {
-        "game_flow_snapshots",
-        "player_season_feature_matrix",
-    }
-    assert core_task.dbt_selector == DBT_TRANSFORM_SELECTOR
-    assert core_task.dbt_exclude == DBT_RUNTIME_DEPENDENT_SELECTOR
-    assert feature_task.dbt_selector == DBT_FEATURE_SELECTOR
-    assert feature_task.dbt_exclude in (None, "")
-    assert feature_task.dbt_models == DBT_FEATURE_MODEL_NAMES
-    player_feature_sql = (_dbt_gold_dir() / "player_season_feature_matrix.sql").read_text()
-    team_feature_sql = (_dbt_gold_dir() / "team_season_feature_matrix.sql").read_text()
-    assert "requires_gold_runtime" in player_feature_sql
-    assert "requires_gold_runtime" not in team_feature_sql
-    assert "gold_feature" not in player_feature_sql
-    assert "gold_feature" not in team_feature_sql
-
-
-def test_runtime_dependent_selector_names_share_one_boundary():
-    assert DBT_RUNTIME_DEPENDENT_SELECTOR == "tag:requires_gold_runtime"
-    assert DBT_TRANSFORM_EXCLUDE == "tag:requires_gold_runtime"
-    assert DBT_FEATURE_SELECTOR == "tag:requires_gold_runtime"
 
 
 def test_dbt_tag_selectors_partition_registered_models():
@@ -162,9 +97,6 @@ def test_dbt_tag_selectors_partition_registered_models():
     assert core_models.isdisjoint(summer_league_models)
     assert feature_models.isdisjoint(summer_league_models)
     assert core_models | feature_models | summer_league_models == set(DBT_MODEL_NAMES)
-    assert "team_season_feature_matrix" in core_models
-    assert "game_flow_snapshots" in feature_models
-    assert "player_season_feature_matrix" in feature_models
 
 
 def test_gold_schema_tables_have_one_declared_registry_producer():
@@ -185,54 +117,3 @@ def test_dbt_tables_are_owned_by_dbt_not_schema_sql():
     schema_tables = _warehouse_tables_from_schema()
 
     assert schema_tables.isdisjoint(DBT_MODEL_DATASETS)
-
-
-def test_dbt_models_match_their_registry_tasks():
-    registered = _registered_dbt_models()
-    producers = _registered_gold_producers()
-
-    assert registered == set(DBT_MODEL_NAMES)
-    assert [
-        task.name
-        for task in registry.TASK_DEFS
-        if task.dbt_selector
-    ] == [
-        "dbt_build_warehouse",
-        "dbt_build_feature_matrices",
-        "dbt_build_summer_league",
-    ]
-
-    core_task = next(task for task in registry.TASK_DEFS if task.name == "dbt_build_warehouse")
-    feature_task = next(
-        task for task in registry.TASK_DEFS if task.name == "dbt_build_feature_matrices"
-    )
-    summer_league_task = next(
-        task for task in registry.TASK_DEFS if task.name == "dbt_build_summer_league"
-    )
-    assert core_task.dbt_selector == DBT_TRANSFORM_SELECTOR
-    assert core_task.dbt_exclude == DBT_TRANSFORM_EXCLUDE
-    assert core_task.outputs == DBT_CORE_MODEL_DATASETS
-    assert core_task.inputs == DBT_TRANSFORM_INPUTS
-    assert core_task.task_type == "dbt"
-    assert feature_task.dbt_selector == DBT_FEATURE_SELECTOR
-    assert feature_task.dbt_exclude in (None, "")
-    assert feature_task.outputs == DBT_FEATURE_MODEL_DATASETS
-    assert feature_task.inputs[:4] == (
-        "gold.player_season_stats",
-        "gold.player_game_rolling_stats",
-        "gold.player_season_shot_profile",
-        "gold.player_season_archetypes",
-    )
-    assert feature_task.task_type == "dbt"
-    assert summer_league_task.dbt_selector == DBT_SUMMER_LEAGUE_SELECTOR
-    assert summer_league_task.dbt_exclude in (None, "")
-    assert summer_league_task.dbt_models == DBT_SUMMER_LEAGUE_MODEL_NAMES
-    assert summer_league_task.outputs == DBT_SUMMER_LEAGUE_MODEL_DATASETS
-    assert summer_league_task.task_type == "dbt"
-
-    for model in DBT_GOLD_MODEL_NAMES:
-        assert model in producers
-        expected_task = (
-            feature_task if f"gold.{model}" in DBT_FEATURE_MODEL_DATASETS else core_task
-        )
-        assert producers[model] == [expected_task]

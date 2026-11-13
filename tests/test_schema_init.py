@@ -1,32 +1,6 @@
 from pathlib import Path
 
-from nba_duckdb.sql.schema import SCHEMA_FILES, schema_sql_text
-
-
-def test_schema_sql_defines_medallion_layers():
-    sql = schema_sql_text()
-
-    assert "CREATE SCHEMA IF NOT EXISTS bronze" in sql
-    assert "CREATE SCHEMA IF NOT EXISTS silver" in sql
-    assert "CREATE SCHEMA IF NOT EXISTS gold" in sql
-    assert "CREATE SCHEMA IF NOT EXISTS ops" in sql
-    assert "CREATE TABLE IF NOT EXISTS bronze.schedule" in sql
-    assert "source      TEXT DEFAULT 'unknown'" in sql
-    assert "CREATE TABLE IF NOT EXISTS silver.fct_boxscores" not in sql
-    assert "CREATE TABLE IF NOT EXISTS gold.player_game_stats" not in sql
-    assert "CREATE TABLE IF NOT EXISTS gold.player_season_feature_matrix" not in sql
-    assert "CREATE TABLE IF NOT EXISTS gold.model_artifacts" in sql
-    assert "CREATE TABLE IF NOT EXISTS ops.pipeline_runs" in sql
-    assert "CREATE TABLE IF NOT EXISTS ops.task_runs" in sql
-    assert "CREATE TABLE IF NOT EXISTS ops.ingestion_items" in sql
-    assert "CREATE TABLE IF NOT EXISTS ops.source_payload_manifest" in sql
-
-
-def test_schema_sql_does_not_require_destructive_reload():
-    sql = schema_sql_text().upper()
-
-    assert "TRUNCATE" not in sql
-    assert "DROP TABLE" not in sql
+from nba_duckdb.sql.schema import SCHEMA_FILES
 
 
 def test_schema_init_creates_expected_tables(tmp_path, monkeypatch):

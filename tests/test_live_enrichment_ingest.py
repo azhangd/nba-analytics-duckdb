@@ -1,55 +1,46 @@
 import json
 
 import pytest
+from conftest import schedule_row
 
 pytest.importorskip("nba_api")
 
 
-def _init_tmp_db(tmp_path, monkeypatch):
-    from nba_duckdb import db
+@pytest.mark.parametrize(
+    ("module_name", "single_item", "fetchers", "error"),
+    [
+        ("ingest_defense", ("PLAY_TYPES", ["Isolation"]), ["get_synergy_play_types"], "Failed to fetch all 4"),
+        (
+            "ingest_hustle",
+            None,
+            ["get_hustle_stats_player", "get_hustle_stats_team"],
+            "hustle stats for every requested season",
+        ),
+        (
+            "ingest_tracking_stats",
+            ("TRACKING_CATEGORIES", ["SpeedDistance"]),
+            ["get_tracking_stats"],
+            "Failed to fetch all 2",
+        ),
+    ],
+)
+def test_enrichment_ingest_fails_when_every_fetch_fails(
+    monkeypatch, module_name, single_item, fetchers, error
+):
+    import importlib
 
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "nba.duckdb"))
-    db.init_schema()
-    return db
-
-
-def test_defense_ingest_fails_when_every_requested_combo_fails(monkeypatch):
-    from nba_duckdb.tasks.bronze import ingest_defense
-
-    def fail_fetch(**_kwargs):
-        raise RuntimeError("rate limited")
-
-    monkeypatch.setattr(ingest_defense, "PLAY_TYPES", ["Isolation"])
-    monkeypatch.setattr(ingest_defense.nba_client, "get_synergy_play_types", fail_fetch)
-
-    with pytest.raises(RuntimeError, match="Failed to fetch all 4"):
-        ingest_defense.run(season="2099-00")
-
-
-def test_hustle_ingest_fails_when_every_requested_fetch_fails(monkeypatch):
-    from nba_duckdb.tasks.bronze import ingest_hustle
-
-    def fail_fetch(**_kwargs):
-        raise RuntimeError("rate limited")
-
-    monkeypatch.setattr(ingest_hustle.nba_client, "get_hustle_stats_player", fail_fetch)
-    monkeypatch.setattr(ingest_hustle.nba_client, "get_hustle_stats_team", fail_fetch)
-
-    with pytest.raises(RuntimeError, match="hustle stats for every requested season"):
-        ingest_hustle.run(season="2099-00")
-
-
-def test_tracking_ingest_fails_when_every_requested_category_fails(monkeypatch):
-    from nba_duckdb.tasks.bronze import ingest_tracking_stats
+    module = importlib.import_module(f"nba_duckdb.tasks.bronze.{module_name}")
 
     def fail_fetch(**_kwargs):
         raise RuntimeError("rate limited")
 
-    monkeypatch.setattr(ingest_tracking_stats, "TRACKING_CATEGORIES", ["SpeedDistance"])
-    monkeypatch.setattr(ingest_tracking_stats.nba_client, "get_tracking_stats", fail_fetch)
+    if single_item:
+        monkeypatch.setattr(module, *single_item)
+    for fetcher in fetchers:
+        monkeypatch.setattr(module.nba_client, fetcher, fail_fetch)
 
-    with pytest.raises(RuntimeError, match="Failed to fetch all 2"):
-        ingest_tracking_stats.run(season="2099-00")
+    with pytest.raises(RuntimeError, match=error):
+        module.run(season="2099-00")
 
 
 def test_shot_chart_season_type_mapping():
@@ -63,26 +54,15 @@ def test_shot_chart_season_type_mapping():
     assert _season_type_for_game_id("0062400001") == "Regular Season"
 
 
-def test_shot_chart_ingest_defers_item_failures(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_shot_chart_ingest_defers_item_failures(tmp_db, monkeypatch):
+    db = tmp_db
     from nba_duckdb.tasks.bronze import ingest_shot_charts
 
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0029900001",
-                "game_date": "01/01/2100 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row()
         ],
     )
 
@@ -98,26 +78,15 @@ def test_shot_chart_ingest_defers_item_failures(tmp_path, monkeypatch):
     assert result["item_state"]["status_counts"] == {"deferred": 2}
 
 
-def test_shot_chart_ingest_passes_season_and_season_type(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_shot_chart_ingest_passes_season_and_season_type(tmp_db, monkeypatch):
+    db = tmp_db
     from nba_duckdb.tasks.bronze import ingest_shot_charts
 
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0069900001",
-                "game_date": "12/01/2099 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row(game_id="0069900001", game_date="12/01/2099 00:00:00")
         ],
     )
     calls = []
@@ -143,28 +112,15 @@ def test_shot_chart_ingest_passes_season_and_season_type(tmp_path, monkeypatch):
     ]
 
 
-def test_summer_shot_chart_uses_schedule_league_id(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_summer_shot_chart_uses_schedule_league_id(tmp_db, monkeypatch):
+    db = tmp_db
     from nba_duckdb.tasks.bronze import ingest_shot_charts
 
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "1522600001",
-                "game_date": "07/09/2026 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "ATL",
-                "away_team_abbr": "BOS",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2026-27",
-                "league_id": "15",
-                "competition": "summer_league_vegas",
-                "raw_json": "{}",
-            }
+            schedule_row(game_id="1522600001", game_date="07/09/2026 00:00:00", home_team_abbr="ATL", away_team_abbr="BOS", season="2026-27", league_id="15", competition="summer_league_vegas")
         ],
     )
     calls = []
@@ -193,8 +149,8 @@ def test_summer_shot_chart_uses_schedule_league_id(tmp_path, monkeypatch):
     ]
 
 
-def test_shot_chart_ingest_includes_all_schedule_teams_by_default(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_shot_chart_ingest_includes_all_schedule_teams_by_default(tmp_db, monkeypatch):
+    db = tmp_db
     monkeypatch.delenv("NBA_DUCKDB_TEAM_IDS", raising=False)
     from nba_duckdb.tasks.bronze import ingest_shot_charts
 
@@ -202,18 +158,7 @@ def test_shot_chart_ingest_includes_all_schedule_teams_by_default(tmp_path, monk
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0039900001",
-                "game_date": "02/16/2100 00:00:00",
-                "home_team_id": 1610616851,
-                "away_team_id": 1610616852,
-                "home_team_abbr": "CHK",
-                "away_team_abbr": "SHQ",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row(game_id="0039900001", game_date="02/16/2100 00:00:00", home_team_id=1610616851, away_team_id=1610616852, home_team_abbr="CHK", away_team_abbr="SHQ")
         ],
     )
 
@@ -238,26 +183,15 @@ def test_shot_chart_ingest_includes_all_schedule_teams_by_default(tmp_path, monk
     ]
 
 
-def test_shot_chart_ingest_does_not_refetch_existing_pairs(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_shot_chart_ingest_does_not_refetch_existing_pairs(tmp_db, monkeypatch):
+    db = tmp_db
     from nba_duckdb.tasks.bronze import ingest_shot_charts
 
     db.insert_rows(
         "bronze",
         "schedule",
         [
-            {
-                "game_id": "0029900001",
-                "game_date": "01/01/2100 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row()
         ],
     )
     db.insert_rows(
@@ -293,18 +227,7 @@ def _insert_game_detail_schedule(db, game_ids):
         "bronze",
         "schedule",
         [
-            {
-                "game_id": game_id,
-                "game_date": "01/01/2100 00:00:00",
-                "home_team_id": 1610612737,
-                "away_team_id": 1610612738,
-                "home_team_abbr": "AAA",
-                "away_team_abbr": "BBB",
-                "game_status": 3,
-                "game_status_text": "Final",
-                "season": "2099-00",
-                "raw_json": "{}",
-            }
+            schedule_row(game_id=game_id)
             for game_id in game_ids
         ],
     )
@@ -319,8 +242,8 @@ def _game_detail_payload(key):
     }
 
 
-def test_game_detail_opens_rotation_circuit_and_uses_pbp_fallback(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_game_detail_opens_rotation_circuit_and_uses_pbp_fallback(tmp_db, monkeypatch):
+    db = tmp_db
     _insert_game_detail_schedule(db, ["0029900001", "0029900002"])
 
     from nba_duckdb.tasks.bronze import ingest_game_detail
@@ -359,8 +282,8 @@ def test_game_detail_opens_rotation_circuit_and_uses_pbp_fallback(tmp_path, monk
     )
 
 
-def test_game_detail_strict_rotation_fails_when_circuit_opens(tmp_path, monkeypatch):
-    db = _init_tmp_db(tmp_path, monkeypatch)
+def test_game_detail_strict_rotation_fails_when_circuit_opens(tmp_db, monkeypatch):
+    db = tmp_db
     _insert_game_detail_schedule(db, ["0029900001"])
 
     from nba_duckdb.tasks.bronze import ingest_game_detail

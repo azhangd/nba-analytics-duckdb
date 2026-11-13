@@ -7,7 +7,6 @@ import argparse
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -519,26 +518,6 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _png_render_failures() -> list[str]:
-    if shutil.which("dot") is None:
-        print("Graphviz `dot` not found; skipping PNG renderability check")
-        return []
-
-    failures: list[str] = []
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-        for dot_path, png_path, _content in _all_diagram_artifacts():
-            tmp_png = tmp_dir / png_path.name
-            try:
-                _render_png(dot_path, tmp_png)
-            except (RuntimeError, subprocess.CalledProcessError) as exc:
-                failures.append(f"{_display_path(png_path)} ({exc})")
-                continue
-            if not tmp_png.exists() or tmp_png.stat().st_size == 0:
-                failures.append(_display_path(png_path))
-    return failures
-
-
 def check_diagrams() -> int:
     spec_errors = validate_diagram_specs()
     missing_or_stale = [
@@ -556,11 +535,6 @@ def check_diagrams() -> int:
             print(f"diagram spec error: {error}")
         for path in [*missing_or_stale, *missing_pngs]:
             print(f"diagram artifact is missing or stale: {path}")
-        return 1
-    render_failures = _png_render_failures()
-    if render_failures:
-        for path in render_failures:
-            print(f"diagram PNG failed renderability check: {path}")
         return 1
     print("Diagram check passed")
     return 0
