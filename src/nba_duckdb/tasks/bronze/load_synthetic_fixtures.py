@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from nba_duckdb import db
-from nba_duckdb.sources import get_source_adapter
+from nba_duckdb.sources.fixtures import FixtureSource
 
 
 def _result_set(name: str, headers: list[str], rows: list[list[Any]]) -> dict[str, Any]:
@@ -233,14 +233,9 @@ def _game_detail_payload(game: dict[str, Any], players: list[dict[str, Any]]) ->
 
 def run(
     fixtures_dir: str | Path | None = None,
-    source_name: str = "fixtures",
     **_: Any,
 ) -> dict[str, int]:
-    source = get_source_adapter(
-        source_name,
-        fixtures_dir=str(fixtures_dir) if fixtures_dir else None,
-    )
-    payload = source.read()
+    payload = FixtureSource(fixtures_dir=fixtures_dir).read()
     now_iso = datetime.now(timezone.utc).isoformat()
     season = payload.schedule[0]["season"]
 

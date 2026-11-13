@@ -43,12 +43,7 @@ DEFAULT_GRAPH = registry.DEFAULT_GRAPH
 QUICK_GRAPH = registry.QUICK_GRAPH
 SUMMER_LEAGUE_GRAPH = registry.SUMMER_LEAGUE_GRAPH
 
-BACKFILL_SOURCES = {
-    "pbp": ("play-by-play", "nba_duckdb.tasks.bronze.ingest_play_by_play", True),
-    "play-by-play": ("play-by-play", "nba_duckdb.tasks.bronze.ingest_play_by_play", True),
-    "shot-charts": ("shot-charts", "nba_duckdb.tasks.bronze.ingest_shot_charts", False),
-    "shots": ("shot-charts", "nba_duckdb.tasks.bronze.ingest_shot_charts", False),
-}
+BACKFILL_ALIASES = {"pbp": "play-by-play", "shots": "shot-charts"}
 
 
 class SmokeWarehouseIsolationError(RuntimeError):
@@ -135,76 +130,32 @@ def _assert_smoke_warehouse_resolution(*, quick: bool = False) -> None:
     )
 
 
-def _source_name(value: str | None = None) -> str:
-    return value or os.environ.get("NBA_DUCKDB_SOURCE", "fixtures")
-
-
-def _python_task(
-    module_path: str,
-    scope: dict[str, Any],
-    task_type: str = "python",
-    required: bool = True,
-) -> TaskSpec:
-    task_name = module_path.rsplit(".", 1)[-1]
-    task_scope = dict(scope)
-    return TaskSpec(
-        name=task_name,
-        task_type=task_type,
-        action=lambda module_path=module_path, task_scope=task_scope: _run_registered_module_task(
-            module_path, task_scope
-        ),
-        required=required,
-    )
-
-
-def _run_registered_module_task(module_path: str, scope: dict[str, Any]) -> dict[str, Any]:
-    task = next(task for task in registry.TASK_DEFS if task.module_path == module_path)
-    return run_task(task, scope=scope)
-
-
 def _registry_task(
     task: registry.TaskDef,
     *,
     scope: dict[str, Any],
     fixtures_dir: Path | None = None,
-    source_name: str | None = None,
 ) -> TaskSpec:
     task_scope = dict(scope)
     return TaskSpec(
         name=task.name,
         task_type=task.task_type,
-        action=lambda: run_task(
-            task,
-            scope=task_scope,
-            fixtures_dir=fixtures_dir,
-            source_name=source_name,
-        ),
+        action=lambda: run_task(task, scope=task_scope, fixtures_dir=fixtures_dir),
         required=task.required,
     )
-
-
-def _offline_smoke_steps(
-    *,
-    graph: str,
-    scope: dict[str, Any],
-    fixtures_dir: Path,
-    source_name: str,
-) -> list[TaskSpec]:
-    return [
-        _registry_task(
-            task,
-            scope=scope,
-            fixtures_dir=fixtures_dir,
-            source_name=source_name,
-        )
-        for task in registry.task_defs_for(graph, registry.FIXTURE_MODE)
-    ]
 
 
 def _live_steps(graph: str, scope: dict[str, Any]) -> list[TaskSpec]:
     return [
         _registry_task(task, scope=scope)
         for task in registry.task_defs_for(graph, registry.LIVE_MODE)
+    ]
+
+
+def _offline_smoke_steps(*, graph: str, scope: dict[str, Any], fixtures_dir: Path) -> list[TaskSpec]:
+    return [
+        _registry_task(task, scope=scope, fixtures_dir=fixtures_dir)
+        for task in registry.task_defs_for(graph, registry.FIXTURE_MODE)
     ]
 
 
@@ -263,7 +214,6 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "season": SYNTHETIC_SEASON,
             "seasons": [SYNTHETIC_SEASON],
             "fixtures_dir": str(fixtures_dir),
-            "source": _source_name(args.source),
             "warehouse": db.get_database_url(),
         }
         context = prepare_run(
@@ -282,7 +232,6 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 graph=context.graph,
                 scope=context_scope,
                 fixtures_dir=Path(context.scope.get("fixtures_dir", fixtures_dir)),
-                source_name=str(context.scope.get("source") or _source_name(args.source)),
             )
             return run_steps(
                 context,
@@ -299,9 +248,8 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
         _restore_default_warehouse_env(previous_warehouse_env)
 
 
-def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
-    graph = QUICK_GRAPH if args.quick else DEFAULT_GRAPH
-    if graph == DEFAULT_GRAPH:
+def _require_live(*, with_ml: bool = False) -> None:
+    if with_ml:
         require_optional_groups(
             "live",
             "ml",
@@ -317,38 +265,34 @@ def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             pip_install_command=PIP_LIVE_INSTALL_COMMAND,
         )
 
-    from nba_duckdb import db
 
-    if args.init_schema:
-        db.init_schema()
-    assert_no_synthetic_rows()
-
-    seasons = [args.season] if args.season else None
-    run_scope: dict[str, Any] = {
-        "season": args.season,
-        "seasons": seasons,
-        "team_ids": args.team_ids,
-        "game_ids": args.game_ids,
-        "competitions": [NBA.slug],
-        "full_refresh": args.full_refresh,
-        "start_date": args.start_date,
-        "end_date": args.end_date,
-    }
+def _run_live_graph(
+    args: argparse.Namespace,
+    *,
+    command: str,
+    graph: str,
+    run_scope: dict[str, Any],
+    tasks: list[registry.TaskDef] | None = None,
+) -> dict[str, Any]:
+    """Prepare a live run, apply its team scope and run the graph's tasks (or `tasks`)."""
     context = prepare_run(
-        command="run-live",
+        command=command,
         graph=graph,
         scope=run_scope,
         run_id=args.run_id,
         resume_latest=args.resume_latest,
         retry_failed=args.retry_failed,
     )
-
     if context.scope.get("team_ids"):
         os.environ["NBA_DUCKDB_TEAM_IDS"] = ",".join(
             str(team_id) for team_id in context.scope["team_ids"]
         )
-
-    steps = _live_steps(context.graph, _task_scope_from_run_scope(context.scope))
+    task_scope = _task_scope_from_run_scope(context.scope)
+    steps = (
+        _live_steps(context.graph, task_scope)
+        if tasks is None
+        else [_registry_task(task, scope=task_scope) for task in tasks]
+    )
     return run_steps(
         context,
         steps,
@@ -357,15 +301,9 @@ def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def run_summer_league_pipeline(args: argparse.Namespace) -> dict[str, Any]:
-    """Run the official Summer League schedule and event-data graph."""
-
-    require_optional_groups(
-        "live",
-        hint=LIVE_INSTALL_HINT,
-        install_command=UV_LIVE_INSTALL_COMMAND,
-        pip_install_command=PIP_LIVE_INSTALL_COMMAND,
-    )
+def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
+    graph = QUICK_GRAPH if args.quick else DEFAULT_GRAPH
+    _require_live(with_ml=graph == DEFAULT_GRAPH)
 
     from nba_duckdb import db
 
@@ -373,101 +311,79 @@ def run_summer_league_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         db.init_schema()
     assert_no_synthetic_rows()
 
-    competitions = list(args.competitions or SUMMER_LEAGUE_SLUGS)
-    run_scope: dict[str, Any] = {
-        "season": args.season,
-        "seasons": [args.season],
-        "team_ids": args.team_ids,
-        "game_ids": args.game_ids,
-        "competitions": competitions,
-        "full_refresh": args.full_refresh,
-        "start_date": None,
-        "end_date": None,
-    }
-    context = prepare_run(
+    return _run_live_graph(
+        args,
+        command="run-live",
+        graph=graph,
+        run_scope={
+            "season": args.season,
+            "seasons": [args.season] if args.season else None,
+            "team_ids": args.team_ids,
+            "game_ids": args.game_ids,
+            "competitions": [NBA.slug],
+            "full_refresh": args.full_refresh,
+            "start_date": args.start_date,
+            "end_date": args.end_date,
+        },
+    )
+
+
+def run_summer_league_pipeline(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the official Summer League schedule and event-data graph."""
+    _require_live()
+
+    from nba_duckdb import db
+
+    if args.init_schema:
+        db.init_schema()
+    assert_no_synthetic_rows()
+
+    return _run_live_graph(
+        args,
         command="run-summer-league",
         graph=SUMMER_LEAGUE_GRAPH,
-        scope=run_scope,
-        run_id=args.run_id,
-        resume_latest=args.resume_latest,
-        retry_failed=args.retry_failed,
+        run_scope={
+            "season": args.season,
+            "seasons": [args.season],
+            "team_ids": args.team_ids,
+            "game_ids": args.game_ids,
+            "competitions": list(args.competitions or SUMMER_LEAGUE_SLUGS),
+            "full_refresh": args.full_refresh,
+            "start_date": None,
+            "end_date": None,
+        },
     )
-
-    if context.scope.get("team_ids"):
-        os.environ["NBA_DUCKDB_TEAM_IDS"] = ",".join(
-            str(team_id) for team_id in context.scope["team_ids"]
-        )
-
-    steps = _live_steps(context.graph, _task_scope_from_run_scope(context.scope))
-    return run_steps(
-        context,
-        steps,
-        retries=args.retries,
-        retry_delay_seconds=args.retry_delay_seconds,
-    )
-
-
-def _resolve_backfill_source(source: str) -> tuple[str, str, bool]:
-    normalized = normalize_source(source)
-    if normalized not in BACKFILL_SOURCES:
-        valid = ", ".join(sorted(BACKFILL_SOURCES))
-        raise ValueError(f"Unsupported source {source!r}. Choose one of: {valid}")
-    return BACKFILL_SOURCES[normalized]
 
 
 def backfill_source(args: argparse.Namespace) -> dict[str, Any]:
-    require_optional_groups(
-        "live",
-        hint=LIVE_INSTALL_HINT,
-        install_command=UV_LIVE_INSTALL_COMMAND,
-        pip_install_command=PIP_LIVE_INSTALL_COMMAND,
-    )
+    _require_live()
 
     from nba_duckdb import db
 
     if args.init_schema:
         db.init_schema()
 
-    source, module_path, required = _resolve_backfill_source(args.source)
-    run_scope: dict[str, Any] = {
-        "source": source,
-        "season": args.season,
-        "seasons": [args.season],
-        "team_ids": args.team_ids,
-        "game_ids": args.game_ids,
-        "competitions": [args.competition],
-        "full_refresh": False,
-        "start_date": None,
-        "end_date": None,
-    }
-    context = prepare_run(
+    source = normalize_source(args.source)
+    source = BACKFILL_ALIASES.get(source, source)
+    if source not in registry.BACKFILL_TASKS:
+        valid = ", ".join(sorted([*registry.BACKFILL_TASKS, *BACKFILL_ALIASES]))
+        raise ValueError(f"Unsupported source {args.source!r}. Choose one of: {valid}")
+    return _run_live_graph(
+        args,
         command="backfill-source",
         graph=source,
-        scope=run_scope,
-        run_id=args.run_id,
-        resume_latest=args.resume_latest,
-        retry_failed=args.retry_failed,
-    )
-
-    if context.scope.get("team_ids"):
-        os.environ["NBA_DUCKDB_TEAM_IDS"] = ",".join(
-            str(team_id) for team_id in context.scope["team_ids"]
-        )
-
-    task_scope = _task_scope_from_run_scope(context.scope)
-    steps = [
-        _python_task(
-            module_path,
-            task_scope,
-            task_type="bronze",
-            required=required,
-        )
-    ]
-    return run_steps(
-        context,
-        steps,
-        retries=args.retries,
-        retry_delay_seconds=args.retry_delay_seconds,
+        run_scope={
+            "source": source,
+            "season": args.season,
+            "seasons": [args.season],
+            "team_ids": args.team_ids,
+            "game_ids": args.game_ids,
+            "competitions": [args.competition],
+            "full_refresh": False,
+            "start_date": None,
+            "end_date": None,
+        },
+        tasks=[registry.task_def_named(registry.BACKFILL_TASKS[source])],
     )
 
 
@@ -555,7 +471,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the offline smoke pipeline with deterministic test fixtures.",
     )
     run_parser.add_argument("--fixtures-dir")
-    run_parser.add_argument("--source", default=None)
     run_parser.add_argument(
         "--quick",
         action="store_true",
@@ -672,6 +587,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Errors main() reports as JSON on stderr: (exception, status, exit code).
+CLI_ERRORS = (
+    (PipelineStateNotInitializedError, "not_initialized", 1),
+    (DuckDBLockTimeoutError, "warehouse_busy", 2),
+    (SyntheticDataInLiveWarehouseError, "synthetic_data_in_live_warehouse", 1),
+    (SmokeWarehouseIsolationError, "smoke_warehouse_isolation_error", 1),
+    (MissingOptionalDependencyError, "missing_optional_dependency", 1),
+    (MissingRequiredDependencyError, "missing_dependency", 1),
+)
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.environ.get("NBA_DUCKDB_LOG_LEVEL", "WARNING").upper(),
@@ -681,92 +607,22 @@ def main() -> None:
     args = parser.parse_args()
     try:
         result = args.func(args)
-    except PipelineStateNotInitializedError as exc:
-        print(
-            json.dumps(
-                {
-                    "status": "not_initialized",
-                    "error": str(exc),
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
+    except tuple(error for error, _, _ in CLI_ERRORS) as exc:
+        status, exit_code = next(
+            (status, code) for error, status, code in CLI_ERRORS if isinstance(exc, error)
         )
-        raise SystemExit(1) from exc
-    except DuckDBLockTimeoutError as exc:
-        print(
-            json.dumps(
-                {
-                    "status": "warehouse_busy",
-                    "error": str(exc),
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        raise SystemExit(2) from exc
-    except SyntheticDataInLiveWarehouseError as exc:
-        print(
-            json.dumps(
-                {
-                    "status": "synthetic_data_in_live_warehouse",
-                    "error": str(exc),
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from exc
-    except SmokeWarehouseIsolationError as exc:
-        print(
-            json.dumps(
-                {
-                    "status": "smoke_warehouse_isolation_error",
-                    "error": str(exc),
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from exc
-    except MissingOptionalDependencyError as exc:
-        payload = {
-            "status": "missing_optional_dependency",
-            "error": str(exc),
-            "groups": list(exc.groups),
-            "missing_modules": list(exc.missing_modules),
-            "missing_packages": list(exc.missing_packages),
-            "install_command": exc.install_command,
-            "pip_install_command": exc.pip_install_command,
-        }
-        if exc.quick_command:
-            payload["quick_command"] = exc.quick_command
-        print(
-            json.dumps(payload, indent=2, sort_keys=True),
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from exc
-    except MissingRequiredDependencyError as exc:
-        print(
-            json.dumps(
-                {
-                    "status": "missing_dependency",
-                    "error": str(exc),
-                    "missing_modules": list(exc.missing_modules),
-                    "missing_packages": list(exc.missing_packages),
-                    "install_command": exc.install_command,
-                    "pip_install_command": exc.pip_install_command,
-                },
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from exc
+        payload: dict[str, Any] = {"status": status, "error": str(exc)}
+        if isinstance(exc, (MissingOptionalDependencyError, MissingRequiredDependencyError)):
+            payload["missing_modules"] = list(exc.missing_modules)
+            payload["missing_packages"] = list(exc.missing_packages)
+            payload["install_command"] = exc.install_command
+            payload["pip_install_command"] = exc.pip_install_command
+        if isinstance(exc, MissingOptionalDependencyError):
+            payload["groups"] = list(exc.groups)
+            if exc.quick_command:
+                payload["quick_command"] = exc.quick_command
+        print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stderr)
+        raise SystemExit(exit_code) from exc
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 
 

@@ -35,12 +35,6 @@ PROJECT_ROOT = config.get_settings().project_root
 DBT_PROJECT_PATH = dbt_project_dir()
 DBT_MANIFEST_PATH = DBT_PROJECT_PATH / "dbt" / "target" / "manifest.json"
 DBT_PROFILES_PATH = DBT_PROJECT_PATH / "dbt" / "profiles.yml"
-BACKFILL_TASKS = {
-    "play-by-play": "ingest_play_by_play",
-    "shot-charts": "ingest_shot_charts",
-}
-
-
 def _project_path(path: Path) -> Path:
     return path.expanduser() if path.is_absolute() else PROJECT_ROOT / path
 
@@ -183,7 +177,6 @@ def execute_registered_task(
                 task,
                 scope=_scope_from_params(mode=mode, graph=graph),
                 fixtures_dir=_project_path(config.fixtures_dir(None)).resolve(strict=False),
-                source_name="fixtures" if mode == registry.FIXTURE_MODE else None,
             )
         except LiveEndpointUnavailableError as exc:
             if task.required:
@@ -214,7 +207,7 @@ def execute_source_backfill() -> dict[str, Any]:
     """Run one item-state-aware source backfill selected by DAG parameters."""
 
     params = _params()
-    task = registry.task_def_named(BACKFILL_TASKS[params["source"]])
+    task = registry.task_def_named(registry.BACKFILL_TASKS[params["source"]])
     with _configured_task_environment(
         mode=registry.LIVE_MODE,
         quick=False,
@@ -520,7 +513,7 @@ def build_backfill_dag() -> DAG:
             "source": Param(
                 "play-by-play",
                 type="string",
-                enum=sorted(BACKFILL_TASKS),
+                enum=sorted(registry.BACKFILL_TASKS),
                 description="Collector to resume from its item-level state.",
             ),
             "competition": Param(

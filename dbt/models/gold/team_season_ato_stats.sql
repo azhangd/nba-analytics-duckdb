@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='team_season_ato_stats', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH timeouts AS (
     SELECT
         pbp.game_id,
@@ -236,23 +234,3 @@ SELECT
         ELSE 'tracked after-timeout possessions'
     END AS sample_note
 FROM rank_inputs
-) AS model(
-    team_id,
-    season,
-    timeout_count,
-    offensive_ato_possessions,
-    offensive_ato_points,
-    ato_ppp,
-    ato_score_pct,
-    ato_turnover_pct,
-    clutch_ato_possessions,
-    clutch_ato_ppp,
-    defensive_ato_possessions,
-    defensive_ato_points_allowed,
-    ato_def_ppp,
-    ato_stop_pct,
-    league_ato_ppp_rank,
-    league_ato_def_ppp_rank,
-    league_ato_ppp_percentile,
-    sample_note
-)

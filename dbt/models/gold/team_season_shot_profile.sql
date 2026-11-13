@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='team_season_shot_profile', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH classified AS (
     SELECT *,
         CASE
@@ -23,16 +21,7 @@ team_total AS (
     SELECT team_id, season, SUM(attempts) AS total FROM team_agg GROUP BY team_id, season
 )
 SELECT a.team_id, a.season, a.shot_bucket, a.attempts, a.makes,
-    CASE WHEN a.attempts > 0 THEN ROUND(a.makes::NUMERIC / a.attempts * 100, 1) END,
-    ROUND(a.attempts::NUMERIC / t.total * 100, 1)
+    CASE WHEN a.attempts > 0 THEN ROUND(a.makes::NUMERIC / a.attempts * 100, 1) END AS fg_pct,
+    ROUND(a.attempts::NUMERIC / t.total * 100, 1) AS freq_pct
 FROM team_agg a
 JOIN team_total t ON a.team_id = t.team_id AND a.season = t.season
-) AS model(
-    team_id,
-    season,
-    shot_bucket,
-    attempts,
-    makes,
-    fg_pct,
-    freq_pct
-)

@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='team_season_timeout_stats', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH timeouts AS (
     SELECT
         pbp.team_id,
@@ -33,16 +31,3 @@ SELECT
     ) AS clutch_timeout_pct
 FROM timeouts
 GROUP BY team_id, season
-) AS model(
-    team_id,
-    season,
-    total_timeouts,
-    q1_timeouts,
-    q2_timeouts,
-    q3_timeouts,
-    q4_timeouts,
-    ot_timeouts,
-    clutch_timeouts,
-    avg_clock_when_called_q4,
-    clutch_timeout_pct
-)

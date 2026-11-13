@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='team_season_clutch_stats', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 SELECT
     offense_team_id,
     fg.season,
@@ -18,11 +16,3 @@ WHERE offense_team_id IS NOT NULL
   AND ABS(score_margin) <= 5
   AND NOT is_garbage_time
 GROUP BY offense_team_id, fg.season
-) AS model(
-    offense_team_id,
-    season,
-    clutch_possessions,
-    clutch_points,
-    clutch_ppp,
-    clutch_turnovers
-)

@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='player_season_clutch_stats', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH clutch_events AS (
     SELECT
         pbp.game_id,
@@ -94,23 +92,3 @@ SELECT
     )::REAL AS clutch_ts_pct
 FROM player_agg
 ORDER BY season, ((fgm - fg3m) * 2 + fg3m * 3 + ftm)::NUMERIC / NULLIF(clutch_games, 0) DESC
-) AS model(
-    player_id,
-    season,
-    player_name,
-    team_id,
-    clutch_games,
-    fga,
-    fgm,
-    fg3a,
-    fg3m,
-    fta,
-    ftm,
-    turnovers,
-    points,
-    fg_pct,
-    fg3_pct,
-    ft_pct,
-    clutch_ppg,
-    clutch_ts_pct
-)

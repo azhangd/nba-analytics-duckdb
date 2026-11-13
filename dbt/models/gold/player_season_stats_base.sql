@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='player_season_stats_base', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH base AS (
     SELECT
         pgs.player_id,
@@ -66,27 +64,6 @@ WITH base AS (
 ),
 with_advanced AS (
     SELECT *,
-        -- Simple box-score impact approximation, not the Basketball-Reference metric.
-        CASE WHEN mpg > 0 THEN ROUND((
-            0.123 * (ppg / mpg * 36)
-            + 0.168 * (apg / mpg * 36)
-            - 0.155 * (topg / mpg * 36)
-            + 0.025 * (rpg / mpg * 36)
-            + 0.153 * (spg / mpg * 36)
-            + 0.195 * (bpg / mpg * 36)
-            - 2.4
-        )::NUMERIC, 1) END AS bpm_approx,
-        -- Value-over-replacement approximation derived from bpm_approx.
-        CASE WHEN mpg > 0 AND games_played > 0 THEN ROUND(((
-            0.123 * (ppg / mpg * 36)
-            + 0.168 * (apg / mpg * 36)
-            - 0.155 * (topg / mpg * 36)
-            + 0.025 * (rpg / mpg * 36)
-            + 0.153 * (spg / mpg * 36)
-            + 0.195 * (bpg / mpg * 36)
-            - 2.4
-            + 2.0
-        ) * (mpg::NUMERIC / 48) * (games_played::NUMERIC / 82))::NUMERIC, 2) END AS vorp_approx,
         CASE WHEN mpg > 0 THEN ROUND((ppg / mpg * 36)::NUMERIC, 1) END AS pts_per_36,
         CASE WHEN mpg > 0 THEN ROUND((apg / mpg * 36)::NUMERIC, 1) END AS ast_per_36,
         CASE WHEN mpg > 0 THEN ROUND((rpg / mpg * 36)::NUMERIC, 1) END AS reb_per_36
@@ -118,11 +95,7 @@ SELECT
     games_played, mpg, ppg, rpg, apg, spg, bpg, topg,
     fg_pct, fg3_pct, ft_pct, plus_minus_avg, avg_game_score,
     avg_off_rating, avg_def_rating, avg_usg_pct, avg_ts_pct,
-    NULL::REAL AS obpm, NULL::REAL AS dbpm,
-    bpm_approx, vorp_approx, pts_per_36, ast_per_36, reb_per_36,
-    NULL::REAL AS adj_ppg,
-    NULL::REAL AS adj_ts_pct,
-    NULL::REAL AS adj_net_rtg,
+    pts_per_36, ast_per_36, reb_per_36,
     s.comparison_scope,
     s.comparison_player_count,
     (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY ppg) * 100)::INT AS ppg_pct,
@@ -135,58 +108,6 @@ SELECT
     (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY fg3_pct) * 100)::INT AS fg3_shoot_pct,
     (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_ts_pct) * 100)::INT AS ts_pct_rank,
     (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_usg_pct) * 100)::INT AS usg_pct_rank,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_game_score) * 100)::INT AS game_score_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY bpm_approx) * 100)::INT AS bpm_approx_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY vorp_approx) * 100)::INT AS vorp_approx_pct
+    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_game_score) * 100)::INT AS game_score_pct
 FROM with_info w
 LEFT JOIN season_scope s ON s.season = w.season
-) AS model(
-    player_id,
-    season,
-    player_name,
-    team_id,
-    position,
-    jersey_number,
-    games_played,
-    mpg,
-    ppg,
-    rpg,
-    apg,
-    spg,
-    bpg,
-    topg,
-    fg_pct,
-    fg3_pct,
-    ft_pct,
-    plus_minus_avg,
-    avg_game_score,
-    avg_off_rating,
-    avg_def_rating,
-    avg_usg_pct,
-    avg_ts_pct,
-    obpm,
-    dbpm,
-    bpm_approx,
-    vorp_approx,
-    pts_per_36,
-    ast_per_36,
-    reb_per_36,
-    adj_ppg,
-    adj_ts_pct,
-    adj_net_rtg,
-    comparison_scope,
-    comparison_player_count,
-    ppg_pct,
-    rpg_pct,
-    apg_pct,
-    spg_pct,
-    bpg_pct,
-    mpg_pct,
-    fg_shoot_pct,
-    fg3_shoot_pct,
-    ts_pct_rank,
-    usg_pct_rank,
-    game_score_pct,
-    bpm_approx_pct,
-    vorp_approx_pct
-)
