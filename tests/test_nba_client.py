@@ -130,7 +130,7 @@ def test_play_by_play_falls_back_to_stats_v3(monkeypatch):
     assert calls == ["live", "PlayByPlayV3"]
 
     calls.clear()
-    assert nba_client.get_play_by_play("0029900001") == {
+    assert nba_client.get_play_by_play_with_source("0029900001")[0] == {
         "game": {"actions": [{"actionNumber": 1}]}
     }
     assert calls == ["live", "PlayByPlayV3"]
@@ -169,7 +169,7 @@ def test_play_by_play_raises_typed_error_when_both_sources_fail(monkeypatch):
     monkeypatch.setattr(nba_client, "_call_with_rate_limit", fail_stats)
 
     with pytest.raises(LiveEndpointUnavailableError, match="live CDN and stats"):
-        nba_client.get_play_by_play("0029900001")
+        nba_client.get_play_by_play_with_source("0029900001")
 
 
 def test_play_by_play_rejects_empty_actions_from_fallback(monkeypatch):
@@ -188,4 +188,4 @@ def test_play_by_play_rejects_empty_actions_from_fallback(monkeypatch):
     monkeypatch.setattr(nba_client, "_call_with_rate_limit", fake_stats)
 
     with pytest.raises(LiveEndpointUnavailableError, match="PlayByPlayV3"):
-        nba_client.get_play_by_play("0029900001")
+        nba_client.get_play_by_play_with_source("0029900001")

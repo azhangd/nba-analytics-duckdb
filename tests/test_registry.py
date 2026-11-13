@@ -104,7 +104,7 @@ def test_registry_order_satisfies_declared_dependencies():
                 selected_outputs = {output for candidate in selected for output in candidate.outputs}
                 missing = [
                     input_name
-                    for input_name in (*task.inputs, *task.optional_inputs)
+                    for input_name in task.inputs
                     if input_name in selected_outputs and input_name not in produced
                 ]
                 assert missing == [], f"{graph}/{mode}/{task.name} missing {missing}"
@@ -136,7 +136,6 @@ def test_registry_declares_clear_player_season_stats_ownership():
     )
     assert "bronze.boxscores" in tasks["dbt_build_warehouse"].inputs
     assert "bronze.play_by_play" in tasks["dbt_build_warehouse"].inputs
-    assert not any("gold.player_season_stats" in task.mutates for task in registry.TASK_DEFS)
 
 
 def test_dbt_registration_is_graph_scoped():
@@ -236,27 +235,27 @@ def test_dataset_rows_advertise_every_registered_output():
     assert {
         row["task"]
         for row in rows
-        if row["dataset"] == "gold.player_season_stats" and row["writes"] == "produces"
+        if row["dataset"] == "gold.player_season_stats"
     } == {"dbt_build_warehouse"}
     assert {
         row["task"]
         for row in rows
-        if row["dataset"] == "gold.player_season_feature_matrix" and row["writes"] == "produces"
+        if row["dataset"] == "gold.player_season_feature_matrix"
     } == {"dbt_build_feature_matrices"}
     assert {
         row["task"]
         for row in rows
-        if row["dataset"] == "gold.team_season_feature_matrix" and row["writes"] == "produces"
+        if row["dataset"] == "gold.team_season_feature_matrix"
     } == {"dbt_build_warehouse"}
     assert {
         row["layer"]
         for row in rows
-        if row["dataset"] == "silver.fct_games" and row["writes"] == "produces"
+        if row["dataset"] == "silver.fct_games"
     } == {"silver"}
     assert {
         row["layer"]
         for row in rows
-        if row["dataset"] == "gold.player_season_stats" and row["writes"] == "produces"
+        if row["dataset"] == "gold.player_season_stats"
     } == {"gold"}
 
 
@@ -269,7 +268,7 @@ def test_dataset_graph_exposes_lineage_without_task_imports():
 
     assert "gold.player_season_stats" in nodes
     assert nodes["gold.player_season_stats"]["producers"] == [
-        {"task": "dbt_build_warehouse", "writes": "produces"}
+        {"task": "dbt_build_warehouse"}
     ]
     assert (
         "gold.player_game_stats",

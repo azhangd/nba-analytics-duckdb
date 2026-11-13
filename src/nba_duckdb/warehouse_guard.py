@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from nba_duckdb import config, db
 from nba_duckdb.exceptions import (
     PipelineStateNotInitializedError,
@@ -12,22 +10,8 @@ from nba_duckdb.exceptions import (
 from nba_duckdb.fixtures.generate_synthetic_fixtures import SEASON as SYNTHETIC_SEASON
 
 
-def _database_path(raw: str) -> Path:
-    if raw.startswith("duckdb:///"):
-        raw = raw.removeprefix("duckdb:///")
-    elif raw.startswith("duckdb://"):
-        raw = raw.removeprefix("duckdb://")
-    return Path(raw)
-
-
 def assert_no_synthetic_rows() -> None:
     """Fail closed before live collection writes into a fixture warehouse."""
-
-    database_path = _database_path(db.get_database_url())
-    if not database_path.exists():
-        raise PipelineStateNotInitializedError(
-            "Pipeline tables not found; run `nba-duckdb init` first"
-        )
 
     table_rows = db.execute(
         """

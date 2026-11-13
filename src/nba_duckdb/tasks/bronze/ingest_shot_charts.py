@@ -23,9 +23,14 @@ from nba_duckdb.season_utils import (
     requested_or_default_seasons,
 )
 from nba_duckdb.utils import nba_client
-from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.shot_charts")
+
+MAX_RETRIES = 2
+FLUSH_EVERY = 10
+FAILURE_BACKOFF_AFTER = 5
+FAILURE_BACKOFF_SECONDS = 300
+ABORT_AFTER_FAILURES = 15
 SOURCE = "shot-charts"
 
 
@@ -134,7 +139,7 @@ def run(**kwargs):
         rows_written=1,
     )
     todo_items = eligible_items(SOURCE, items)
-    max_retries = positive_int("NBA_DUCKDB_SHOT_CHART_MAX_RETRIES", 2, logger=logger)
+    max_retries = MAX_RETRIES
 
     # Collapse to one API request per game (team_id=0) and fan out the payload
     # to the remaining team rows for that game.
@@ -142,27 +147,11 @@ def run(**kwargs):
     for item in todo_items:
         game_targets.setdefault(item["game_id"], []).append(item)
     todo_games = sorted(game_targets.keys())
-    flush_every = positive_int("NBA_DUCKDB_SHOT_CHART_FLUSH_EVERY", 10, logger=logger)
-    progress_every = positive_int(
-        "NBA_DUCKDB_SHOT_CHART_PROGRESS_EVERY",
-        flush_every,
-        logger=logger,
-    )
-    failure_backoff_after = positive_int(
-        "NBA_DUCKDB_SHOT_CHART_FAILURE_BACKOFF_AFTER",
-        5,
-        logger=logger,
-    )
-    failure_backoff_seconds = positive_int(
-        "NBA_DUCKDB_SHOT_CHART_FAILURE_BACKOFF_SECONDS",
-        300,
-        logger=logger,
-    )
-    abort_after_failures = positive_int(
-        "NBA_DUCKDB_SHOT_CHART_ABORT_AFTER_FAILURES",
-        15,
-        logger=logger,
-    )
+    flush_every = FLUSH_EVERY
+    progress_every = flush_every
+    failure_backoff_after = FAILURE_BACKOFF_AFTER
+    failure_backoff_seconds = FAILURE_BACKOFF_SECONDS
+    abort_after_failures = ABORT_AFTER_FAILURES
     logger.info(
         "Fetching shot charts: %d remaining out of %d game-team pairs "
         "(%d game calls, flush_every=%d, max_retries=%d)",

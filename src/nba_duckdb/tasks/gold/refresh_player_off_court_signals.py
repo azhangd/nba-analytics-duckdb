@@ -20,7 +20,6 @@ from urllib.parse import quote
 import httpx
 
 from nba_duckdb.db import read_table, upsert_rows
-from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.gold.player_off_court_signals")
 
@@ -250,11 +249,7 @@ def refresh(
     media_writes: list[dict[str, Any]] = []
     jersey_writes: list[dict[str, Any]] = []
     jersey_snapshot = _load_jersey_rank_snapshot()
-    gdelt_circuit_breaker_after = positive_int(
-        "OFF_COURT_GDELT_CIRCUIT_BREAKER_AFTER",
-        DEFAULT_GDELT_CIRCUIT_BREAKER_AFTER,
-        logger=logger,
-    )
+    gdelt_circuit_breaker_after = DEFAULT_GDELT_CIRCUIT_BREAKER_AFTER
     consecutive_gdelt_failures = 0
     gdelt_circuit_open = False
     gdelt_skipped_players = 0

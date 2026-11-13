@@ -13,14 +13,6 @@ from nba_duckdb import db
 from nba_duckdb.dependencies import MissingRequiredDependencyError
 
 
-def _database_path_from_url(raw: str) -> str:
-    if raw.startswith("duckdb:///"):
-        return raw.removeprefix("duckdb:///")
-    if raw.startswith("duckdb://"):
-        return raw.removeprefix("duckdb://")
-    return raw
-
-
 def dbt_project_dir() -> Path:
     editable_root = Path(__file__).resolve().parents[2]
     if (editable_root / "dbt_project.yml").exists():
@@ -55,7 +47,7 @@ def run_dbt_command(args: list[str], *, project_dir: Path | None = None) -> dict
     project_root = project_dir or dbt_project_dir()
     profiles_dir = project_root / "dbt"
     env = os.environ.copy()
-    env["NBA_DUCKDB_PATH"] = _database_path_from_url(db.get_database_url())
+    env["NBA_DUCKDB_PATH"] = str(db.database_path())
 
     command = [
         _dbt_executable(),

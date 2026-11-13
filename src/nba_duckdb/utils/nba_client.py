@@ -73,24 +73,17 @@ from nba_api.stats.endpoints import (
     BoxScoreTraditionalV3,
     CommonTeamRoster,
     GameRotation,
-    LeagueDashLineups,
-    LeagueDashPlayerPtShot,
     LeagueDashPtStats,
     LeagueHustleStatsPlayer,
     LeagueHustleStatsTeam,
     LeagueSeasonMatchups,
     PlayByPlayV3,
-    LeagueStandingsV3,
-    PlayerDashPtPass,
-    PlayerDashPtReb,
-    PlayerIndex,
     ScoreboardV3,
     ScheduleLeagueV2,
     ShotChartDetail,
     SynergyPlayTypes,
     WinProbabilityPBP,
 )
-from nba_api.stats.static import teams as static_teams
 
 from nba_duckdb.utils.rate_limiter import nba_api_limiter
 from nba_duckdb.utils.env import positive_int
@@ -99,7 +92,6 @@ from nba_duckdb.exceptions import LiveEndpointUnavailableError
 # nba_api live endpoints
 from nba_api.live.nba.endpoints import BoxScore as LiveBoxScore
 from nba_api.live.nba.endpoints import PlayByPlay as LivePlayByPlay
-from nba_api.live.nba.endpoints import ScoreBoard as LiveScoreBoard
 
 
 _TIMEOUT = 60  # seconds; default 30s is too low for heavy endpoints
@@ -345,14 +337,6 @@ def get_boxscore_with_source(game_id: str, max_retries: int = 3) -> tuple[dict, 
     )
 
 
-def get_boxscore(game_id: str, max_retries: int = 3) -> dict:
-    payload, _source = get_boxscore_with_source(
-        game_id=game_id,
-        max_retries=max_retries,
-    )
-    return payload
-
-
 def get_boxscore_advanced(game_id: str, max_retries: int = 5) -> dict:
     """Fetch advanced box score for a game."""
     return _call_with_rate_limit(
@@ -361,20 +345,6 @@ def get_boxscore_advanced(game_id: str, max_retries: int = 5) -> dict:
         max_retries=max_retries,
         result_validator=lambda result: _has_v3_boxscore_payload(result, "boxScoreAdvanced"),
     )
-
-
-def get_play_by_play(
-    game_id: str,
-    max_retries: int = 5,
-    timeout: int = _LIVE_TIMEOUT,
-) -> dict:
-    """Fetch completed-game play-by-play data."""
-    payload, _source = get_play_by_play_with_source(
-        game_id=game_id,
-        max_retries=max_retries,
-        timeout=timeout,
-    )
-    return payload
 
 
 def get_play_by_play_with_source(
@@ -448,40 +418,6 @@ def get_roster(team_id: int, season: str) -> dict:
     return _call_with_rate_limit(CommonTeamRoster, team_id=team_id, season=season)
 
 
-def get_player_index(season: str) -> dict:
-    """Fetch all players for a season."""
-    return _call_with_rate_limit(PlayerIndex, season=season)
-
-
-def get_standings(season: str) -> dict:
-    """Fetch league standings."""
-    return _call_with_rate_limit(LeagueStandingsV3, season=season)
-
-
-def get_lineups(
-    team_id: int,
-    season: str,
-    group_quantity: int = 5,
-    measure_type: str = "Advanced",
-) -> dict:
-    """Fetch lineup stats."""
-    return _call_with_rate_limit(
-        LeagueDashLineups,
-        team_id_nullable=team_id,
-        season=season,
-        group_quantity=group_quantity,
-        measure_type_detailed_defense=measure_type,
-    )
-
-
-def get_player_shooting(season: str) -> dict:
-    """Fetch league-wide player shooting dashboard (tracking data)."""
-    return _call_with_rate_limit(
-        LeagueDashPlayerPtShot,
-        season=season,
-    )
-
-
 def get_synergy_play_types(
     season: str,
     play_type: str = "Isolation",
@@ -502,21 +438,21 @@ def get_synergy_play_types(
 # --- Hustle stats ---
 
 
-def get_hustle_stats_player(season: str, per_mode: str = "PerGame") -> dict:
+def get_hustle_stats_player(season: str) -> dict:
     """Fetch league-wide hustle stats (deflections, contested shots, loose balls, etc.)."""
     return _call_with_rate_limit(
         LeagueHustleStatsPlayer,
         season=season,
-        per_mode_time=per_mode,
+        per_mode_time="PerGame",
     )
 
 
-def get_hustle_stats_team(season: str, per_mode: str = "PerGame") -> dict:
+def get_hustle_stats_team(season: str) -> dict:
     """Fetch team-level hustle stats."""
     return _call_with_rate_limit(
         LeagueHustleStatsTeam,
         season=season,
-        per_mode_time=per_mode,
+        per_mode_time="PerGame",
     )
 
 
@@ -527,7 +463,6 @@ def get_tracking_stats(
     season: str,
     pt_measure_type: str = "SpeedDistance",
     player_or_team: str = "Player",
-    per_mode: str = "PerGame",
 ) -> dict:
     """Fetch player tracking stats. pt_measure_type options:
     SpeedDistance, Rebounding, Possessions, CatchShoot, PullUpShot,
@@ -538,31 +473,7 @@ def get_tracking_stats(
         season=season,
         pt_measure_type=pt_measure_type,
         player_or_team=player_or_team,
-        per_mode_simple=per_mode,
-    )
-
-
-# --- Passing ---
-
-
-def get_player_passing(player_id: int, season: str) -> dict:
-    """Fetch passing dashboard for a player (who they pass to, assist combos)."""
-    return _call_with_rate_limit(
-        PlayerDashPtPass,
-        player_id=player_id,
-        season=season,
-    )
-
-
-# --- Rebounds (contested/uncontested) ---
-
-
-def get_player_rebounds(player_id: int, season: str) -> dict:
-    """Fetch rebound detail (contested vs uncontested, by distance)."""
-    return _call_with_rate_limit(
-        PlayerDashPtReb,
-        player_id=player_id,
-        season=season,
+        per_mode_simple="PerGame",
     )
 
 
@@ -637,51 +548,3 @@ def get_game_rotation(
         timeout=timeout,
         game_id=game_id,
     )
-
-
-# --- Shot detail with filters ---
-
-
-def get_shooting_by_defender_distance(season: str, close_def_dist: str = "") -> dict:
-    """Fetch shooting splits by closest defender distance.
-    close_def_dist options: '', '0-2 Feet - Very Tight', '2-4 Feet - Tight',
-    '4-6 Feet - Open', '6+ Feet - Wide Open'
-    """
-    kwargs: dict[str, Any] = {"season": season}
-    if close_def_dist:
-        kwargs["close_def_dist_range_nullable"] = close_def_dist
-    return _call_with_rate_limit(LeagueDashPlayerPtShot, **kwargs)
-
-
-# --- Live game endpoints ---
-
-
-def get_live_scoreboard() -> dict:
-    """Fetch today's live scoreboard."""
-    _ensure_live_fetch_allowed()
-    nba_api_limiter.acquire()
-    return LiveScoreBoard().get_dict()
-
-
-def get_live_boxscore(game_id: str) -> dict:
-    """Fetch a box score from the live endpoint."""
-    return get_boxscore(game_id=game_id, max_retries=1)
-
-
-def get_live_play_by_play(game_id: str) -> dict:
-    """Fetch play-by-play from the live endpoint."""
-    return get_play_by_play(game_id=game_id, max_retries=1)
-
-
-# --- Static data ---
-
-
-def get_all_teams() -> list[dict]:
-    """Get static team data (no API call needed)."""
-    return static_teams.get_teams()
-
-
-def get_team_by_id(team_id: int) -> dict | None:
-    """Get static team info by ID."""
-    results = [t for t in static_teams.get_teams() if t["id"] == team_id]
-    return results[0] if results else None

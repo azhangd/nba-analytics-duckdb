@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import html
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -43,9 +43,7 @@ class TaskDef:
     task_type: str
     module_path: str = ""
     inputs: tuple[str, ...] = ()
-    optional_inputs: tuple[str, ...] = ()
     outputs: tuple[str, ...] = ()
-    mutates: tuple[str, ...] = ()
     graphs: frozenset[str] = field(default_factory=frozenset)
     modes: frozenset[str] = field(default_factory=frozenset)
     required: bool = True
@@ -53,7 +51,6 @@ class TaskDef:
     dbt_exclude: str | None = None
     dbt_models: tuple[str, ...] = ()
     regular_season_only: bool = True
-    quality_outputs: tuple[str, ...] = ()
     sort_orders: Mapping[str, int] = field(default_factory=dict)
 
 
@@ -70,115 +67,42 @@ def _orders(*, live: int | None = None, fixture: int | None = None) -> Mapping[s
     return values
 
 
-def _python(
-    module_path: str,
-    *,
-    layer: str,
-    inputs: Sequence[str] = (),
-    optional_inputs: Sequence[str] = (),
-    outputs: Sequence[str] = (),
-    mutates: Sequence[str] = (),
-    graphs: Iterable[str],
-    modes: Iterable[str],
-    task_type: str | None = None,
-    required: bool = True,
-    quality_outputs: Sequence[str] | None = None,
-    regular_season_only: bool = True,
-    live_order: int | None = None,
-    fixture_order: int | None = None,
-) -> TaskDef:
-    declared_outputs = tuple(outputs)
-    return TaskDef(
-        name=_task_name(module_path),
-        module_path=module_path,
-        layer=layer,
-        task_type=task_type or layer,
-        inputs=tuple(inputs),
-        optional_inputs=tuple(optional_inputs),
-        outputs=declared_outputs,
-        mutates=tuple(mutates),
-        graphs=frozenset(graphs),
-        modes=frozenset(modes),
-        required=required,
-        regular_season_only=regular_season_only,
-        quality_outputs=declared_outputs if quality_outputs is None else tuple(quality_outputs),
-        sort_orders=_orders(live=live_order, fixture=fixture_order),
-    )
-
-
-def _dbt_transform_task(metadata: Mapping[str, Any]) -> TaskDef:
-    outputs = tuple(metadata["outputs"])
-    return TaskDef(
-        name=str(metadata.get("name", "dbt_build_warehouse")),
-        module_path="",
-        layer="gold",
-        task_type="dbt",
-        inputs=tuple(metadata.get("inputs", ())),
-        optional_inputs=tuple(metadata.get("optional_inputs", ())),
-        outputs=outputs,
-        graphs=frozenset(metadata.get("graphs", FULL_GRAPH)),
-        modes=frozenset(metadata.get("modes", ALL_MODES)),
-        required=metadata.get("required", True),
-        dbt_selector=str(metadata["dbt_selector"]),
-        dbt_exclude=metadata.get("dbt_exclude"),
-        dbt_models=tuple(metadata.get("dbt_models", ())),
-        regular_season_only=metadata.get("regular_season_only", True),
-        quality_outputs=tuple(metadata.get("quality_outputs", outputs)),
-        sort_orders=_orders(
-            live=metadata.get("live_order"),
-            fixture=metadata.get("fixture_order"),
-        ),
-    )
-
-
 def _module_path_for(file_path: Path) -> str:
     rel_path = file_path.relative_to(TASKS_ROOT.parent).with_suffix("")
     return "nba_duckdb." + ".".join(rel_path.parts)
 
 
-def _literal_graph_metadata(file_path: Path) -> list[dict[str, Any]]:
+def _literal_task_def(file_path: Path) -> dict[str, Any] | None:
     tree = ast.parse(file_path.read_text(), filename=str(file_path))
-    entries: list[dict[str, Any]] = []
     for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        target_names = {target.id for target in node.targets if isinstance(target, ast.Name)}
-        if "TASK_DEF" in target_names:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "TASK_DEF" for target in node.targets
+        ):
             value = ast.literal_eval(node.value)
             if not isinstance(value, dict):
                 raise TypeError(f"{file_path}: TASK_DEF must be a dict")
-            entries.append(value)
-        if "TASK_DEFS" in target_names:
-            value = ast.literal_eval(node.value)
-            if not isinstance(value, list):
-                raise TypeError(f"{file_path}: TASK_DEFS must be a list")
-            for item in value:
-                if not isinstance(item, dict):
-                    raise TypeError(f"{file_path}: TASK_DEFS entries must be dicts")
-                entries.append(item)
-    return entries
+            return value
+    return None
 
 
-def _task_from_metadata(module_path: str, metadata: Mapping[str, Any]) -> TaskDef:
-    if "dbt_selector" in metadata:
-        return _dbt_transform_task(metadata)
-
-    quality_outputs = metadata["quality_outputs"] if "quality_outputs" in metadata else None
-    return _python(
-        module_path,
-        layer=metadata["layer"],
-        task_type=metadata.get("task_type"),
-        inputs=metadata.get("inputs", ()),
-        optional_inputs=metadata.get("optional_inputs", ()),
-        outputs=metadata.get("outputs", ()),
-        mutates=metadata.get("mutates", ()),
-        graphs=metadata["graphs"],
-        modes=metadata["modes"],
+def _task(metadata: Mapping[str, Any], module_path: str = "") -> TaskDef:
+    """Build a TaskDef from a task module's TASK_DEF or a dbt task definition."""
+    is_dbt = "dbt_selector" in metadata
+    return TaskDef(
+        name=metadata["name"] if is_dbt else _task_name(module_path),
+        module_path=module_path,
+        layer="gold" if is_dbt else metadata["layer"],
+        task_type="dbt" if is_dbt else metadata["layer"],
+        inputs=tuple(metadata.get("inputs", ())),
+        outputs=tuple(metadata.get("outputs", ())),
+        graphs=frozenset(metadata["graphs"]),
+        modes=frozenset(metadata["modes"]),
         required=metadata.get("required", True),
-        quality_outputs=quality_outputs,
+        dbt_selector=metadata.get("dbt_selector"),
+        dbt_exclude=metadata.get("dbt_exclude"),
+        dbt_models=tuple(metadata.get("dbt_models", ())),
         regular_season_only=metadata.get("regular_season_only", True),
-        live_order=metadata.get("live_order"),
-        fixture_order=metadata.get("fixture_order"),
+        sort_orders=_orders(live=metadata.get("live_order"), fixture=metadata.get("fixture_order")),
     )
 
 
@@ -194,14 +118,11 @@ def _discover_task_defs() -> tuple[TaskDef, ...]:
     for file_path in sorted(TASKS_ROOT.rglob("*.py")):
         if file_path.name == "__init__.py":
             continue
-        metadata_entries = _literal_graph_metadata(file_path)
-        if not metadata_entries:
-            continue
-        module_path = _module_path_for(file_path)
-        task_defs.extend(_task_from_metadata(module_path, entry) for entry in metadata_entries)
-    task_defs.append(_dbt_transform_task(DBT_TRANSFORM_TASK_DEF))
-    task_defs.append(_dbt_transform_task(DBT_FEATURE_TASK_DEF))
-    task_defs.append(_dbt_transform_task(DBT_SUMMER_LEAGUE_TASK_DEF))
+        metadata = _literal_task_def(file_path)
+        if metadata is not None:
+            task_defs.append(_task(metadata, _module_path_for(file_path)))
+    for metadata in (DBT_TRANSFORM_TASK_DEF, DBT_FEATURE_TASK_DEF, DBT_SUMMER_LEAGUE_TASK_DEF):
+        task_defs.append(_task(metadata))
     return tuple(task_defs)
 
 
@@ -242,37 +163,30 @@ def task_defs_for(graph: str, mode: str) -> list[TaskDef]:
     return _toposort(selected, mode=mode)
 
 
-def _toposort(tasks: Sequence[TaskDef], *, mode: str) -> list[TaskDef]:
-    by_name = {task.name: task for task in tasks}
-    if len(by_name) != len(tasks):
-        raise ValueError("Duplicate task names in selected pipeline graph")
-
+def task_dependencies(tasks: Sequence[TaskDef]) -> dict[str, set[str]]:
+    """Map each task name to the tasks that produce its inputs."""
     producer_by_output: dict[str, str] = {}
-    mutators_by_dataset: dict[str, set[str]] = {}
     for task in tasks:
         for output in task.outputs:
             if output in producer_by_output:
                 raise ValueError(f"Dataset {output} has multiple producers")
             producer_by_output[output] = task.name
-        for mutated in task.mutates:
-            mutators_by_dataset.setdefault(mutated, set()).add(task.name)
-
-    dependencies = {}
-    for task in tasks:
-        selected_inputs = (*task.inputs, *task.optional_inputs)
-        output_deps = {
+    return {
+        task.name: {
             producer_by_output[input_name]
-            for input_name in selected_inputs
+            for input_name in task.inputs
             if input_name in producer_by_output and producer_by_output[input_name] != task.name
         }
-        mutation_deps = {
-            mutator
-            for input_name in selected_inputs
-            if input_name not in task.mutates
-            for mutator in mutators_by_dataset.get(input_name, set())
-            if mutator != task.name
-        }
-        dependencies[task.name] = output_deps | mutation_deps
+        for task in tasks
+    }
+
+
+def _toposort(tasks: Sequence[TaskDef], *, mode: str) -> list[TaskDef]:
+    by_name = {task.name: task for task in tasks}
+    if len(by_name) != len(tasks):
+        raise ValueError("Duplicate task names in selected pipeline graph")
+
+    dependencies = task_dependencies(tasks)
     dependents: dict[str, set[str]] = {task.name: set() for task in tasks}
     for task_name, deps in dependencies.items():
         for dep in deps:
@@ -309,7 +223,7 @@ def quality_required_tables() -> list[tuple[str, str]]:
     seen: set[tuple[str, str]] = set()
     tables: list[tuple[str, str]] = []
     for task in task_defs_for(DEFAULT_GRAPH, LIVE_MODE):
-        for output in task.quality_outputs:
+        for output in task.outputs:
             schema, table = output.split(".", 1)
             key = (schema, table)
             if key not in seen:
@@ -324,12 +238,12 @@ def _dataset_layer(dataset: str) -> str:
 
 def dataset_rows() -> list[dict[str, object]]:
     rows = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str]] = set()
     for graph in ALL_GRAPHS:
         for mode in ALL_MODES:
             for task in task_defs_for(graph, mode):
-                for output in (*task.outputs, *task.mutates):
-                    key = (output, task.name, "mutates" if output in task.mutates else "produces")
+                for output in task.outputs:
+                    key = (output, task.name)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -338,8 +252,6 @@ def dataset_rows() -> list[dict[str, object]]:
                         "task": task.name,
                         "layer": _dataset_layer(output),
                         "inputs": list(task.inputs),
-                        "optional_inputs": list(task.optional_inputs),
-                        "writes": "mutates" if output in task.mutates else "produces",
                         "graphs": sorted(task.graphs),
                         "modes": sorted(task.modes),
                         "required": task.required,
@@ -365,13 +277,13 @@ def dataset_graph(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> dict[str
             },
         )
 
-    def append_consumer(dataset: str, task_name: str, *, optional: bool) -> None:
-        consumer = {"task": task_name, "optional": optional}
+    def append_consumer(dataset: str, task_name: str) -> None:
+        consumer = {"task": task_name}
         if consumer not in nodes[dataset]["consumers"]:
             nodes[dataset]["consumers"].append(consumer)
 
     for task in tasks:
-        task_outputs = (*task.outputs, *task.mutates)
+        task_outputs = task.outputs
         dbt_edges: tuple[tuple[str, str], ...] = ()
         if task.dbt_selector:
             output_set = set(task_outputs)
@@ -382,36 +294,23 @@ def dataset_graph(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> dict[str
                     if edge[1] in output_set
                 )
             )
-        for dataset in (*task.inputs, *task.optional_inputs, *task_outputs):
+        for dataset in (*task.inputs, *task_outputs):
             ensure_node(dataset)
         for source, target in dbt_edges:
             ensure_node(source)
             ensure_node(target)
         for dataset in task_outputs:
-            write_kind = "mutates" if dataset in task.mutates else "produces"
-            nodes[dataset]["producers"].append({"task": task.name, "writes": write_kind})
-        for dataset in (*task.inputs, *task.optional_inputs):
-            optional = dataset in task.optional_inputs
-            append_consumer(dataset, task.name, optional=optional)
+            nodes[dataset]["producers"].append({"task": task.name})
+        for dataset in task.inputs:
+            append_consumer(dataset, task.name)
         if task.dbt_selector:
             for source, target in dbt_edges:
-                append_consumer(source, task.name, optional=False)
-                edges.append({
-                    "from": source,
-                    "to": target,
-                    "task": task.name,
-                    "optional": False,
-                })
+                append_consumer(source, task.name)
+                edges.append({"from": source, "to": target, "task": task.name})
             continue
-        for dataset in (*task.inputs, *task.optional_inputs):
-            optional = dataset in task.optional_inputs
+        for dataset in task.inputs:
             for output in task_outputs:
-                edges.append({
-                    "from": dataset,
-                    "to": output,
-                    "task": task.name,
-                    "optional": optional,
-                })
+                edges.append({"from": dataset, "to": output, "task": task.name})
 
     task_rows = [
         {
@@ -419,9 +318,7 @@ def dataset_graph(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> dict[str
             "layer": task.layer,
             "task_type": task.task_type,
             "inputs": list(task.inputs),
-            "optional_inputs": list(task.optional_inputs),
             "outputs": list(task.outputs),
-            "mutates": list(task.mutates),
             "required": task.required,
         }
         for task in tasks
@@ -445,7 +342,7 @@ def dataset_graph_html(graph: str = DEFAULT_GRAPH, mode: str = LIVE_MODE) -> str
         "<tr>"
         f"<td>{html.escape(str(row['task']))}</td>"
         f"<td>{html.escape(str(row['layer']))}</td>"
-        f"<td>{html.escape(', '.join(row['outputs'] or row['mutates']))}</td>"
+        f"<td>{html.escape(', '.join(row['outputs']))}</td>"
         f"<td>{html.escape(', '.join(row['inputs']))}</td>"
         "</tr>"
         for row in tasks

@@ -9,7 +9,6 @@ Fetches per-game data that complements the traditional/advanced box scores:
 
 import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 
@@ -19,9 +18,12 @@ from nba_duckdb.season_utils import (
     requested_or_default_seasons,
 )
 from nba_duckdb.utils import nba_client
-from nba_duckdb.utils.env import positive_int
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.game_detail")
+
+ROTATION_MAX_RETRIES = 1
+ROTATION_TIMEOUT_SECONDS = 10
+ROTATION_CIRCUIT_BREAKER_AFTER = 1
 
 FLUSH_EVERY = 50
 OPTIONAL_DETAIL_KEYS = ("misc", "scoring", "win_prob")
@@ -36,10 +38,6 @@ SKIPPED_STATUS = "skipped"
 # silver.fct_game_detail (paint/fast-break/off-TOV/2nd-chance points) stays
 # populated. Set ENABLE_OPTIONAL_GAME_DETAIL=0 to skip these to save NBA API
 # calls when only rotation data is required.
-_OPTIONAL_TOGGLE = os.environ.get("ENABLE_OPTIONAL_GAME_DETAIL", "").strip().lower()
-ENABLE_OPTIONAL_DETAIL = _OPTIONAL_TOGGLE not in {"0", "false", "no"}
-_ROTATION_TOGGLE = os.environ.get("ENABLE_GAME_ROTATION", "").strip().lower()
-ENABLE_ROTATION_DETAIL = _ROTATION_TOGGLE not in {"0", "false", "no"}
 
 
 def _detail_payload(value) -> dict:
@@ -235,18 +233,10 @@ def run(**kwargs):
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    include_optional_detail = kwargs.get("include_optional_detail")
-    if include_optional_detail is None:
-        include_optional_detail = ENABLE_OPTIONAL_DETAIL or bool(kwargs.get("full_refresh"))
-    else:
-        include_optional_detail = bool(include_optional_detail)
+    include_optional_detail = bool(kwargs.get("include_optional_detail", True))
     include_win_prob = include_optional_detail and bool(kwargs.get("include_win_prob"))
     strict_optional_detail = bool(kwargs.get("full_refresh") or kwargs.get("strict_optional_detail"))
-    include_rotation_detail = kwargs.get("include_rotation_detail")
-    if include_rotation_detail is None:
-        include_rotation_detail = ENABLE_ROTATION_DETAIL
-    else:
-        include_rotation_detail = bool(include_rotation_detail)
+    include_rotation_detail = bool(kwargs.get("include_rotation_detail", True))
     strict_rotation_detail = bool(
         kwargs.get("full_refresh") or kwargs.get("strict_rotation_detail")
     )
@@ -254,21 +244,9 @@ def run(**kwargs):
         strict_optional_detail or strict_rotation_detail
     )
     optional_max_retries = STRICT_OPTIONAL_RETRIES if strict_optional_detail else DEFAULT_OPTIONAL_RETRIES
-    rotation_max_retries = positive_int(
-        "NBA_DUCKDB_ROTATION_MAX_RETRIES",
-        1,
-        logger=logger,
-    )
-    rotation_timeout = positive_int(
-        "NBA_DUCKDB_ROTATION_TIMEOUT_SECONDS",
-        10,
-        logger=logger,
-    )
-    rotation_circuit_breaker_after = positive_int(
-        "NBA_DUCKDB_ROTATION_CIRCUIT_BREAKER_AFTER",
-        1,
-        logger=logger,
-    )
+    rotation_max_retries = ROTATION_MAX_RETRIES
+    rotation_timeout = ROTATION_TIMEOUT_SECONDS
+    rotation_circuit_breaker_after = ROTATION_CIRCUIT_BREAKER_AFTER
     blocking_components = _blocking_components(
         include_optional_detail=include_optional_detail,
         include_win_prob=include_win_prob,

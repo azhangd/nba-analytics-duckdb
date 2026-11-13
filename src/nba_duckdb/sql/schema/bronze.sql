@@ -73,12 +73,6 @@ CREATE TABLE IF NOT EXISTS bronze.shot_charts (
     PRIMARY KEY (game_id, team_id)
 );
 
-CREATE TABLE IF NOT EXISTS bronze.standings (
-    season         TEXT PRIMARY KEY,
-    standings_json JSON,
-    ingested_at    TIMESTAMP DEFAULT current_timestamp
-);
-
 CREATE TABLE IF NOT EXISTS bronze.tracking_stats (
     season        TEXT NOT NULL,
     category      TEXT NOT NULL,
@@ -119,12 +113,6 @@ CREATE TABLE IF NOT EXISTS bronze.game_detail (
     game_id      TEXT PRIMARY KEY,
     detail_json  JSON,
     ingested_at  TIMESTAMP DEFAULT current_timestamp
-);
-
-CREATE TABLE IF NOT EXISTS bronze.tracking (
-    season        TEXT PRIMARY KEY,
-    tracking_json JSON,
-    ingested_at   TIMESTAMP DEFAULT current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS bronze.injuries (

@@ -23,7 +23,7 @@ from sklearn.model_selection import GroupKFold
 from nba_duckdb.modeling.artifact_paths import artifact_dir
 
 logger = logging.getLogger("nba_duckdb.modeling.trained_shot_model")
-SHOT_MODEL_N_JOBS = int(os.environ.get("SHOT_MODEL_N_JOBS", "1"))
+SHOT_MODEL_N_JOBS = 1
 SHOT_MODEL_FEATURE_CONTRACT_VERSION = 2
 
 # Top action types (rest → "Other")

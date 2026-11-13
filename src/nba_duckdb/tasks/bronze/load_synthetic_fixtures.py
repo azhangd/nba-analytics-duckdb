@@ -331,27 +331,6 @@ def run(
             _coach_rows(payload.teams, season, now_iso),
             conflict_cols=["coach_id", "team_id", "season"],
         ),
-        "standings": db.upsert_rows(
-            "bronze",
-            "standings",
-            [
-                {
-                    "season": season,
-                    "standings_json": {
-                        "teams": [
-                            {
-                                "team_id": team["team_id"],
-                                "wins": 22 - index,
-                                "losses": 22 + index,
-                            }
-                            for index, team in enumerate(payload.teams)
-                        ]
-                    },
-                    "ingested_at": now_iso,
-                }
-            ],
-            conflict_cols=["season"],
-        ),
         "tracking_stats": db.upsert_rows(
             "bronze",
             "tracking_stats",
@@ -431,18 +410,6 @@ def run(
             ],
             conflict_cols=["game_id"],
         ),
-        "tracking": db.upsert_rows(
-            "bronze",
-            "tracking",
-            [
-                {
-                    "season": season,
-                    "tracking_json": _tracking_payload(payload.players, "Shooting"),
-                    "ingested_at": now_iso,
-                }
-            ],
-            conflict_cols=["season"],
-        ),
         "injuries": db.upsert_rows(
             "bronze",
             "injuries",
@@ -473,7 +440,7 @@ def run(
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {
     "layer": "fixture",
-    "outputs": ("bronze.schedule", "bronze.rosters", "bronze.coaches", "bronze.boxscores", "bronze.play_by_play", "bronze.shot_charts", "bronze.standings", "bronze.tracking_stats", "bronze.hustle", "bronze.matchups", "bronze.defense", "bronze.game_detail", "bronze.tracking", "bronze.injuries"),
+    "outputs": ("bronze.schedule", "bronze.rosters", "bronze.coaches", "bronze.boxscores", "bronze.play_by_play", "bronze.shot_charts", "bronze.tracking_stats", "bronze.hustle", "bronze.matchups", "bronze.defense", "bronze.game_detail", "bronze.injuries"),
     "graphs": ("default", "quick"),
     "modes": ("fixture",),
     "fixture_order": 10,

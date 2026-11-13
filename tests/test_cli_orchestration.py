@@ -38,12 +38,10 @@ def test_run_live_default_builds_full_warehouse_graph():
         "ingest_boxscores",
         "ingest_play_by_play",
         "ingest_shot_charts",
-        "ingest_standings",
         "ingest_tracking_stats",
         "ingest_hustle",
         "ingest_matchups",
         "ingest_defense",
-        "ingest_tracking",
         "ingest_game_detail",
         "ingest_injuries",
         "dbt_build_warehouse",
@@ -156,7 +154,6 @@ def test_run_smoke_default_missing_full_extras_fails_before_writing_warehouse(
     smoke_path = tmp_path / "smoke.duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.setenv("NBA_DUCKDB_SMOKE_PATH", str(smoke_path))
     _hide_optional_modules(
         monkeypatch,
@@ -192,7 +189,6 @@ def test_run_smoke_quick_does_not_require_ml(tmp_path, monkeypatch, capsys):
     quick_smoke_path = tmp_path / "smoke-quick.duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.setenv("NBA_DUCKDB_SMOKE_PATH", str(smoke_path))
     monkeypatch.setenv("NBA_DUCKDB_QUICK_SMOKE_PATH", str(quick_smoke_path))
     _hide_optional_modules(
@@ -226,7 +222,6 @@ def test_run_live_quick_missing_live_extra_fails_before_init(
 
     db_path = tmp_path / "live.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     _hide_optional_modules(monkeypatch, {"nba_api", "pdfplumber"})
     monkeypatch.setattr(
         sys,
@@ -257,7 +252,6 @@ def test_backfill_source_missing_live_extra_fails_before_init(
 
     db_path = tmp_path / "live.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     _hide_optional_modules(monkeypatch, {"nba_api", "pdfplumber"})
     monkeypatch.setattr(
         sys,
@@ -289,7 +283,6 @@ def test_run_live_default_with_live_extra_missing_ml_reports_ml_only(
 
     db_path = tmp_path / "live.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     _hide_optional_modules(
         monkeypatch,
         {
@@ -326,7 +319,6 @@ def test_run_live_quick_with_live_extra_does_not_require_ml(
 
     db_path = tmp_path / "live.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     _hide_optional_modules(monkeypatch, {"sklearn", "scipy", "xgboost", "umap", "joblib"})
     monkeypatch.setattr(cli, "run_steps", lambda *_args, **_kwargs: {"status": "ok"})
     monkeypatch.setattr(
@@ -350,11 +342,9 @@ def test_run_smoke_defaults_to_separate_smoke_warehouse(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     Path(".env").write_text(
         f"NBA_DUCKDB_PATH={live_path}\n"
-        f"NBA_DUCKDB_DATABASE_URL=duckdb:///{live_path}\n"
         f"NBA_DUCKDB_SMOKE_PATH={smoke_path}\n"
     )
     monkeypatch.setattr(cli, "_offline_smoke_steps", lambda **_kwargs: [])
@@ -394,7 +384,6 @@ def test_run_smoke_defaults_to_separate_smoke_warehouse(tmp_path, monkeypatch):
     assert smoke_path.exists()
     assert not live_path.exists()
     assert os.environ.get("NBA_DUCKDB_PATH") is None
-    assert os.environ.get("NBA_DUCKDB_DATABASE_URL") is None
 
 
 def test_run_smoke_cli_ignores_dotenv_live_warehouse_after_env_load(
@@ -409,16 +398,13 @@ def test_run_smoke_cli_ignores_dotenv_live_warehouse_after_env_load(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     Path(".env").write_text(
         f"NBA_DUCKDB_PATH={live_path}\n"
-        f"NBA_DUCKDB_DATABASE_URL=duckdb:///{live_path}\n"
         f"NBA_DUCKDB_SMOKE_PATH={smoke_path}\n"
     )
     config.load_env_file()
     assert os.environ["NBA_DUCKDB_PATH"] == str(live_path)
-    assert os.environ["NBA_DUCKDB_DATABASE_URL"] == f"duckdb:///{live_path}"
 
     monkeypatch.setattr(cli, "_offline_smoke_steps", lambda **_kwargs: [])
     monkeypatch.setattr(cli, "run_steps", lambda *_args, **_kwargs: {"status": "ok"})
@@ -433,11 +419,9 @@ def test_run_smoke_cli_ignores_dotenv_live_warehouse_after_env_load(
         assert smoke_path.exists()
         assert not live_path.exists()
         assert os.environ["NBA_DUCKDB_PATH"] == str(live_path)
-        assert os.environ["NBA_DUCKDB_DATABASE_URL"] == f"duckdb:///{live_path}"
     finally:
         for key in (
             "NBA_DUCKDB_PATH",
-            "NBA_DUCKDB_DATABASE_URL",
             "NBA_DUCKDB_SMOKE_PATH",
             "NBA_DUCKDB_QUICK_SMOKE_PATH",
         ):
@@ -466,7 +450,6 @@ def test_run_live_refuses_synthetic_smoke_season(tmp_path, monkeypatch, capsys):
     from nba_duckdb import db
 
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     db.init_schema()
     db.insert_rows(
@@ -482,7 +465,6 @@ def test_run_live_refuses_synthetic_smoke_game_id(tmp_path, monkeypatch, capsys)
     from nba_duckdb import db
 
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     db.init_schema()
     db.insert_rows(
@@ -502,7 +484,6 @@ def test_run_live_refuses_synthetic_rows_in_downstream_tables(
     from nba_duckdb import db
 
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
     db.init_schema()
     db.execute(
@@ -544,7 +525,6 @@ def test_run_live_no_init_schema_before_init_returns_friendly_json(
 
     db_path = tmp_path / "missing.duckdb"
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    monkeypatch.delenv("NBA_DUCKDB_DATABASE_URL", raising=False)
     monkeypatch.setattr(cli, "require_optional_groups", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         sys,

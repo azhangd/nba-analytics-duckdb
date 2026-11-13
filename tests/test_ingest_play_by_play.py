@@ -88,8 +88,7 @@ def test_play_by_play_abort_flushes_in_flight_batch(tmp_path, monkeypatch):
 
     from nba_duckdb.tasks.bronze import ingest_play_by_play
 
-    monkeypatch.setenv("NBA_DUCKDB_PBP_FLUSH_EVERY", "10")
-    monkeypatch.setenv("NBA_DUCKDB_PBP_ABORT_AFTER_FAILURES", "3")
+    monkeypatch.setattr(ingest_play_by_play, "ABORT_AFTER_FAILURES", 3)
     calls = []
 
     def fake_fetch(game_id, **_kwargs):
