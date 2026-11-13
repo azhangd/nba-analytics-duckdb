@@ -149,6 +149,19 @@ def test_bootstrap_ci_shape():
     assert np.all(upper >= lower)
 
 
+def test_bootstrap_ci_is_reproducible():
+    """Two runs on the same data should give the same intervals."""
+    lineups = _make_lineups(n_games=10, stints_per_game=8)
+    games = _make_games(n_games=10)
+    X, y, weights, _player_ids, game_ids = build_design_matrix(lineups, games, {100: 100.0, 200: 100.0})
+
+    first = bootstrap_ci(X, y, weights, game_ids, lam=100.0, n_boot=10)
+    second = bootstrap_ci(X, y, weights, game_ids, lam=100.0, n_boot=10)
+
+    np.testing.assert_array_equal(first[0], second[0])
+    np.testing.assert_array_equal(first[1], second[1])
+
+
 def test_blend_with_prior_full_trust():
     """Players with enough minutes should get pure RAPM (no prior blend)."""
     rapm = np.array([5.0, -3.0, 1.0])

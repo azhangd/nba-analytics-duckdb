@@ -82,18 +82,8 @@ def _configured_task_environment(*, mode: str, quick: bool, team_ids: list[Any])
     if team_ids:
         overrides["NBA_DUCKDB_TEAM_IDS"] = ",".join(str(value) for value in team_ids)
 
-    previous = {key: os.environ.get(key) for key in overrides}
-    os.environ.update(overrides)
-    config.get_settings.cache_clear()
-    try:
+    with config.env_overrides(overrides):
         yield
-    finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        config.get_settings.cache_clear()
 
 
 def _params() -> dict[str, Any]:
