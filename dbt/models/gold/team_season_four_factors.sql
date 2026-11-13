@@ -1,7 +1,5 @@
 {{ config(materialized='table', schema='gold', alias='team_season_four_factors', tags=['gold_mart']) }}
 
-SELECT *
-FROM (
 WITH team_games AS (
     SELECT fb.game_id, fb.team_id, fg.season,
         SUM(fgm) AS fgm, SUM(fga) AS fga, SUM(fg3m) AS fg3m,
@@ -71,32 +69,3 @@ SELECT
     ROUND((opp_tov - tov + oreb - opp_oreb)::NUMERIC / games, 1) AS possession_battle_per_game
 FROM season s
 LEFT JOIN {{ ref('dim_teams') }} t ON s.team_id = t.team_id
-) AS model(
-    team_id,
-    season,
-    team_abbreviation,
-    games,
-    pts,
-    opp_pts,
-    pace,
-    ppg,
-    opp_ppg,
-    off_efg_pct,
-    off_tov_pct,
-    off_oreb_pct,
-    off_ft_rate,
-    def_efg_pct,
-    def_tov_pct,
-    def_oreb_pct,
-    def_ft_rate,
-    pyth_win_pct,
-    pyth_wins,
-    pyth_losses,
-    tov_per_game,
-    tov_forced_per_game,
-    tov_diff_per_game,
-    oreb_per_game,
-    opp_oreb_per_game,
-    oreb_diff_per_game,
-    possession_battle_per_game
-)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 from pathlib import Path
 from typing import Any
 
@@ -16,16 +15,12 @@ def _run_python_task(
     *,
     scope: dict[str, Any],
     fixtures_dir: Path | None = None,
-    source_name: str | None = None,
 ) -> dict[str, Any]:
     if task.name == "load_synthetic_fixtures":
         from nba_duckdb.tasks.bronze import load_synthetic_fixtures
 
         db.init_schema()
-        return load_synthetic_fixtures.run(
-            source_name=source_name or os.environ.get("NBA_DUCKDB_SOURCE", "fixtures"),
-            fixtures_dir=fixtures_dir or config.fixtures_dir(None),
-        )
+        return load_synthetic_fixtures.run(fixtures_dir=fixtures_dir or config.fixtures_dir(None))
 
     module = importlib.import_module(task.module_path)
     result = module.run(**scope)
@@ -56,15 +51,9 @@ def run_task(
     *,
     scope: dict[str, Any],
     fixtures_dir: Path | None = None,
-    source_name: str | None = None,
 ) -> dict[str, Any]:
     """Execute one registry task without depending on a workflow framework."""
 
     if task.dbt_selector:
         return _run_dbt_task(task, scope=scope)
-    return _run_python_task(
-        task,
-        scope=scope,
-        fixtures_dir=fixtures_dir,
-        source_name=source_name,
-    )
+    return _run_python_task(task, scope=scope, fixtures_dir=fixtures_dir)

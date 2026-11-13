@@ -28,6 +28,11 @@ LAYER_ORDER = {
 ALL_GRAPHS = (DEFAULT_GRAPH, QUICK_GRAPH, SUMMER_LEAGUE_GRAPH)
 FULL_GRAPH = (DEFAULT_GRAPH,)
 ALL_MODES = (LIVE_MODE, FIXTURE_MODE)
+# Sources `backfill-source` (CLI and Airflow) can resume, mapped to their ingest task.
+BACKFILL_TASKS = {
+    "play-by-play": "ingest_play_by_play",
+    "shot-charts": "ingest_shot_charts",
+}
 TASKS_ROOT = Path(__file__).resolve().parent / "tasks"
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,3 @@ class SourcePayload:
     play_by_play: list[dict[str, Any]]
     shot_charts: list[dict[str, Any]]
 
-
-class SourceAdapter(Protocol):
-    def read(self) -> SourcePayload:
-        """Return one coherent bronze source payload."""
