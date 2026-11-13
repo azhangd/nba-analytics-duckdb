@@ -1,9 +1,8 @@
-# Test Fixtures
+# Test fixtures
 
-These deterministic fixtures exist only for tests and offline smoke checks. They are not copied, sampled, or derived from real games, real teams, real players, or real schedules.
+A fake season (2099-00) with made-up teams and players, used by the tests and
+`run-smoke`. None of it comes from real games.
 
-Regenerate them with:
+To regenerate it:
 
-```bash
-python -m nba_duckdb.cli generate-test-fixtures --fixtures-dir tests/fixtures/generated
-```
+    uv run nba-duckdb generate-test-fixtures --fixtures-dir tests/fixtures/generated

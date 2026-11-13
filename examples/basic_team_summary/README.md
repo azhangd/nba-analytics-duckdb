@@ -1,32 +1,14 @@
-# Basic Team Summary
+# Basic team summary
 
-This example reads a local DuckDB warehouse and prints a team-level summary from
-supported gold tables. It is intentionally small so it can run in CI against the
-synthetic fixture warehouse.
+Prints a summary for each team from a few gold tables. It's small on purpose,
+and CI runs it against the fake smoke data.
 
-Run it after building the smoke warehouse:
+    make smoke
+    uv run python examples/basic_team_summary/analysis.py
 
-```bash
-make smoke
-make example-basic-team-summary
-```
+To run it on your real data:
 
-The Make target reads `data/warehouse/smoke.duckdb` by default, which is where
-`run-smoke` writes when no `NBA_DUCKDB_PATH` is exported. The script has the
-same default, so this also works after `make smoke`:
+    NBA_DUCKDB_PATH=data/warehouse/nba.duckdb uv run python examples/basic_team_summary/analysis.py
 
-```bash
-uv run python examples/basic_team_summary/analysis.py
-```
-
-Or point it at a specific warehouse:
-
-```bash
-NBA_DUCKDB_PATH=data/warehouse/nba.duckdb uv run python examples/basic_team_summary/analysis.py
-```
-
-The output is scoped to whatever games are loaded in the warehouse. Fixture runs
-use season `2099-00` and fake team codes so the repository does not ship real
-NBA data. Live scoped runs are useful for local exploration but should not be
-interpreted as full-league evidence unless the warehouse has full-league
-coverage.
+The numbers only cover the games you've loaded. On the fake data you'll see
+season `2099-00` and made-up teams.

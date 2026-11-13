@@ -1,49 +1,34 @@
-# Warehouse Diagrams
+# Table diagrams
 
-The README shows the raw source and silver table map because that is the first
-shape most readers need. The rest of the warehouse is too large for one readable
-image, so these views split it by how someone would usually query it.
+The warehouse is too big for one picture, so it's split into four. Every table
+shows up as the main table in exactly one of them; a few upstream tables repeat
+for context.
 
-Every bronze, silver, and gold table appears as a primary table in exactly one
-diagram. Some upstream tables repeat as context so the individual views are
-easier to read. Diagram generation checks each table against the schema and
-checks curated relationships against the dbt manifest plus Python task
-metadata. If the manifest is missing or stale, `make diagrams` and
-`make check-diagrams` may run `dbt parse` and refresh ignored files under
-`dbt/target/`.
+`make diagrams` regenerates the PNGs (you'll need Graphviz) and checks them
+against the dbt manifest and the task registry. For the full graph in your
+browser:
 
-Implementation note: some bronze tables are raw source tables, not transform
-inputs. For example, the pipeline stores `bronze.tracking`, while
-`silver.fct_tracking` is built from `bronze.tracking_stats`.
-
-For the full generated graph, run:
-
-```bash
-uv run nba-duckdb datasets graph --format html --output data/lineage.html
-```
-
-Regenerating the PNG files with `make diagrams` requires Graphviz.
+    uv run nba-duckdb datasets graph --format html --output data/lineage.html
 
 ## Bronze to silver
 
-Raw NBA source records and derived silver facts and dimensions.
-
 ![Bronze to silver](assets/core_tables.png)
 
-## Player gold tables
+## Player tables
 
-Player-level game logs, season summaries, splits, embeddings, and feature matrices.
+Game logs, season stats, splits, embeddings and the feature matrix.
 
 ![Player gold tables](assets/player_tables.png)
 
-## Team gold tables
+## Team tables
 
-Team-level game logs, season summaries, Elo ratings, scouting, and feature matrices.
+Game logs, season stats, Elo, scouting and the feature matrix.
 
 ![Team gold tables](assets/team_tables.png)
 
-## Play, model, and signal tables
+## Plays, models and signals
 
-Play-level events, shot-quality estimates, model artifacts, and off-court covariates.
+Play-by-play events, shot quality, model artifacts, and off-court signals like
+page views and media mentions.
 
 ![Play, model, and signal tables](assets/play_model_signal_tables.png)

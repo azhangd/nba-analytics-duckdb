@@ -11,6 +11,15 @@ stats endpoints, then builds a few dozen tables on top:
 - shot quality: actual vs. expected FG% by zone
 - lineup and on/off numbers, clutch splits, play types
 
+```mermaid
+flowchart LR
+    api["NBA stats API"] --> bronze["bronze<br/>raw responses"]
+    bronze --> silver["silver<br/>games, box scores,<br/>play-by-play, shots"]
+    silver --> gold["gold<br/>player and team stats"]
+    silver --> models["models<br/>RAPM, win probability,<br/>shot quality"]
+    models --> gold
+```
+
 Not affiliated with the NBA, and no NBA data lives in this repo.
 
 ## Installation
