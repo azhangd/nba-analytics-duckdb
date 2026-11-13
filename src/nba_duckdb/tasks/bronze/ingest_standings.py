@@ -31,16 +31,10 @@ def run(**kwargs):
     return {"rows_written": count}
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'bronze',
- 'task_type': 'bronze',
- 'inputs': (),
- 'optional_inputs': (),
- 'outputs': ('bronze.standings',),
- 'mutates': (),
- 'graphs': ('default',),
- 'modes': ('live',),
- 'required': True,
- 'quality_outputs': ('bronze.standings',),
- 'regular_season_only': True,
- 'live_order': 60,
- 'fixture_order': None}
+TASK_DEF = {
+    "layer": "bronze",
+    "outputs": ("bronze.standings",),
+    "graphs": ("default",),
+    "modes": ("live",),
+    "live_order": 60,
+}

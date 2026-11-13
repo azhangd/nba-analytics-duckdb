@@ -100,16 +100,10 @@ def _to_int(value):
         return None
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'bronze',
- 'task_type': 'bronze',
- 'inputs': (),
- 'optional_inputs': (),
- 'outputs': ('bronze.rosters', 'bronze.coaches'),
- 'mutates': (),
- 'graphs': ('default', 'quick'),
- 'modes': ('live',),
- 'required': True,
- 'quality_outputs': ('bronze.rosters', 'bronze.coaches'),
- 'regular_season_only': True,
- 'live_order': 20,
- 'fixture_order': None}
+TASK_DEF = {
+    "layer": "bronze",
+    "outputs": ("bronze.rosters", "bronze.coaches"),
+    "graphs": ("default", "quick"),
+    "modes": ("live",),
+    "live_order": 20,
+}

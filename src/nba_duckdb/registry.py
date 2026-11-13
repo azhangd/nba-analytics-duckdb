@@ -17,8 +17,6 @@ SUMMER_LEAGUE_GRAPH = "summer_league"
 LIVE_MODE = "live"
 FIXTURE_MODE = "fixture"
 
-GRAPH_ORDER = (DEFAULT_GRAPH, QUICK_GRAPH, SUMMER_LEAGUE_GRAPH)
-MODE_ORDER = (LIVE_MODE, FIXTURE_MODE)
 LAYER_ORDER = {
     "fixture": 0,
     "bronze": 10,
@@ -30,8 +28,6 @@ LAYER_ORDER = {
 ALL_GRAPHS = (DEFAULT_GRAPH, QUICK_GRAPH, SUMMER_LEAGUE_GRAPH)
 FULL_GRAPH = (DEFAULT_GRAPH,)
 ALL_MODES = (LIVE_MODE, FIXTURE_MODE)
-LIVE_ONLY = (LIVE_MODE,)
-FIXTURE_ONLY = (FIXTURE_MODE,)
 TASKS_ROOT = Path(__file__).resolve().parent / "tasks"
 
 
@@ -299,15 +295,6 @@ def _toposort(tasks: Sequence[TaskDef], *, mode: str) -> list[TaskDef]:
     return ordered
 
 
-def dbt_models_for(graph: str = DEFAULT_GRAPH) -> list[tuple[str, bool]]:
-    models: list[tuple[str, bool]] = []
-    for task in task_defs_for(graph, LIVE_MODE):
-        if not task.dbt_models:
-            continue
-        models.extend((model, task.regular_season_only) for model in task.dbt_models)
-    return models
-
-
 def module_paths(*, graph: str | None = None, mode: str | None = None) -> list[str]:
     tasks = TASK_DEFS if graph is None or mode is None else task_defs_for(graph, mode)
     return [task.module_path for task in tasks if task.module_path]
@@ -352,24 +339,6 @@ def dataset_rows() -> list[dict[str, object]]:
                         "modes": sorted(task.modes),
                         "required": task.required,
                     })
-    return rows
-
-
-def all_task_rows() -> list[dict[str, object]]:
-    rows = []
-    for task in TASK_DEFS:
-        for output in (*task.outputs, *task.mutates):
-            rows.append({
-                "dataset": output,
-                "task": task.name,
-                "layer": _dataset_layer(output),
-                "inputs": list(task.inputs),
-                "optional_inputs": list(task.optional_inputs),
-                "writes": "mutates" if output in task.mutates else "produces",
-                "graphs": sorted(task.graphs),
-                "modes": sorted(task.modes),
-                "required": task.required,
-            })
     return rows
 
 

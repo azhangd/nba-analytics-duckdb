@@ -248,16 +248,11 @@ def run(**kwargs):
     }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'bronze',
- 'task_type': 'bronze',
- 'inputs': ('bronze.schedule',),
- 'optional_inputs': (),
- 'outputs': ('bronze.play_by_play',),
- 'mutates': (),
- 'graphs': ('default', 'quick', 'summer_league'),
- 'modes': ('live',),
- 'required': True,
- 'quality_outputs': ('bronze.play_by_play',),
- 'regular_season_only': True,
- 'live_order': 40,
- 'fixture_order': None}
+TASK_DEF = {
+    "layer": "bronze",
+    "inputs": ("bronze.schedule",),
+    "outputs": ("bronze.play_by_play",),
+    "graphs": ("default", "quick", "summer_league"),
+    "modes": ("live",),
+    "live_order": 40,
+}

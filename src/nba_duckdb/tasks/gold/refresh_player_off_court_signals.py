@@ -433,20 +433,12 @@ if __name__ == "__main__":
     run()
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'gold',
- 'task_type': 'gold',
- 'inputs': ('silver.dim_players', 'silver.dim_player_external_identities'),
- 'optional_inputs': (),
- 'outputs': ('gold.player_pageviews_daily',
-             'gold.player_media_mentions_daily',
-             'gold.player_jersey_rank_snapshots'),
- 'mutates': (),
- 'graphs': ('default',),
- 'modes': ('live', 'fixture'),
- 'required': True,
- 'quality_outputs': ('gold.player_pageviews_daily',
-                     'gold.player_media_mentions_daily',
-                     'gold.player_jersey_rank_snapshots'),
- 'regular_season_only': True,
- 'live_order': 570,
- 'fixture_order': 450}
+TASK_DEF = {
+    "layer": "gold",
+    "inputs": ("silver.dim_players", "silver.dim_player_external_identities"),
+    "outputs": ("gold.player_pageviews_daily", "gold.player_media_mentions_daily", "gold.player_jersey_rank_snapshots"),
+    "graphs": ("default",),
+    "modes": ("live", "fixture"),
+    "live_order": 570,
+    "fixture_order": 450,
+}

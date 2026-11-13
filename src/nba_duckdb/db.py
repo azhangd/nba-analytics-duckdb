@@ -313,11 +313,6 @@ def _apply_lightweight_migrations() -> None:
         execute_sql(sql_text)
 
 
-def execute_sql_file(filepath: str | Path) -> None:
-    execute_sql_text(Path(filepath).read_text())
-    logger.info("Executed SQL file: %s", filepath)
-
-
 def execute_sql_text(sql_text: str) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -361,10 +356,6 @@ def read_table(
         query += f" WHERE {where}"
     rows = execute_sql(query, params)
     return pl.from_dicts(rows, infer_schema_length=None) if rows else pl.DataFrame()
-
-
-def fetch_all(schema: str, table: str) -> list[dict[str, Any]]:
-    return execute_sql(f"SELECT * FROM {_quote_ident(schema)}.{_quote_ident(table)}")
 
 
 def _insert_sql(schema: str, table: str, columns: list[str]) -> str:
@@ -470,32 +461,6 @@ def upsert_rows(
     return len(rows)
 
 
-def replace_rows_for_keys(
-    schema: str,
-    table: str,
-    key_column: str,
-    key_values: Iterable[Any],
-    rows: list[Mapping[str, Any]],
-) -> int:
-    scoped_keys = list(dict.fromkeys(key_values))
-    if not scoped_keys:
-        return 0
-
-    placeholders = ", ".join("?" for _ in scoped_keys)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"DELETE FROM {_quote_ident(schema)}.{_quote_ident(table)} "
-                f"WHERE {_quote_ident(key_column)} IN ({placeholders})",
-                scoped_keys,
-            )
-            if rows:
-                columns = list(rows[0].keys())
-                cur.executemany(_insert_sql(schema, table, columns), _prepare_rows(rows, columns))
-        conn.commit()
-    return len(rows)
-
-
 def count_rows(schema: str, table: str) -> int:
     row = execute_sql(
         f"SELECT COUNT(*) AS row_count FROM {_quote_ident(schema)}.{_quote_ident(table)}"
@@ -503,5 +468,3 @@ def count_rows(schema: str, table: str) -> int:
     return int(row["row_count"])
 
 
-def table_row_count(schema: str, table: str) -> int:
-    return count_rows(schema, table)

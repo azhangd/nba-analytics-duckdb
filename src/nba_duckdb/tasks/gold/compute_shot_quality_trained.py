@@ -300,16 +300,12 @@ def run(**kwargs):
     }
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
-TASK_DEF = {'layer': 'gold',
- 'task_type': 'gold',
- 'inputs': ('silver.fct_shots',),
- 'optional_inputs': (),
- 'outputs': ('gold.player_zone_season_shot_quality_trained',),
- 'mutates': (),
- 'graphs': ('default',),
- 'modes': ('live', 'fixture'),
- 'required': True,
- 'quality_outputs': ('gold.player_zone_season_shot_quality_trained',),
- 'regular_season_only': True,
- 'live_order': 590,
- 'fixture_order': 470}
+TASK_DEF = {
+    "layer": "gold",
+    "inputs": ("silver.fct_shots",),
+    "outputs": ("gold.player_zone_season_shot_quality_trained",),
+    "graphs": ("default",),
+    "modes": ("live", "fixture"),
+    "live_order": 590,
+    "fixture_order": 470,
+}

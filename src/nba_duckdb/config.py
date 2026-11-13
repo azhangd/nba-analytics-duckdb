@@ -53,7 +53,6 @@ class Settings(BaseSettings):
         default=Path("data/warehouse/nba.duckdb"),
         validation_alias="NBA_DUCKDB_PATH",
     )
-    raw_root: Path = Path("data/raw")
     artifact_root: Path = Path("data/artifacts")
 
     @property

@@ -15,8 +15,6 @@ SUCCESS = "success"
 FAILED = "failed"
 INTERRUPTED = "interrupted"
 DEFERRED = "deferred"
-SKIPPED = "skipped"
-
 ELIGIBLE_STATUSES = {PENDING, FAILED, INTERRUPTED, DEFERRED}
 
 

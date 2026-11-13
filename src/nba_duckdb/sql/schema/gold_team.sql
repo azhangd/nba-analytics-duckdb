@@ -1,1 +1,0 @@
--- Team gold tables are dbt-owned.
