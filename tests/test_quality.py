@@ -167,15 +167,9 @@ def test_quality_detects_duplicate_natural_keys(smoke_db):
         quality.run_checks()
 
 
-def test_quality_allows_empty_optional_source_tables(smoke_db):
+def test_quality_allows_empty_injury_report(smoke_db):
     db = smoke_db
-    for qualified_table in (
-        "silver.dim_injuries",
-        "gold.player_pageviews_daily",
-        "gold.player_media_mentions_daily",
-        "gold.player_jersey_rank_snapshots",
-    ):
-        db.execute(f"DELETE FROM {qualified_table}")
+    db.execute("DELETE FROM silver.dim_injuries")
 
     from nba_duckdb import quality
 
@@ -203,13 +197,13 @@ def test_quality_allows_empty_min_games_tables_only_before_20_games(smoke_db):
         quality.run_checks()
 
 
-def test_quality_requires_optional_source_tables_to_exist(smoke_db):
+def test_quality_requires_injury_table_to_exist(smoke_db):
     db = smoke_db
-    db.execute("DROP TABLE gold.player_jersey_rank_snapshots")
+    db.execute("DROP TABLE silver.dim_injuries")
 
     from nba_duckdb import quality
 
-    with pytest.raises(RuntimeError, match="gold.player_jersey_rank_snapshots is missing"):
+    with pytest.raises(RuntimeError, match="silver.dim_injuries is missing"):
         quality.run_checks()
 
 

@@ -180,48 +180,6 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
     ]
 
 
-def test_sql_external_identities_are_name_derived(tmp_db):
-    from nba_duckdb import dbt_runner
-
-    db = tmp_db
-    db.execute(
-        """
-        CREATE TABLE silver.dim_players (
-            player_id INTEGER,
-            full_name TEXT
-        )
-        """
-    )
-    db.insert_rows(
-        "silver",
-        "dim_players",
-        [
-            {"player_id": 15, "full_name": "  Nikola   Jokic  "},
-            {"player_id": 0, "full_name": "Skipped Player"},
-            {"player_id": 16, "full_name": ""},
-        ],
-    )
-
-    result = dbt_runner.run_model(model="dim_player_external_identities")
-    rows = db.execute_sql(
-        """
-        SELECT player_id, wikidata_qid, wikipedia_title, source_confidence, source_note
-        FROM silver.dim_player_external_identities
-        """
-    )
-
-    assert result["rows_written"] == 1
-    assert rows == [
-        {
-            "player_id": 15,
-            "wikidata_qid": "",
-            "wikipedia_title": "Nikola_Jokic",
-            "source_confidence": 0.25,
-            "source_note": "Deterministic name-derived identity; verify before using externally",
-        }
-    ]
-
-
 def test_build_fct_shot_rows_filters_to_bronze_team():
     rows = build_fct_shot_rows([
         {

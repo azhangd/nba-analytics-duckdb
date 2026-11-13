@@ -9,7 +9,7 @@ SCHEMA_FILES = (
     "ops.sql",
     "bronze.sql",
     "gold_player.sql",
-    "gold_play_model_signal.sql",
+    "gold_models.sql",
 )
 
 

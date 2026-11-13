@@ -18,7 +18,6 @@ DBT_SILVER_MODEL_NAMES = (
     "dim_teams",
     "dim_players",
     "dim_coaches",
-    "dim_player_external_identities",
     "dim_injuries",
     "fct_team_coach_seasons",
     "fct_games",
