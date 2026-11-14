@@ -44,9 +44,3 @@ sources:
         description: Most similar players each season
       - name: player_zone_season_shot_quality_trained
         description: Actual vs. expected FG% by zone, from a trained model
-      - name: player_pageviews_daily
-        description: Daily Wikipedia page views
-      - name: player_media_mentions_daily
-        description: Daily news mentions and tone
-      - name: player_jersey_rank_snapshots
-        description: Jersey sales rankings

@@ -9,15 +9,9 @@ from nba_duckdb.defaults import ALL_TEAM_IDS, get_team_ids
 
 REQUIRED_TABLES = registry.quality_required_tables()
 
-# These datasets are backed by time-sensitive or explicitly optional public
-# sources. Their tables must exist, but a valid run can produce zero rows (for
-# example, an empty offseason injury report or no user-supplied jersey ranks).
-ALLOW_EMPTY_TABLES = frozenset({
-    "silver.dim_injuries",
-    "gold.player_pageviews_daily",
-    "gold.player_media_mentions_daily",
-    "gold.player_jersey_rank_snapshots",
-})
+# The injury report is empty in the offseason, so this table must exist but
+# can have zero rows.
+ALLOW_EMPTY_TABLES = frozenset({"silver.dim_injuries"})
 
 # These datasets only include players with at least 20 games (MIN_GP in
 # modeling/player_embeddings.py and the MVP ladder's eligibility), so they are

@@ -47,7 +47,6 @@ def test_run_live_default_builds_full_warehouse_graph():
         "dbt_build_warehouse",
         "compute_rapm",
         "compute_win_prob_model",
-        "refresh_player_off_court_signals",
         "compute_shot_quality_trained",
         "compute_player_embeddings",
         "dbt_build_feature_matrices",
@@ -509,7 +508,6 @@ def test_default_live_gold_tasks_are_recorded_as_gold():
     } == {
         "compute_rapm",
         "compute_win_prob_model",
-        "refresh_player_off_court_signals",
         "compute_shot_quality_trained",
         "compute_player_embeddings",
     }

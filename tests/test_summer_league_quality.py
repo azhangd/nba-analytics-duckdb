@@ -120,7 +120,6 @@ def test_summer_league_quality_gate_requires_end_to_end_coverage(monkeypatch):
     result = validate_summer_league.run(
         season="2026-27",
         competitions=["summer_league_vegas"],
-        persist_manifest=False,
     )
 
     assert result["status"] == "success"
@@ -132,8 +131,6 @@ def test_summer_league_quality_gate_requires_end_to_end_coverage(monkeypatch):
         "free_throw_mismatches": 0,
         "final_score_mismatches": 0,
     }
-    assert result["source_manifest"]["rows"] == 4
-    assert len(result["source_manifest"]["sha256"]) == 64
 
 
 def test_summer_league_quality_gate_fails_on_missing_completed_game_data(monkeypatch):
@@ -153,7 +150,6 @@ def test_summer_league_quality_gate_fails_on_missing_completed_game_data(monkeyp
         validate_summer_league.run(
             season="2026-27",
             competitions=["summer_league_vegas"],
-            persist_manifest=False,
         )
 
 
@@ -178,5 +174,4 @@ def test_summer_league_quality_gate_fails_on_cross_source_ft_mismatch(monkeypatc
         validate_summer_league.run(
             season="2026-27",
             competitions=["summer_league_vegas"],
-            persist_manifest=False,
         )

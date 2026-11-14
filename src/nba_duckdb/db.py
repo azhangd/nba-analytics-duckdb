@@ -24,108 +24,6 @@ logger = logging.getLogger("nba_duckdb.db")
 DEFAULT_DUCKDB_PATH = "data/warehouse/nba.duckdb"
 LOCK_RETRY_ATTEMPTS = 30
 LOCK_RETRY_DELAY_SECONDS = 2.0
-LIGHTWEIGHT_MIGRATIONS = (
-    (
-        "ops",
-        "pipeline_runs",
-        "ALTER TABLE ops.pipeline_runs ADD COLUMN IF NOT EXISTS degraded_count INTEGER DEFAULT 0",
-    ),
-    (
-        "ops",
-        "pipeline_runs",
-        "ALTER TABLE ops.pipeline_runs ADD COLUMN IF NOT EXISTS deferred_count INTEGER DEFAULT 0",
-    ),
-    (
-        "ops",
-        "task_runs",
-        "ALTER TABLE ops.task_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP",
-    ),
-    (
-        "ops",
-        "task_runs",
-        "ALTER TABLE ops.task_runs ADD COLUMN IF NOT EXISTS worker_pid INTEGER",
-    ),
-    (
-        "ops",
-        "task_runs",
-        "ALTER TABLE ops.task_runs ADD COLUMN IF NOT EXISTS progress_json JSON",
-    ),
-    (
-        "bronze",
-        "play_by_play",
-        "ALTER TABLE bronze.play_by_play ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'unknown'",
-    ),
-    (
-        "bronze",
-        "boxscores",
-        "ALTER TABLE bronze.boxscores ADD COLUMN IF NOT EXISTS traditional_source TEXT DEFAULT 'unknown'",
-    ),
-    (
-        "bronze",
-        "boxscores",
-        "ALTER TABLE bronze.boxscores ADD COLUMN IF NOT EXISTS advanced_source TEXT DEFAULT 'unknown'",
-    ),
-    (
-        "bronze",
-        "schedule",
-        "ALTER TABLE bronze.schedule ADD COLUMN IF NOT EXISTS league_id TEXT DEFAULT '00'",
-    ),
-    (
-        "bronze",
-        "schedule",
-        "ALTER TABLE bronze.schedule ALTER COLUMN league_id SET NOT NULL",
-    ),
-    (
-        "bronze",
-        "schedule",
-        "ALTER TABLE bronze.schedule ADD COLUMN IF NOT EXISTS competition TEXT DEFAULT 'nba'",
-    ),
-    (
-        "bronze",
-        "schedule",
-        "ALTER TABLE bronze.schedule ALTER COLUMN competition SET NOT NULL",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm ADD COLUMN IF NOT EXISTS bpm_prior REAL",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS possessions",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS orapm",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS drapm",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS orapm_prior",
-    ),
-    (
-        "gold",
-        "player_season_rapm",
-        "ALTER TABLE gold.player_season_rapm DROP COLUMN IF EXISTS drapm_prior",
-    ),
-    (
-        "gold",
-        "player_season_embeddings",
-        "ALTER TABLE gold.player_season_embeddings DROP COLUMN IF EXISTS umap_x",
-    ),
-    (
-        "gold",
-        "player_season_embeddings",
-        "ALTER TABLE gold.player_season_embeddings DROP COLUMN IF EXISTS umap_y",
-    ),
-)
 
 
 class DuckDBLockTimeoutError(RuntimeError):
@@ -270,29 +168,6 @@ def get_conn(*, read_only: bool = False) -> DuckConnection:
 
 def init_schema() -> None:
     execute_sql_text(schema_sql_text())
-    _apply_lightweight_migrations()
-
-
-def table_exists(schema: str, table: str, *, read_only: bool = False) -> bool:
-    rows = execute_sql(
-        """
-        SELECT COUNT(*) AS row_count
-        FROM information_schema.tables
-        WHERE table_schema = ?
-          AND table_name = ?
-        """,
-        [schema, table],
-        read_only=read_only,
-    )
-    return bool(rows and int(rows[0]["row_count"] or 0))
-
-
-def _apply_lightweight_migrations() -> None:
-    """Apply in-place schema changes to existing local DuckDB files."""
-    for schema, table, sql_text in LIGHTWEIGHT_MIGRATIONS:
-        if not table_exists(schema, table):
-            continue
-        execute_sql(sql_text)
 
 
 def execute_sql_text(sql_text: str) -> None:
