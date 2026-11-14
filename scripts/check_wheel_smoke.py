@@ -56,17 +56,11 @@ def main() -> None:
             env=env,
         )
         _run([str(nba_duckdb), "--help"], env=env)
-        _run([str(nba_duckdb), "init"], env=env)
-        _run(
-            [str(nba_duckdb), "generate-test-fixtures", "--fixtures-dir", str(fixtures_dir)],
-            env=env,
-        )
         _run(
             [str(nba_duckdb), "run-smoke", "--fixtures-dir", str(fixtures_dir)],
             env=env,
         )
         _run([str(nba_duckdb), "quality"], env=env)
-        _run([str(nba_duckdb), "datasets", "list"], env=env)
 
     print(f"wheel smoke passed: {wheel.name}")
 

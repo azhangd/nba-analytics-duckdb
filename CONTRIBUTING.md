@@ -32,13 +32,14 @@ and put the logic in `src/nba_duckdb/transforms/`.
 
 Use a Python task in `src/nba_duckdb/tasks/` instead when the table needs the
 NBA API, resumable per-game state, or ML training. Add a `TASK_DEF` to the
-module so the CLI and Airflow pick it up, and put its DDL in
-`src/nba_duckdb/sql/schema/`. If a dbt model reads the table, list it in
-`dbt/models/sources.yml`.
+module so the CLI and Airflow pick it up, put its DDL in
+`src/nba_duckdb/sql/schema/`, and list it in `dbt/models/sources.yml`.
 
-Each table should have exactly one producer. Either way, add a test that runs
-against the fake fixtures, and update `VALIDATION.md` if the new numbers are
-approximate or only make sense for a full league.
+Each table should have exactly one producer. Either way, give it a one-line
+description in the dbt YAML and run `make diagrams` to redraw the table
+diagram in the README. Add a test that runs against the fake fixtures, and
+update `VALIDATION.md` if the new numbers are approximate or only make sense
+for a full league.
 
 ## Data
 

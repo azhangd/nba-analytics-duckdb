@@ -1,10 +1,11 @@
-"""Bronze: Ingest extended game-level box scores into DuckDB.
+"""Bronze: per-game detail that the regular box scores don't have.
 
-Fetches per-game data that complements the traditional/advanced box scores:
-- BoxScoreMiscV3: fast break pts, pts off TOV, 2nd chance pts, paint pts
-- BoxScoreScoringV3: assisted/unassisted FG%, scoring type breakdown
-- WinProbabilityPBP: optional best-effort official win probability
-- GameRotation: official stint/rotation data
+- misc (BoxScoreMiscV3): points off turnovers, second chance, fast break, paint
+- rotation (GameRotation): official substitution stints
+
+Both are best effort. A component the NBA won't return is stored as
+"unavailable" and downstream falls back (lineups are rebuilt from play-by-play).
+With full_refresh, a missing component fails the task instead.
 """
 
 import json
@@ -21,507 +22,194 @@ from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.game_detail")
 
-ROTATION_MAX_RETRIES = 1
-ROTATION_TIMEOUT_SECONDS = 10
-ROTATION_CIRCUIT_BREAKER_AFTER = 1
-
+COMPONENTS = ("misc", "rotation")
 FLUSH_EVERY = 50
-OPTIONAL_DETAIL_KEYS = ("misc", "scoring", "win_prob")
-ROTATION_DETAIL_KEYS = ("rotation",)
-DEFAULT_OPTIONAL_RETRIES = 1
-STRICT_OPTIONAL_RETRIES = 3
-ROTATION_RECOVERY_PASSES = 2
-ROTATION_RECOVERY_DELAY_SECONDS = 20
+MISC_RETRIES = 1
+STRICT_MISC_RETRIES = 3
+# GameRotation tends to fail for everything once it fails at all, so it gets one
+# short try, and the first failure stops calls for the rest of the run.
+ROTATION_RETRIES = 1
+ROTATION_TIMEOUT_SECONDS = 10
+RECOVERY_PASSES = 2
+RECOVERY_DELAY_SECONDS = 20
 UNAVAILABLE_STATUS = "unavailable"
-SKIPPED_STATUS = "skipped"
-# Default to fetching misc + scoring alongside rotation so downstream
-# silver.fct_game_detail (paint/fast-break/off-TOV/2nd-chance points) stays
-# populated. Set ENABLE_OPTIONAL_GAME_DETAIL=0 to skip these to save NBA API
-# calls when only rotation data is required.
 
 
 def _detail_payload(value) -> dict:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return {}
+        return json.loads(value)
     return {}
 
 
-def _detail_component_complete(
-    component: str,
-    payload,
-    *,
-    treat_unavailable_as_complete: bool = True,
-) -> bool:
+def _is_unavailable(payload) -> bool:
+    return _detail_payload(payload).get("_status") == UNAVAILABLE_STATUS
+
+
+def _is_complete(component: str, payload, *, strict: bool) -> bool:
     doc = _detail_payload(payload)
-    if doc.get("_status") == SKIPPED_STATUS:
-        return True
-    if (
-        doc.get("_status") == UNAVAILABLE_STATUS
-        and treat_unavailable_as_complete
-    ):
-        return True
+    if doc.get("_status") == UNAVAILABLE_STATUS:
+        return not strict
     if component == "misc":
         boxscore = doc.get("boxScoreMisc", {})
-        if boxscore.get("homeTeam") and boxscore.get("awayTeam"):
-            return True
-    if component == "scoring":
-        boxscore = doc.get("boxScoreScoring", {})
-        if boxscore.get("homeTeam") and boxscore.get("awayTeam"):
-            return True
-    if component == "win_prob" and doc.get("_status") == SKIPPED_STATUS:
-        return True
-    result_sets = doc.get("resultSets")
-    if isinstance(result_sets, list) and result_sets:
-        return True
-    result_set = doc.get("resultSet")
-    if result_set:
-        return True
-    return False
+        return bool(boxscore.get("homeTeam") and boxscore.get("awayTeam"))
+    return bool(doc.get("resultSets") or doc.get("resultSet"))
 
 
-def _optional_unavailable_payload(error: Exception) -> dict[str, str]:
+def _unavailable(error: Exception) -> dict[str, str]:
     message = str(error).strip() or error.__class__.__name__
-    return {
-        "_status": UNAVAILABLE_STATUS,
-        "error": message[:200],
-    }
+    return {"_status": UNAVAILABLE_STATUS, "error": message[:200]}
 
 
-def _optional_skipped_payload(reason: str) -> dict[str, str]:
-    return {
-        "_status": SKIPPED_STATUS,
-        "reason": reason[:200],
-    }
-
-
-def _call_optional_fetcher(fetcher, *, game_id: str, max_retries: int):
+def _fetch(detail: dict, component: str, game_id: str, *, strict: bool) -> bool:
+    """Fetch one component into detail and return whether it came back complete."""
     try:
-        return fetcher(game_id=game_id, max_retries=max_retries)
-    except TypeError as exc:
-        message = str(exc)
-        if "max_retries" in message and "unexpected keyword argument" in message:
-            return fetcher(game_id=game_id)
-        raise
-
-
-def _fetch_optional_component(
-    detail: dict,
-    component: str,
-    game_id: str,
-    *,
-    include_win_prob: bool,
-    max_retries: int,
-) -> None:
-    if component == "misc":
-        try:
-            detail["misc"] = _call_optional_fetcher(
-                nba_client.get_boxscore_misc,
+        if component == "misc":
+            detail["misc"] = nba_client.get_boxscore_misc(
                 game_id=game_id,
-                max_retries=max_retries,
+                max_retries=STRICT_MISC_RETRIES if strict else MISC_RETRIES,
             )
-        except Exception as exc:
-            logger.warning("misc failed for %s: %s", game_id, exc)
-            detail["misc"] = _optional_unavailable_payload(exc)
-        return
-
-    if component == "scoring":
-        try:
-            detail["scoring"] = _call_optional_fetcher(
-                nba_client.get_boxscore_scoring,
-                game_id=game_id,
-                max_retries=max_retries,
-            )
-        except Exception as exc:
-            logger.warning("scoring failed for %s: %s", game_id, exc)
-            detail["scoring"] = _optional_unavailable_payload(exc)
-        return
-
-    if component == "win_prob":
-        if include_win_prob:
-            try:
-                detail["win_prob"] = nba_client.get_win_probability(game_id=game_id)
-            except Exception as exc:
-                logger.warning("win_prob failed for %s: %s", game_id, exc)
-                detail["win_prob"] = _optional_unavailable_payload(exc)
         else:
-            detail["win_prob"] = _optional_skipped_payload(
-                "official endpoint skipped in default runs; downstream win probability is model-generated"
+            detail["rotation"] = nba_client.get_game_rotation(
+                game_id=game_id,
+                max_retries=ROTATION_RETRIES,
+                timeout=ROTATION_TIMEOUT_SECONDS,
             )
-        return
-
-    raise ValueError(f"Unsupported optional component: {component}")
-
-
-def _fetch_rotation_component(
-    detail: dict,
-    game_id: str,
-    *,
-    max_retries: int,
-    timeout: int,
-) -> bool:
-    """Fetch rotation data and return whether a complete payload was received."""
-    try:
-        detail["rotation"] = nba_client.get_game_rotation(
-            game_id=game_id,
-            max_retries=max_retries,
-            timeout=timeout,
-        )
     except Exception as exc:
-        logger.warning("rotation failed for %s: %s", game_id, exc)
-        detail["rotation"] = _optional_unavailable_payload(exc)
+        logger.warning("%s failed for %s: %s", component, game_id, exc)
+        detail[component] = _unavailable(exc)
         return False
-    return _detail_component_complete("rotation", detail["rotation"])
+    return _is_complete(component, detail[component], strict=True)
 
 
-def _fetch_required_component(detail: dict, component: str, game_id: str) -> None:
-    if component == "rotation":
-        _fetch_rotation_component(
-            detail,
-            game_id,
-            max_retries=1,
-            timeout=10,
-        )
-        return
-
-    raise ValueError(f"Unsupported required component: {component}")
+def _incomplete(detail: dict, *, strict: bool) -> list[str]:
+    return [c for c in COMPONENTS if not _is_complete(c, detail.get(c), strict=strict)]
 
 
-def _blocking_components(
-    *,
-    include_optional_detail: bool,
-    include_win_prob: bool,
-    strict_optional_detail: bool,
-    include_rotation_detail: bool,
-    strict_rotation_detail: bool,
-) -> tuple[str, ...]:
-    components = []
-    if strict_optional_detail and include_optional_detail:
-        components.extend(("misc", "scoring"))
-        if include_win_prob:
-            components.append("win_prob")
-    if strict_rotation_detail and include_rotation_detail:
-        components.extend(ROTATION_DETAIL_KEYS)
-    return tuple(components)
+def _row(game_id: str, detail: dict) -> dict:
+    return {
+        "game_id": game_id,
+        "detail_json": json.dumps(detail),
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
-def _incomplete_components(
-    detail: dict,
-    components: tuple[str, ...],
-    *,
-    treat_unavailable_as_complete: bool,
-) -> list[str]:
-    return [
-        component
-        for component in components
-        if not _detail_component_complete(
-            component,
-            detail.get(component),
-            treat_unavailable_as_complete=treat_unavailable_as_complete,
-        )
-    ]
+def _game_ids(kwargs, target_seasons) -> list[str]:
+    requested = [str(game_id) for game_id in kwargs.get("game_ids", []) or []]
+    if requested:
+        return requested
+    schedule = read_table("bronze", "schedule", "game_status = 3")
+    if target_seasons and not schedule.is_empty():
+        import polars as pl
+
+        schedule = schedule.filter(pl.col("season").is_in(target_seasons))
+        schedule = filter_frame_to_competitions(schedule, kwargs.get("competitions"))
+    return schedule["game_id"].unique().to_list() if not schedule.is_empty() else []
 
 
 def run(**kwargs):
-    requested_game_ids = [str(game_id) for game_id in kwargs.get("game_ids", []) or []]
     target_seasons = requested_or_default_seasons(
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
-    target_competitions = kwargs.get("competitions")
-    include_optional_detail = bool(kwargs.get("include_optional_detail", True))
-    include_win_prob = include_optional_detail and bool(kwargs.get("include_win_prob"))
-    strict_optional_detail = bool(kwargs.get("full_refresh") or kwargs.get("strict_optional_detail"))
-    include_rotation_detail = bool(kwargs.get("include_rotation_detail", True))
-    strict_rotation_detail = bool(
-        kwargs.get("full_refresh") or kwargs.get("strict_rotation_detail")
-    )
-    treat_unavailable_as_complete = not (
-        strict_optional_detail or strict_rotation_detail
-    )
-    optional_max_retries = STRICT_OPTIONAL_RETRIES if strict_optional_detail else DEFAULT_OPTIONAL_RETRIES
-    rotation_max_retries = ROTATION_MAX_RETRIES
-    rotation_timeout = ROTATION_TIMEOUT_SECONDS
-    rotation_circuit_breaker_after = ROTATION_CIRCUIT_BREAKER_AFTER
-    blocking_components = _blocking_components(
-        include_optional_detail=include_optional_detail,
-        include_win_prob=include_win_prob,
-        strict_optional_detail=strict_optional_detail,
-        include_rotation_detail=include_rotation_detail,
-        strict_rotation_detail=strict_rotation_detail,
-    )
-    if requested_game_ids:
-        game_ids = requested_game_ids
-    else:
-        schedule = read_table("bronze", "schedule", "game_status = 3")
-        if schedule.is_empty():
-            logger.info("No completed games found in schedule")
-            return {"rows_written": 0}
-
-        if target_seasons:
-            import polars as pl
-
-            if "season" in schedule.columns:
-                schedule = schedule.filter(pl.col("season").is_in(target_seasons))
-            schedule = filter_frame_to_competitions(schedule, target_competitions)
-            if schedule.is_empty():
-                logger.info("No completed games found in schedule for requested seasons")
-                return {"rows_written": 0, "seasons": target_seasons}
-
-        game_ids = schedule["game_id"].unique().to_list()
+    strict = bool(kwargs.get("full_refresh"))
+    game_ids = _game_ids(kwargs, target_seasons)
+    if not game_ids:
+        logger.info("No completed games found in schedule")
+        return {"rows_written": 0, "seasons": target_seasons}
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            sql = "SELECT game_id, detail_json FROM bronze.game_detail"
-            params: list = []
-            if game_ids:
-                sql += " WHERE game_id = ANY(?)"
-                params.append(game_ids)
-            cur.execute(sql, params)
-            existing_details = {
-                row["game_id"]: _detail_payload(row.get("detail_json"))
-                for row in cur.fetchall()
+            cur.execute(
+                "SELECT game_id, detail_json FROM bronze.game_detail WHERE game_id = ANY(?)",
+                [game_ids],
+            )
+            details = {
+                row["game_id"]: _detail_payload(row["detail_json"]) for row in cur.fetchall()
             }
 
-    requested_detail_keys = []
-    if include_optional_detail:
-        requested_detail_keys.extend(OPTIONAL_DETAIL_KEYS)
-    if include_rotation_detail:
-        requested_detail_keys.extend(ROTATION_DETAIL_KEYS)
-    todo = [
-        game_id
-        for game_id in game_ids
-        if not all(
-            _detail_component_complete(
-                component,
-                existing_details.get(game_id, {}).get(component),
-                treat_unavailable_as_complete=treat_unavailable_as_complete,
-            )
-            for component in requested_detail_keys
-        )
-    ]
-    logger.info(
-        "Fetching game detail: %d remaining out of %d total games",
-        len(todo), len(game_ids),
-    )
+    todo = [game_id for game_id in game_ids if _incomplete(details.get(game_id, {}), strict=strict)]
+    logger.info("Fetching game detail: %d remaining out of %d total games", len(todo), len(game_ids))
 
     total_written = 0
     batch = []
-    failed_game_ids: list[str] = []
-    optional_holes: list[str] = []
-    rotation_holes: list[str] = []
-    consecutive_rotation_failures = 0
     rotation_circuit_open = False
-
     for i, game_id in enumerate(todo):
         if i > 0 and i % 20 == 0:
             logger.info("  Progress: %d/%d", i, len(todo))
+        detail = details.setdefault(game_id, {})
 
-        detail = dict(existing_details.get(game_id, {}))
+        if not _is_complete("misc", detail.get("misc"), strict=strict):
+            _fetch(detail, "misc", game_id, strict=strict)
 
-        if include_optional_detail:
-            if not _detail_component_complete(
-                "misc",
-                detail.get("misc"),
-                treat_unavailable_as_complete=treat_unavailable_as_complete,
-            ):
-                _fetch_optional_component(
-                    detail,
-                    "misc",
-                    game_id,
-                    include_win_prob=include_win_prob,
-                    max_retries=optional_max_retries,
-                )
-
-            if not _detail_component_complete(
-                "scoring",
-                detail.get("scoring"),
-                treat_unavailable_as_complete=treat_unavailable_as_complete,
-            ):
-                _fetch_optional_component(
-                    detail,
-                    "scoring",
-                    game_id,
-                    include_win_prob=include_win_prob,
-                    max_retries=optional_max_retries,
-                )
-
-            if not _detail_component_complete(
-                "win_prob",
-                detail.get("win_prob"),
-                treat_unavailable_as_complete=treat_unavailable_as_complete,
-            ):
-                _fetch_optional_component(
-                    detail,
-                    "win_prob",
-                    game_id,
-                    include_win_prob=include_win_prob,
-                    max_retries=optional_max_retries,
-                )
-
-        if include_rotation_detail and not _detail_component_complete(
-            "rotation",
-            detail.get("rotation"),
-            treat_unavailable_as_complete=treat_unavailable_as_complete,
-        ):
+        if not _is_complete("rotation", detail.get("rotation"), strict=strict):
             if rotation_circuit_open:
-                detail["rotation"] = _optional_unavailable_payload(
-                    RuntimeError("rotation endpoint circuit open after repeated failures")
+                detail["rotation"] = _unavailable(
+                    RuntimeError("rotation endpoint circuit open after a failure")
                 )
-            else:
-                rotation_complete = _fetch_rotation_component(
-                    detail,
-                    game_id,
-                    max_retries=rotation_max_retries,
-                    timeout=rotation_timeout,
+            elif not _fetch(detail, "rotation", game_id, strict=strict):
+                rotation_circuit_open = True
+                logger.warning(
+                    "Rotation endpoint failed; skipping it for the rest of this run. "
+                    "Lineups will be rebuilt from play-by-play."
                 )
-                if rotation_complete:
-                    consecutive_rotation_failures = 0
-                else:
-                    consecutive_rotation_failures += 1
-                    if consecutive_rotation_failures >= rotation_circuit_breaker_after:
-                        rotation_circuit_open = True
-                        logger.warning(
-                            "Opening rotation endpoint circuit after %d consecutive failure(s); "
-                            "remaining games will use play-by-play lineup reconstruction",
-                            consecutive_rotation_failures,
-                        )
-                        if strict_rotation_detail:
-                            raise RuntimeError(
-                                "Official rotation endpoint unavailable during strict ingestion; "
-                                f"circuit opened after {consecutive_rotation_failures} failure(s)"
-                            )
-            if _detail_payload(detail.get("rotation")).get("_status") == UNAVAILABLE_STATUS:
-                rotation_holes.append(game_id)
-        elif not include_rotation_detail:
-            detail["rotation"] = _optional_skipped_payload(
-                "official rotation endpoint disabled; downstream uses play-by-play lineup reconstruction"
-            )
+                if strict:
+                    raise RuntimeError(
+                        "Official rotation endpoint unavailable during a full refresh"
+                    )
 
-        incomplete = _incomplete_components(
-            detail,
-            blocking_components,
-            treat_unavailable_as_complete=treat_unavailable_as_complete,
-        )
-        if incomplete:
-            failed_game_ids.append(f"{game_id}({','.join(incomplete)})")
-            existing_details[game_id] = detail
-        if include_optional_detail:
-            optional_missing = [
-                component
-                for component in OPTIONAL_DETAIL_KEYS
-                if _detail_payload(detail.get(component)).get("_status") == UNAVAILABLE_STATUS
-            ]
-            if optional_missing:
-                optional_holes.append(f"{game_id}({','.join(optional_missing)})")
-
-        batch.append({
-            "game_id": game_id,
-            "detail_json": json.dumps(detail),
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
-        })
-
+        batch.append(_row(game_id, detail))
         if len(batch) >= FLUSH_EVERY:
-            written = upsert_rows("bronze", "game_detail", batch, conflict_cols=["game_id"])
-            total_written += written
-            logger.info("  Flushed %d rows (total: %d)", written, total_written)
+            total_written += upsert_rows("bronze", "game_detail", batch, conflict_cols=["game_id"])
             batch = []
-
     if batch:
-        written = upsert_rows("bronze", "game_detail", batch, conflict_cols=["game_id"])
-        total_written += written
+        total_written += upsert_rows("bronze", "game_detail", batch, conflict_cols=["game_id"])
 
-    if failed_game_ids:
-        failed_ids = [entry.split("(", 1)[0] for entry in failed_game_ids]
-        for attempt in range(ROTATION_RECOVERY_PASSES):
-            logger.info(
-                "Retrying %d incomplete game detail payload(s), recovery pass %d/%d",
-                len(failed_ids),
-                attempt + 1,
-                ROTATION_RECOVERY_PASSES,
-            )
-            recovered_batch = []
-            recovered_failures: list[str] = []
-            for game_id in failed_ids:
-                detail = dict(existing_details.get(game_id, {}))
-                incomplete = _incomplete_components(
-                    detail,
-                    blocking_components,
-                    treat_unavailable_as_complete=treat_unavailable_as_complete,
-                )
-                for component in incomplete:
-                    if component in OPTIONAL_DETAIL_KEYS:
-                        _fetch_optional_component(
-                            detail,
-                            component,
-                            game_id,
-                            include_win_prob=include_win_prob,
-                            max_retries=optional_max_retries,
-                        )
-                    else:
-                        _fetch_required_component(detail, component, game_id)
-
-                recovered_batch.append({
-                    "game_id": game_id,
-                    "detail_json": json.dumps(detail),
-                    "ingested_at": datetime.now(timezone.utc).isoformat(),
-                })
-                existing_details[game_id] = detail
-
-                remaining = _incomplete_components(
-                    detail,
-                    blocking_components,
-                    treat_unavailable_as_complete=treat_unavailable_as_complete,
-                )
-                if remaining:
-                    recovered_failures.append(f"{game_id}({','.join(remaining)})")
-
-            if recovered_batch:
-                written = upsert_rows("bronze", "game_detail", recovered_batch, conflict_cols=["game_id"])
-                total_written += written
-            failed_game_ids = recovered_failures
-            if not failed_game_ids:
-                break
-            if attempt < ROTATION_RECOVERY_PASSES - 1:
-                time.sleep(ROTATION_RECOVERY_DELAY_SECONDS)
-
-    if optional_holes:
-        optional_summary = ", ".join(optional_holes[:10])
-        logger.warning(
-            "Optional game detail components unavailable for %d game(s): %s",
-            len(optional_holes),
-            optional_summary,
+    failed = [game_id for game_id in todo if strict and _incomplete(details[game_id], strict=True)]
+    for attempt in range(RECOVERY_PASSES):
+        if not failed:
+            break
+        if attempt:
+            time.sleep(RECOVERY_DELAY_SECONDS)
+        logger.info("Retrying %d incomplete game(s), pass %d/%d", len(failed), attempt + 1, RECOVERY_PASSES)
+        for game_id in failed:
+            for component in _incomplete(details[game_id], strict=True):
+                _fetch(details[game_id], component, game_id, strict=strict)
+        total_written += upsert_rows(
+            "bronze",
+            "game_detail",
+            [_row(game_id, details[game_id]) for game_id in failed],
+            conflict_cols=["game_id"],
         )
+        failed = [game_id for game_id in failed if _incomplete(details[game_id], strict=True)]
 
+    misc_holes = sum(_is_unavailable(details[game_id].get("misc")) for game_id in todo)
+    rotation_holes = sum(_is_unavailable(details[game_id].get("rotation")) for game_id in todo)
+    if misc_holes:
+        logger.warning("Misc box score unavailable for %d game(s)", misc_holes)
     if rotation_holes:
         logger.warning(
             "Official rotation data unavailable for %d game(s); "
             "downstream lineups will use play-by-play reconstruction",
-            len(rotation_holes),
+            rotation_holes,
         )
-
-    if failed_game_ids:
-        failed_summary = ", ".join(failed_game_ids[:10])
-        raise RuntimeError(
-            "Game detail ingestion left holes for "
-            f"{len(failed_game_ids)} game(s): {failed_summary}"
+    if failed:
+        summary = ", ".join(
+            f"{game_id}({','.join(_incomplete(details[game_id], strict=True))})" for game_id in failed[:10]
         )
+        raise RuntimeError(f"Game detail ingestion left holes for {len(failed)} game(s): {summary}")
 
     logger.info("Upserted game detail for %d games", total_written)
     return {
         "rows_written": total_written,
         "game_ids": todo,
         "seasons": target_seasons,
-        "optional_holes": len(optional_holes),
-        "rotation_holes": len(rotation_holes),
+        "misc_holes": misc_holes,
+        "rotation_holes": rotation_holes,
         "rotation_circuit_open": rotation_circuit_open,
-        "strict_optional_detail": strict_optional_detail,
-        "strict_rotation_detail": strict_rotation_detail,
     }
+
 
 # Pipeline graph declaration. Kept with task code so contributors can find ownership.
 TASK_DEF = {
