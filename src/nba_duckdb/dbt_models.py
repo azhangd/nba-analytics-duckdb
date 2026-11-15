@@ -1,18 +1,11 @@
 """dbt-owned warehouse model metadata."""
 
-DBT_FEATURE_MODEL_NAMES = (
-    "game_flow_snapshots",
-    "player_season_feature_matrix",
-)
-
 DBT_SUMMER_LEAGUE_MODEL_NAMES = (
     "summer_league_games",
     "summer_league_boxscores",
     "summer_league_play_by_play",
     "summer_league_shots",
 )
-
-DBT_RUNTIME_DEPENDENT_SELECTOR = "tag:requires_gold_runtime"
 
 DBT_SILVER_MODEL_NAMES = (
     "dim_teams",
@@ -42,7 +35,6 @@ DBT_GOLD_MODEL_NAMES = (
     "player_season_stats",
     "player_game_rolling_stats",
     "player_season_split_stats",
-    "player_season_archetypes",
     "player_season_on_off_stats",
     "lineup_season_stats",
     "player_combo_season_stats",
@@ -62,7 +54,7 @@ DBT_GOLD_MODEL_NAMES = (
     "team_season_play_type_stats",
     "team_season_play_type_splits",
     "team_season_feature_matrix",
-    *DBT_FEATURE_MODEL_NAMES,
+    "player_season_feature_matrix",
 )
 
 DBT_MODEL_DATASETS = (
@@ -75,24 +67,16 @@ DBT_MODEL_NAMES = (
     *DBT_GOLD_MODEL_NAMES,
     *DBT_SUMMER_LEAGUE_MODEL_NAMES,
 )
-DBT_CORE_MODEL_NAMES = (
-    *DBT_SILVER_MODEL_NAMES,
-    *(model for model in DBT_GOLD_MODEL_NAMES if model not in DBT_FEATURE_MODEL_NAMES),
+DBT_CORE_MODEL_NAMES = (*DBT_SILVER_MODEL_NAMES, *DBT_GOLD_MODEL_NAMES)
+DBT_CORE_MODEL_DATASETS = (
+    *(f"silver.{model}" for model in DBT_SILVER_MODEL_NAMES),
+    *(f"gold.{model}" for model in DBT_GOLD_MODEL_NAMES),
 )
-DBT_CORE_MODEL_DATASETS = tuple(
-    f"silver.{model}" if model in DBT_SILVER_MODEL_NAMES else f"gold.{model}"
-    for model in DBT_CORE_MODEL_NAMES
-)
-DBT_FEATURE_MODEL_DATASETS = tuple(f"gold.{model}" for model in DBT_FEATURE_MODEL_NAMES)
 DBT_SUMMER_LEAGUE_MODEL_DATASETS = tuple(
     f"silver.{model}" for model in DBT_SUMMER_LEAGUE_MODEL_NAMES
 )
 
 DBT_TRANSFORM_SELECTOR = "tag:silver tag:gold"
-# The core build exclude and the feature build selector are two sides of the
-# same orchestration boundary: models that require runtime gold artifacts.
-DBT_TRANSFORM_EXCLUDE = DBT_RUNTIME_DEPENDENT_SELECTOR
-DBT_FEATURE_SELECTOR = DBT_RUNTIME_DEPENDENT_SELECTOR
 DBT_SUMMER_LEAGUE_SELECTOR = "tag:summer_league"
 
 DBT_TRANSFORM_INPUTS = (
@@ -114,7 +98,6 @@ DBT_TRANSFORM_INPUTS = (
 DBT_TRANSFORM_TASK_DEF = {
     "name": "dbt_build_warehouse",
     "dbt_selector": DBT_TRANSFORM_SELECTOR,
-    "dbt_exclude": DBT_TRANSFORM_EXCLUDE,
     "dbt_models": DBT_CORE_MODEL_NAMES,
     "inputs": DBT_TRANSFORM_INPUTS,
     "outputs": DBT_CORE_MODEL_DATASETS,
@@ -123,35 +106,6 @@ DBT_TRANSFORM_TASK_DEF = {
     "required": True,
     "live_order": 295,
     "fixture_order": 175,
-}
-
-DBT_FEATURE_INPUTS = (
-    "gold.player_season_stats",
-    "gold.player_game_rolling_stats",
-    "gold.player_season_shot_profile",
-    "gold.player_season_archetypes",
-    "gold.player_season_embeddings",
-    "gold.player_season_rapm",
-    "silver.fct_hustle",
-    "gold.player_season_clutch_stats",
-    "gold.player_game_stats",
-    "silver.fct_games",
-    "silver.fct_play_by_play",
-    "gold.team_game_elo_history",
-    "gold.model_artifacts",
-)
-
-DBT_FEATURE_TASK_DEF = {
-    "name": "dbt_build_feature_matrices",
-    "dbt_selector": DBT_FEATURE_SELECTOR,
-    "dbt_models": DBT_FEATURE_MODEL_NAMES,
-    "inputs": DBT_FEATURE_INPUTS,
-    "outputs": DBT_FEATURE_MODEL_DATASETS,
-    "graphs": ("default",),
-    "modes": ("live", "fixture"),
-    "required": True,
-    "live_order": 700,
-    "fixture_order": 560,
 }
 
 DBT_SUMMER_LEAGUE_TASK_DEF = {

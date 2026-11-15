@@ -49,8 +49,6 @@ dates and whether to do a full refresh.
 ```text
 bronze collectors
   -> dbt models (one Airflow task each)
-  -> RAPM, win probability, shot quality, embeddings
-  -> the two feature-matrix dbt models
   -> quality checks
 ```
 

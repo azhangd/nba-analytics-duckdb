@@ -1,4 +1,4 @@
-{{ config(materialized='table', schema='gold', alias='player_season_feature_matrix', tags=['gold', 'requires_gold_runtime']) }}
+{{ config(materialized='table', schema='gold', alias='player_season_feature_matrix', tags=['gold']) }}
 
 WITH base AS (
     SELECT
@@ -97,30 +97,6 @@ shot_diet AS (
     FROM {{ ref('player_season_shot_profile') }}
     GROUP BY player_id, season
 ),
-archetypes AS (
-    SELECT
-        player_id,
-        season,
-        primary_archetype AS archetype,
-        archetype_confidence
-    FROM {{ ref('player_season_archetypes') }}
-),
-embeddings AS (
-    SELECT
-        player_id,
-        season,
-        cluster_id,
-        cluster_label
-    FROM {{ source('gold_runtime', 'player_season_embeddings') }}
-),
-rapm AS (
-    SELECT
-        player_id,
-        season,
-        rapm,
-        rapm_blended
-    FROM {{ source('gold_runtime', 'player_season_rapm') }}
-),
 hustle AS (
     SELECT
         player_id,
@@ -194,12 +170,6 @@ SELECT
     shot_diet.paint_freq,
     shot_diet.three_freq,
     shot_diet.mid_freq,
-    archetypes.archetype,
-    archetypes.archetype_confidence,
-    embeddings.cluster_id,
-    embeddings.cluster_label,
-    rapm.rapm,
-    rapm.rapm_blended,
     base.bpm_approx,
     base.vorp_approx,
     hustle.deflections,
@@ -218,15 +188,6 @@ LEFT JOIN rolling_latest
 LEFT JOIN shot_diet
     ON base.player_id = shot_diet.player_id
    AND base.season = shot_diet.season
-LEFT JOIN archetypes
-    ON base.player_id = archetypes.player_id
-   AND base.season = archetypes.season
-LEFT JOIN embeddings
-    ON base.player_id = embeddings.player_id
-   AND base.season = embeddings.season
-LEFT JOIN rapm
-    ON base.player_id = rapm.player_id
-   AND base.season = rapm.season
 LEFT JOIN hustle
     ON base.player_id = hustle.player_id
    AND base.season = hustle.season

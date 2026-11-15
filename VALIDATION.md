@@ -16,9 +16,8 @@ tracking system.
 - **Rule-based.** Play-type labels and the heuristic shot quality columns
   (`expected_fg_pct_heuristic`, `quality_delta_heuristic`), which come from
   hard-coded baselines.
-- **Experimental models.** RAPM, win probability, the trained shot model,
-  player embeddings, similarity, the MVP ladder and the feature matrices.
-  Useful for poking around, but they aren't calibrated forecasts.
+- **Experimental.** The MVP ladder and the feature matrices. Useful for poking
+  around, but nothing in them is a calibrated forecast.
 
 ## Partial data
 
@@ -34,31 +33,13 @@ Elo season projections are only filled in when all 30 teams are loaded.
 ## Summer League
 
 Summer League games go into their own `silver.summer_league_*` tables and never
-feed the regular-season gold tables or models. The California Classic, Las
+feed the regular-season gold tables. The California Classic, Las
 Vegas and Salt Lake City are kept as separate competitions, even when a team
 plays in more than one.
 
 The NBA labels July 2026 Summer League as season `2026-27`, and its stats
 endpoints want `SeasonType=Regular Season` alongside the Summer League ID. We
 store what the NBA sends; it doesn't mean those games count as regular season.
-
-## Avoiding leakage in the models
-
-The win probability model trains on earlier games and tests on later ones.
-Its Elo inputs are each team's rating going into that game (from
-`gold.team_game_elo_history`), not the end-of-season rating. Possession is
-taken from the home team's side when an event makes it clear, and left neutral
-when it doesn't. `gold.game_flow_snapshots` uses the same features and the
-model for the matching season.
-
-The trained shot model holds out whole games, picked by date, so no game is in
-both training and evaluation. It doesn't use same-season tracking averages,
-because those would leak later games into earlier ones. After evaluation it's
-refit on all loaded shots, and the metadata records the split sizes and
-feature version.
-
-That keeps the holdout numbers honest, but it doesn't make either model a
-calibrated forecast.
 
 ## About the data source
 

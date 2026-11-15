@@ -29,18 +29,3 @@ sources:
         description: Game summary JSON
       - name: injuries
         description: Daily injury report JSON
-
-  - name: gold_runtime
-    schema: gold
-    description: Gold tables written by Python tasks instead of dbt.
-    tables:
-      - name: model_artifacts
-        description: Metadata for trained models
-      - name: player_season_embeddings
-        description: PCA components and style clusters
-      - name: player_season_rapm
-        description: Ridge-regression RAPM with confidence intervals
-      - name: player_season_similarity
-        description: Most similar players each season
-      - name: player_zone_season_shot_quality_trained
-        description: Actual vs. expected FG% by zone, from a trained model

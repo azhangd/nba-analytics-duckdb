@@ -11,7 +11,6 @@ from cosmos.constants import InvocationMode
 
 from nba_duckdb.dbt_models import (
     DBT_CORE_MODEL_NAMES,
-    DBT_FEATURE_MODEL_NAMES,
     DBT_SUMMER_LEAGUE_MODEL_NAMES,
 )
 
@@ -82,7 +81,6 @@ def test_cosmos_renders_every_dbt_model_at_model_granularity():
     live = _dags()["nba_warehouse_live"]
 
     assert _cosmos_models(live, "dbt_warehouse") == set(DBT_CORE_MODEL_NAMES)
-    assert _cosmos_models(live, "dbt_feature_matrices") == set(DBT_FEATURE_MODEL_NAMES)
     assert all(
         live.get_task(task_id).invocation_mode == InvocationMode.SUBPROCESS
         for task_id in live.task_ids
@@ -105,20 +103,6 @@ def test_summer_league_dag_renders_only_competition_safe_models():
     }.issubset(summer.task_ids)
     assert "ingest_rosters" not in summer.task_ids
     assert not any("gold." in task_id for task_id in summer.task_ids)
-
-
-def test_runtime_models_preserve_the_two_phase_boundary():
-    live = _dags()["nba_warehouse_live"]
-    core_leaf = live.get_task("dbt_warehouse.team_season_feature_matrix_model_build")
-    runtime_task = live.get_task("compute_player_embeddings")
-    feature_task = live.get_task(
-        "dbt_feature_matrices.player_season_feature_matrix_model_build"
-    )
-
-    assert runtime_task.task_id in core_leaf.downstream_task_ids
-    assert runtime_task.task_id in feature_task.upstream_task_ids
-    assert "compute_rapm" in feature_task.upstream_task_ids
-    assert "compute_win_prob_model" in feature_task.upstream_task_ids
 
 
 def test_quick_dags_are_intentionally_small():

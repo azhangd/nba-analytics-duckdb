@@ -46,7 +46,6 @@ class TaskDef:
     modes: frozenset[str] = field(default_factory=frozenset)
     required: bool = True
     dbt_selector: str | None = None
-    dbt_exclude: str | None = None
     dbt_models: tuple[str, ...] = ()
     regular_season_only: bool = True
     sort_orders: Mapping[str, int] = field(default_factory=dict)
@@ -97,7 +96,6 @@ def _task(metadata: Mapping[str, Any], module_path: str = "") -> TaskDef:
         modes=frozenset(metadata["modes"]),
         required=metadata.get("required", True),
         dbt_selector=metadata.get("dbt_selector"),
-        dbt_exclude=metadata.get("dbt_exclude"),
         dbt_models=tuple(metadata.get("dbt_models", ())),
         regular_season_only=metadata.get("regular_season_only", True),
         sort_orders=_orders(live=metadata.get("live_order"), fixture=metadata.get("fixture_order")),
@@ -107,7 +105,6 @@ def _task(metadata: Mapping[str, Any], module_path: str = "") -> TaskDef:
 @lru_cache(maxsize=1)
 def _discover_task_defs() -> tuple[TaskDef, ...]:
     from nba_duckdb.dbt_models import (
-        DBT_FEATURE_TASK_DEF,
         DBT_SUMMER_LEAGUE_TASK_DEF,
         DBT_TRANSFORM_TASK_DEF,
     )
@@ -119,7 +116,7 @@ def _discover_task_defs() -> tuple[TaskDef, ...]:
         metadata = _literal_task_def(file_path)
         if metadata is not None:
             task_defs.append(_task(metadata, _module_path_for(file_path)))
-    for metadata in (DBT_TRANSFORM_TASK_DEF, DBT_FEATURE_TASK_DEF, DBT_SUMMER_LEAGUE_TASK_DEF):
+    for metadata in (DBT_TRANSFORM_TASK_DEF, DBT_SUMMER_LEAGUE_TASK_DEF):
         task_defs.append(_task(metadata))
     return tuple(task_defs)
 

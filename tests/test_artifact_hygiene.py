@@ -60,14 +60,3 @@ def test_artifact_checker_rejects_oversized_tracked_files(tmp_path):
     assert "larger" in violations[0].reason
 
 
-def test_artifact_root_respects_env_changes_in_same_process(tmp_path, monkeypatch):
-    from nba_duckdb.modeling.artifact_paths import artifact_root
-
-    first = tmp_path / "artifacts-one"
-    second = tmp_path / "artifacts-two"
-
-    monkeypatch.setenv("NBA_DUCKDB_ARTIFACT_ROOT", str(first))
-    assert artifact_root() == str(first)
-
-    monkeypatch.setenv("NBA_DUCKDB_ARTIFACT_ROOT", str(second))
-    assert artifact_root() == str(second)

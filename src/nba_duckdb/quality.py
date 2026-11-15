@@ -13,15 +13,10 @@ REQUIRED_TABLES = registry.quality_required_tables()
 # can have zero rows.
 ALLOW_EMPTY_TABLES = frozenset({"silver.dim_injuries"})
 
-# These datasets only include players with at least 20 games (MIN_GP in
-# modeling/player_embeddings.py and the MVP ladder's eligibility), so they are
+# The MVP ladder only includes players with at least 20 games, so it is
 # legitimately empty until some player in the warehouse reaches 20 games.
 MIN_GAMES_PLAYED = 20
-MIN_GAMES_TABLES = frozenset({
-    "gold.player_season_mvp_ladder",
-    "gold.player_season_embeddings",
-    "gold.player_season_similarity",
-})
+MIN_GAMES_TABLES = frozenset({"gold.player_season_mvp_ladder"})
 
 INTEGRITY_QUERIES = {
     "silver.fct_boxscores_missing_games": """

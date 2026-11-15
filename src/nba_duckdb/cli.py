@@ -43,21 +43,9 @@ SUMMER_LEAGUE_GRAPH = registry.SUMMER_LEAGUE_GRAPH
 BACKFILL_ALIASES = {"pbp": "play-by-play", "shots": "shot-charts"}
 
 
-UV_FULL_INSTALL_COMMAND = "uv sync --extra dev --extra full"
 UV_LIVE_INSTALL_COMMAND = "uv sync --extra dev --extra live"
-PIP_FULL_INSTALL_COMMAND = 'python -m pip install -e ".[dev,full]"'
 PIP_LIVE_INSTALL_COMMAND = 'python -m pip install -e ".[dev,live]"'
-SMOKE_FULL_INSTALL_HINT = (
-    f"Install full pipeline dependencies with `{UV_FULL_INSTALL_COMMAND}`. "
-    "For a lighter local check, run `uv run nba-duckdb run-smoke --quick`."
-)
-LIVE_FULL_INSTALL_HINT = (
-    f"Install the full live and ML dependency set with `{UV_FULL_INSTALL_COMMAND}`."
-)
-LIVE_INSTALL_HINT = (
-    f"Install live collection dependencies with `{UV_LIVE_INSTALL_COMMAND}`, "
-    f"or install everything with `{UV_FULL_INSTALL_COMMAND}`."
-)
+LIVE_INSTALL_HINT = f"Install live collection dependencies with `{UV_LIVE_INSTALL_COMMAND}`."
 
 
 def _warehouse_is_explicit() -> bool:
@@ -136,15 +124,6 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
     quick = graph == QUICK_GRAPH
     warehouse_env = _smoke_warehouse_env(quick=quick)
     with config.env_overrides(warehouse_env):
-        if graph == DEFAULT_GRAPH:
-            require_optional_groups(
-                "ml",
-                hint=SMOKE_FULL_INSTALL_HINT,
-                install_command=UV_FULL_INSTALL_COMMAND,
-                pip_install_command=PIP_FULL_INSTALL_COMMAND,
-                quick_command="uv run nba-duckdb run-smoke --quick",
-            )
-
         from nba_duckdb import db
 
         fixtures_dir = config.fixtures_dir(args.fixtures_dir)
@@ -180,22 +159,13 @@ def run_offline_smoke(args: argparse.Namespace) -> dict[str, Any]:
             )
 
 
-def _require_live(*, with_ml: bool = False) -> None:
-    if with_ml:
-        require_optional_groups(
-            "live",
-            "ml",
-            hint=LIVE_FULL_INSTALL_HINT,
-            install_command=UV_FULL_INSTALL_COMMAND,
-            pip_install_command=PIP_FULL_INSTALL_COMMAND,
-        )
-    else:
-        require_optional_groups(
-            "live",
-            hint=LIVE_INSTALL_HINT,
-            install_command=UV_LIVE_INSTALL_COMMAND,
-            pip_install_command=PIP_LIVE_INSTALL_COMMAND,
-        )
+def _require_live() -> None:
+    require_optional_groups(
+        "live",
+        hint=LIVE_INSTALL_HINT,
+        install_command=UV_LIVE_INSTALL_COMMAND,
+        pip_install_command=PIP_LIVE_INSTALL_COMMAND,
+    )
 
 
 def _run_live_graph(
@@ -234,7 +204,7 @@ def _run_live_graph(
 
 def run_live_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     graph = QUICK_GRAPH if args.quick else DEFAULT_GRAPH
-    _require_live(with_ml=graph == DEFAULT_GRAPH)
+    _require_live()
 
     from nba_duckdb import db
 

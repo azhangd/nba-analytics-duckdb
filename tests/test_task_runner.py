@@ -20,13 +20,12 @@ def test_run_task_executes_registered_python_module(monkeypatch):
     assert calls == [{"season": "2025-26"}]
 
 
-def test_run_task_builds_dbt_selector_with_exclude_and_full_refresh(monkeypatch):
+def test_run_task_builds_dbt_selector_with_full_refresh(monkeypatch):
     task = registry.TaskDef(
         name="dbt_build_warehouse",
         layer="gold",
         task_type="dbt",
         dbt_selector="tag:silver tag:gold",
-        dbt_exclude="tag:requires_gold_runtime",
         dbt_models=("dim_players", "player_season_stats"),
     )
     commands = []
@@ -39,14 +38,11 @@ def test_run_task_builds_dbt_selector_with_exclude_and_full_refresh(monkeypatch)
             "build",
             "--select",
             "tag:silver tag:gold",
-            "--exclude",
-            "tag:requires_gold_runtime",
             "--full-refresh",
         ]
     ]
     assert result == {
         "status": "success",
         "dbt_selector": "tag:silver tag:gold",
-        "dbt_exclude": "tag:requires_gold_runtime",
         "models_built": 2,
     }

@@ -1,4 +1,4 @@
-.PHONY: install install-full install-airflow lint test dbt-parse smoke smoke-quick quality airflow-prepare airflow-check airflow-smoke airflow-dev diagrams check-diagrams check-artifacts check-wheel example-basic-team-summary clean clean-data
+.PHONY: install install-live install-airflow lint test dbt-parse smoke smoke-quick quality airflow-prepare airflow-check airflow-smoke airflow-dev diagrams check-diagrams check-artifacts check-wheel example-basic-team-summary clean clean-data
 
 AIRFLOW_HOME ?= $(CURDIR)/.airflow
 AIRFLOW_ENV = AIRFLOW_HOME="$(AIRFLOW_HOME)" AIRFLOW__CORE__DAGS_FOLDER="$(CURDIR)/dags" AIRFLOW__CORE__EXECUTOR=LocalExecutor AIRFLOW__CORE__LOAD_EXAMPLES=False AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI=True
@@ -6,11 +6,11 @@ AIRFLOW_ENV = AIRFLOW_HOME="$(AIRFLOW_HOME)" AIRFLOW__CORE__DAGS_FOLDER="$(CURDI
 install:
 	uv sync --extra dev
 
-install-full:
-	uv sync --extra dev --extra full
+install-live:
+	uv sync --extra dev --extra live
 
 install-airflow:
-	uv sync --extra dev --extra full --extra airflow
+	uv sync --extra dev --extra live --extra airflow
 
 lint:
 	uv run ruff check src tests scripts examples dags

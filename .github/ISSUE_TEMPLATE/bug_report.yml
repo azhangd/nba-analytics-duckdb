@@ -16,7 +16,7 @@ body:
       label: Reproduction steps
       description: Include commands, environment variables, and the smallest scope that reproduces the issue.
       placeholder: |
-        make install-full
+        make install-live
         make smoke
     validations:
       required: true

@@ -51,7 +51,7 @@ def main() -> None:
                 "pip",
                 "install",
                 "--disable-pip-version-check",
-                f"{wheel}[full]",
+                f"{wheel}[live]",
             ],
             env=env,
         )

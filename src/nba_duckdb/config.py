@@ -62,11 +62,6 @@ def env_value_loaded_from_file(key: str) -> bool:
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def artifact_root() -> Path:
-    load_env_file()
-    return Path(os.environ.get("NBA_DUCKDB_ARTIFACT_ROOT") or "data/artifacts")
-
-
 def fixtures_dir(value: str | None = None) -> Path:
     load_env_file()
     raw = value or os.environ.get("NBA_DUCKDB_FIXTURES_DIR")

@@ -1,10 +1,5 @@
 import os
 
-import pytest
-
-pytest.importorskip("sklearn")
-pytest.importorskip("xgboost")
-
 from conftest import smoke_args
 
 from nba_duckdb.cli import run_offline_smoke
@@ -39,10 +34,6 @@ def test_offline_smoke_populates_warehouse_tables(smoke_db):
         ("gold", "team_season_shot_profile"): 12,
         ("gold", "player_season_shot_profile"): 24,
         ("gold", "team_season_play_type_stats"): 8,
-        ("gold", "game_flow_snapshots"): 352,
-        ("gold", "player_season_archetypes"): 32,
-        ("gold", "player_season_embeddings"): 24,
-        ("gold", "player_season_similarity"): 240,
         ("gold", "player_season_feature_matrix"): 32,
         ("gold", "team_season_feature_matrix"): 4,
     }
@@ -90,7 +81,6 @@ def test_offline_smoke_is_idempotent(smoke_db):
 
 def test_offline_smoke_restores_network_guard_env(tmp_path, monkeypatch):
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "env.duckdb"))
-    monkeypatch.setenv("NBA_DUCKDB_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     monkeypatch.setenv("NBA_DUCKDB_FIXTURES_DIR", str(tmp_path / "fixtures"))
     monkeypatch.delenv("NBA_DUCKDB_OFFLINE_SMOKE", raising=False)
 

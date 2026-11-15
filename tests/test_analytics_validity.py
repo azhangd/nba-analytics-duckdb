@@ -1124,13 +1124,9 @@ def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
     assert league_avg_pace == 100.0
 
 
-def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db, monkeypatch):
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("sklearn")
-    pytest.importorskip("scipy")
+def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db):
     db = tmp_db
     from nba_duckdb import dbt_runner
-    from nba_duckdb.tasks.gold import compute_rapm
 
     _create_dim_players(db)
     _create_fct_games(db)
@@ -1246,36 +1242,9 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db, monkeypatch):
 
     dbt_runner.run_model(model="player_season_on_off_stats")
     dbt_runner.run_model(model="player_game_rolling_stats")
-    dbt_runner.run_model(model="player_season_archetypes")
-    monkeypatch.setattr(
-        compute_rapm,
-        "build_design_matrix",
-        lambda *_args, **_kwargs: (
-            np.eye(10),
-            np.ones(10),
-            np.ones(10),
-            list(range(1, 11)),
-            np.array(["0029900001", "0029900002"] * 5),
-        ),
-    )
-    monkeypatch.setattr(
-        compute_rapm,
-        "fit_rapm",
-        lambda *_args, **_kwargs: (np.ones(10), 1.0, 0.1),
-    )
-    monkeypatch.setattr(
-        compute_rapm,
-        "bootstrap_ci",
-        lambda *_args, **_kwargs: (np.zeros(10), np.ones(10)),
-    )
-
-    rapm_result = compute_rapm.run(season="2099-00")
     mvp_result = dbt_runner.run_model(model="player_season_mvp_ladder")
     feature_result = dbt_runner.run_model(model="player_season_feature_matrix")
 
-    rapm_row = db.execute(
-        "SELECT bpm_prior, rapm_blended FROM gold.player_season_rapm WHERE player_id = 1"
-    )[0]
     mvp_row = db.execute(
         "SELECT bpm_approx, vorp_approx FROM gold.player_season_mvp_ladder WHERE player_id = 1"
     )[0]
@@ -1283,9 +1252,6 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db, monkeypatch):
         "SELECT bpm_approx, vorp_approx FROM gold.player_season_feature_matrix WHERE player_id = 1"
     )[0]
 
-    assert rapm_result["rows_written"] == 10
-    assert rapm_row["bpm_prior"] == 7.5
-    assert rapm_row["rapm_blended"] > 1.0
     assert mvp_result["rows_written"] == 2
     assert mvp_row["bpm_approx"] == pytest.approx(7.5)
     assert mvp_row["vorp_approx"] == pytest.approx(3.1)

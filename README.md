@@ -6,7 +6,7 @@ It grabs schedules, box scores, play-by-play and shot charts from the NBA's
 stats endpoints, then builds a few dozen tables on top:
 
 - per-game and per-season player and team stats
-- box plus-minus (BPM), VORP and a ridge-regression RAPM
+- box plus-minus (BPM) and VORP
 - four factors, pace and Elo ratings for teams
 - shot quality: actual vs. expected FG% by zone
 - lineup and on/off numbers, clutch splits, play types
@@ -21,7 +21,7 @@ You'll need Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
     git clone https://github.com/azhangd/nba-analytics-duckdb.git
     cd nba-analytics-duckdb
-    make install-full
+    make install-live
 
 ## Trying it out
 
