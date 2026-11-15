@@ -38,7 +38,7 @@ def _score_timeline(pbp_df: pl.DataFrame) -> tuple[list[float], list[tuple[int, 
     timeline_scores = [(0, 0)]
 
     rows = (
-        pbp_df.sort(["period", "clock_seconds_remaining", "action_number"], descending=[False, True, False])
+        pbp_df.sort(["period", "action_id"])
         .iter_rows(named=True)
     )
     for row in rows:

@@ -24,6 +24,7 @@ def test_compute_game_flow_uses_the_same_possession_and_elo_features_as_training
     events = pl.DataFrame([
         {
             "game_id": "002A",
+            "action_id": 1,
             "period": 1,
             "clock_seconds_remaining": 700.0,
             "score_home": 0,
@@ -50,6 +51,7 @@ def test_build_game_flow_rows_wires_pregame_features_and_trained_model_by_season
     events = pl.DataFrame([
         {
             "game_id": "002A",
+            "action_id": 1,
             "period": 1,
             "clock_seconds_remaining": 700.0,
             "score_home": 0,

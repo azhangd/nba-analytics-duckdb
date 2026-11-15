@@ -30,15 +30,19 @@ OUTPUT_COLUMNS = list(FCT_POSSESSIONS)
 def build_fct_possession_rows(
     pbp_df: pl.DataFrame,
     *,
-    home_team_by_game: dict[str, int | None],
+    teams_by_game: dict[str, tuple[int, int]],
 ) -> tuple[list[dict], list[str]]:
     game_ids = [str(game_id) for game_id in pbp_df["game_id"].unique().to_list()]
     frames = []
     for game_id in game_ids:
+        if game_id not in teams_by_game:
+            continue
+        home_team_id, away_team_id = teams_by_game[game_id]
         possessions = parse_possessions(
             pbp_df.filter(pl.col("game_id") == game_id),
             game_id,
-            home_team_id=home_team_by_game.get(game_id),
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
         )
         if not possessions.is_empty():
             frames.append(possessions)

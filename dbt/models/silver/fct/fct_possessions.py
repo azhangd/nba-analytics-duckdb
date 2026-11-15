@@ -8,6 +8,10 @@ def model(dbt, session):
     games = dbt.ref("fct_games")
     pbp = relation_to_polars(play_by_play)
     games_df = relation_to_polars(games)
-    home_by_game = {str(row["game_id"]): int(row["home_team_id"]) if row.get("home_team_id") else None for row in games_df.iter_rows(named=True)}
-    rows, _game_ids = build_fct_possession_rows(pbp, home_team_by_game=home_by_game) if not pbp.is_empty() else ([], [])
+    teams_by_game = {
+        str(row["game_id"]): (int(row["home_team_id"]), int(row["away_team_id"]))
+        for row in games_df.iter_rows(named=True)
+        if row.get("home_team_id") and row.get("away_team_id")
+    }
+    rows, _game_ids = build_fct_possession_rows(pbp, teams_by_game=teams_by_game) if not pbp.is_empty() else ([], [])
     return frame_from_rows(rows, FCT_POSSESSIONS)

@@ -27,7 +27,7 @@ def _make_pbp(events: list[dict]) -> pl.DataFrame:
         "loc_x": None,
         "loc_y": None,
     }
-    return pl.DataFrame([{**defaults, "action_number": i, **event} for i, event in enumerate(events)])
+    return pl.DataFrame([{**defaults, "action_number": i, "action_id": i, **event} for i, event in enumerate(events)])
 
 
 def test_live_defensive_rebound_ends_possession():
@@ -49,7 +49,7 @@ def test_live_defensive_rebound_ends_possession():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["end_type"] == "defensive_rebound"
@@ -81,7 +81,7 @@ def test_live_offensive_rebound_continues_until_made_field_goal():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     assert len(result) == 1
     first = result.row(0, named=True)
@@ -102,7 +102,7 @@ def test_live_made_final_free_throw_ends_possession():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["end_type"] == "free_throw"
@@ -128,7 +128,7 @@ def test_live_missed_final_free_throw_waits_for_rebound():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["end_type"] == "defensive_rebound"
@@ -145,7 +145,7 @@ def test_live_turnover_ends_possession():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["end_type"] == "turnover"
@@ -162,7 +162,7 @@ def test_live_period_end_ends_possession():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["end_type"] == "end_period"
@@ -179,13 +179,50 @@ def test_score_margin_is_signed_from_offense_perspective():
         },
     ])
 
-    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID)
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     first = result.row(0, named=True)
     assert first["score_margin"] == -2
 
 
 def test_empty_pbp_returns_empty():
-    result = parse_possessions(pl.DataFrame(), "0022500001")
+    result = parse_possessions(pl.DataFrame(), "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
 
     assert result.is_empty()
+
+
+def test_points_match_the_score_for_and_ones_split_free_throws_and_defensive_fouls():
+    # Home: and-one (2 + 1). Away: shooting foul by home, then 1 of 2 at the line.
+    pbp = _make_pbp([
+        {"action_type": "2pt", "shot_result": "Made", "is_field_goal": True, "team_id": HOME_TEAM_ID,
+         "clock_seconds_remaining": 700.0, "score_home": "2"},
+        {"action_type": "foul", "team_id": AWAY_TEAM_ID, "clock_seconds_remaining": 700.0, "score_home": "2"},
+        {"action_type": "freethrow", "sub_type": "1 of 1", "shot_result": "Made", "team_id": HOME_TEAM_ID,
+         "clock_seconds_remaining": 700.0, "score_home": "3"},
+        {"action_type": "foul", "team_id": HOME_TEAM_ID, "clock_seconds_remaining": 680.0, "score_home": "3"},
+        {"action_type": "freethrow", "sub_type": "1 of 2", "shot_result": "Made", "team_id": AWAY_TEAM_ID,
+         "clock_seconds_remaining": 680.0, "score_home": "3", "score_away": "1"},
+        {"action_type": "freethrow", "sub_type": "2 of 2", "shot_result": "Missed", "team_id": AWAY_TEAM_ID,
+         "clock_seconds_remaining": 680.0, "score_home": "3", "score_away": "1"},
+        {"action_type": "rebound", "team_id": HOME_TEAM_ID, "clock_seconds_remaining": 678.0,
+         "score_home": "3", "score_away": "1"},
+    ])
+
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
+
+    points = result.group_by("offense_team_id").agg(pl.col("points_scored").sum())
+    assert dict(points.iter_rows()) == {HOME_TEAM_ID: 3, AWAY_TEAM_ID: 1}
+    assert result.row(1, named=True)["end_type"] == "defensive_rebound"
+
+
+def test_events_with_the_same_clock_keep_their_feed_order():
+    pbp = _make_pbp([
+        {"action_type": "turnover", "team_id": HOME_TEAM_ID, "clock_seconds_remaining": 600.0, "action_id": 1},
+        {"action_type": "2pt", "shot_result": "Made", "is_field_goal": True, "team_id": AWAY_TEAM_ID,
+         "clock_seconds_remaining": 600.0, "action_id": 2},
+    ]).reverse()
+
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
+
+    assert result["offense_team_id"].to_list()[:2] == [HOME_TEAM_ID, AWAY_TEAM_ID]
+    assert result["points_scored"].to_list()[:2] == [0, 2]
