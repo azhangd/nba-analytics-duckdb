@@ -5,7 +5,7 @@ SELECT
     season,
     league_id,
     competition,
-    game_date,
+    {{ parse_game_date("game_date") }} AS game_date,
     CAST(home_team_id AS INTEGER) AS home_team_id,
     CAST(away_team_id AS INTEGER) AS away_team_id,
     home_team_abbr,
