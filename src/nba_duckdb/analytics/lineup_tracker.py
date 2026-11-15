@@ -204,6 +204,7 @@ def track_lineups(
     pbp_df: pl.DataFrame,
     game_id: str,
     *,
+    home_team_id: int,
     starters_by_team: dict[int, set[int]] | None = None,
     roster_name_map: dict[int, dict[str, int]] | None = None,
 ) -> pl.DataFrame:
@@ -227,7 +228,7 @@ def track_lineups(
     if pbp_df.is_empty():
         return pl.DataFrame()
 
-    events = pbp_df.sort(["period", "clock_seconds_remaining"], descending=[False, True])
+    events = pbp_df.sort(["period", "action_id"])
     rows = list(events.iter_rows(named=True))
 
     # Build name->player_id map for substitution parsing
@@ -251,13 +252,12 @@ def track_lineups(
         team_id: (0, 0) for team_id in starters_by_team
     }
     stint_number = 0
+    current_period: int | None = None
     known_team_ids: set[int] = set(starters_by_team)
 
     # Track scores for points_for/against
     last_home_score = 0
     last_away_score = 0
-    home_team_id = None
-    away_team_id = None
 
     idx = 0
     while idx < len(rows):
@@ -267,7 +267,6 @@ def track_lineups(
         player_id = row.get("player_id")
         period = int(row.get("period", 0) or 0)
         clock = float(row.get("clock_seconds_remaining", 0.0) or 0.0)
-        description = str(row.get("description", ""))
 
         # Update running score only when event has actual score values.
         raw_home = row.get("score_home") or ""
@@ -281,31 +280,24 @@ def track_lineups(
         score_home = last_home_score
         score_away = last_away_score
 
-        # Detect period start/end — action_type is lowercase "period" from NBA API v3
-        is_period_event = action_type.lower() == "period"
-        if is_period_event:
-            desc_lower = description.lower()
-            if "start" in desc_lower:
-                # Close any open stints from previous period
-                for tid in list(current_stints.keys()):
-                    _close_stint(stints, current_stints, tid, 0.0, last_home_score,
-                                 last_away_score, home_team_id)
-                current_stints.clear()
-                opening_clock = _period_length(period)
-                for tid in set(known_team_ids) | set(starters_by_team):
-                    if period == 1 and tid in starters_by_team:
-                        current_lineups[tid] = set(starters_by_team[tid])
-                    pending_start_clock[tid] = opening_clock
-                    pending_start_scores[tid] = (last_home_score, last_away_score)
-            # Skip period events — don't process further
+        # A new period starts with its first event, which in the live feed is often a
+        # substitution made during the break, ahead of the "Period Start" row.
+        if period != current_period:
+            for tid in list(current_stints.keys()):
+                _close_stint(stints, current_stints, tid, 0.0, last_home_score,
+                             last_away_score, home_team_id)
+            opening_clock = _period_length(period)
+            for tid in set(known_team_ids) | set(starters_by_team):
+                if period == 1 and tid in starters_by_team:
+                    current_lineups[tid] = set(starters_by_team[tid])
+                pending_start_clock[tid] = opening_clock
+                pending_start_scores[tid] = (last_home_score, last_away_score)
+            current_period = period
+
+        if action_type.lower() == "period":
             idx += 1
             continue
 
-        # Track team IDs (first two teams seen)
-        if team_id and not home_team_id:
-            home_team_id = team_id
-        elif team_id and team_id != home_team_id and not away_team_id:
-            away_team_id = team_id
         if team_id:
             known_team_ids.add(int(team_id))
             current_lineups.setdefault(int(team_id), set())

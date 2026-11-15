@@ -51,12 +51,12 @@ def build_fct_lineup_rows(
     for game_id in [str(value) for value in pbp_df["game_id"].unique().to_list()]:
         game_pbp = pbp_df.filter(pl.col("game_id") == game_id)
         game_boxscores = boxscores_df.filter(pl.col("game_id") == game_id) if "game_id" in boxscores_df.columns else pl.DataFrame()
+        game_info = game_meta.get(game_id)
+        if not game_info:
+            continue
         detail = detail_map.get(game_id, {})
         rotation_payload = detail.get("rotation", {})
         if has_rotation_data(rotation_payload):
-            game_info = game_meta.get(game_id)
-            if not game_info:
-                continue
             stints = build_lineup_stints_from_rotation(
                 game_id=game_id,
                 rotation_payload=rotation_payload,
@@ -75,6 +75,7 @@ def build_fct_lineup_rows(
             stints = track_lineups(
                 game_pbp,
                 game_id,
+                home_team_id=game_info["home_team_id"],
                 starters_by_team=starters_by_team,
                 roster_name_map=roster_name_map,
             )

@@ -38,7 +38,7 @@ def test_offline_smoke_populates_warehouse_tables(smoke_db):
         ("gold", "player_zone_season_shot_quality"): 24,
         ("gold", "team_season_shot_profile"): 12,
         ("gold", "player_season_shot_profile"): 24,
-        ("gold", "team_season_play_type_stats"): 4,
+        ("gold", "team_season_play_type_stats"): 8,
         ("gold", "game_flow_snapshots"): 352,
         ("gold", "player_season_archetypes"): 32,
         ("gold", "player_season_embeddings"): 24,

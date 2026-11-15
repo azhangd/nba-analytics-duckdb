@@ -68,6 +68,47 @@ def test_build_fct_play_by_play_uses_source_action_id_for_paired_events():
     assert [row["action_id"] for row in rows] == [10, 11]
 
 
+def test_stats_v3_play_by_play_uses_live_vocabulary_and_carries_score():
+    def action(action_id, **fields):
+        return {"actionId": action_id, "actionNumber": action_id, "period": 1, "clock": "PT11M00.00S",
+                "scoreHome": "", "scoreAway": "", "shotResult": "", "isFieldGoal": 0, "shotValue": 0, **fields}
+
+    rows = build_fct_play_by_play_rows([
+        {
+            "game_id": GAME_ID,
+            "source": "stats_v3",
+            "pbp_json": json.dumps({"game": {"actions": [
+                action(3, teamId=1610612737, personId=11, actionType="Made Shot", subType="Jump Shot", shotValue=3,
+                       shotResult="Made", isFieldGoal=1, scoreHome="3", scoreAway="0", description="A 26' 3PT Jump Shot (3 PTS)"),
+                action(4, teamId=1610612738, personId=21, actionType="Missed Shot", subType="Jump Shot", shotValue=2,
+                       shotResult="Missed", isFieldGoal=1, description="MISS B 15' Jump Shot"),
+                action(5, teamId=0, personId=1610612737, actionType="Rebound", subType="Unknown", description="Home Rebound"),
+                action(6, teamId=1610612737, personId=11, actionType="Free Throw", subType="Free Throw 1 of 2",
+                       description="MISS A Free Throw 1 of 2"),
+                action(7, teamId=1610612737, personId=11, actionType="Free Throw", subType="Free Throw 2 of 2",
+                       scoreHome="4", scoreAway="0", description="A Free Throw 2 of 2 (4 PTS)"),
+                action(8, teamId=1610612738, personId=22, actionType="", description="C STEAL (1 STL)"),
+                action(1, teamId=0, personId=0, actionType="period", subType="start", scoreHome="0", scoreAway="0",
+                       description="Start of 1st Period"),
+            ]}}),
+        }
+    ])
+
+    by_id = {row["action_id"]: row for row in rows}
+    assert [row["action_id"] for row in rows] == [1, 3, 4, 5, 6, 7, 8]
+    assert by_id[3]["action_type"] == "3pt"
+    assert by_id[4]["action_type"] == "2pt"
+    assert (by_id[5]["team_id"], by_id[5]["player_id"]) == (1610612737, None)
+    assert [(by_id[i]["action_type"], by_id[i]["sub_type"], by_id[i]["shot_result"]) for i in (6, 7)] == [
+        ("freethrow", "1 of 2", "Missed"),
+        ("freethrow", "2 of 2", "Made"),
+    ]
+    assert by_id[8]["action_type"] == "steal"
+    assert [(row["score_home"], row["score_away"]) for row in rows] == [
+        ("0", "0"), ("3", "0"), ("3", "0"), ("3", "0"), ("3", "0"), ("4", "0"), ("4", "0"),
+    ]
+
+
 def test_build_fct_shots_preserves_game_event_id():
     rows = build_fct_shot_rows([
         {

@@ -131,7 +131,7 @@ def compute_game_flow(
     if pbp_df.is_empty():
         return pl.DataFrame()
 
-    events = pbp_df.sort(["period", "clock_seconds_remaining"], descending=[False, True])
+    events = pbp_df.sort(["period", "action_id"])
 
     flow_points = []
     for row in events.iter_rows(named=True):

@@ -22,7 +22,7 @@ def _make_pbp(events: list[dict]) -> pl.DataFrame:
     }
     rows = []
     for index, event in enumerate(events):
-        rows.append({**defaults, "action_number": index, **event})
+        rows.append({**defaults, "action_number": index, "action_id": index, **event})
     return pl.DataFrame(rows)
 
 
@@ -48,6 +48,7 @@ def test_seeded_starters_cover_opening_stint_and_batch_substitutions():
     stints = track_lineups(
         pbp,
         "0022500463",
+        home_team_id=1,
         starters_by_team={1: {101, 102, 103, 104, 105}},
     )
 
@@ -79,6 +80,7 @@ def test_legacy_substitution_rows_use_roster_name_map_for_incoming_players():
     stints = track_lineups(
         pbp,
         "0022500463",
+        home_team_id=1,
         starters_by_team={1: {101, 102, 103, 104, 105}},
         roster_name_map={1: {"bench one": 201}},
     )
@@ -103,6 +105,7 @@ def test_period_start_carries_forward_previous_lineup_until_changed():
     stints = track_lineups(
         pbp,
         "0022500463",
+        home_team_id=1,
         starters_by_team={1: {101, 102, 103, 104, 105}},
     )
 
@@ -131,7 +134,7 @@ def test_first_detected_lineup_backfills_when_no_prior_lineup_is_known():
          "score_home": "22", "score_away": "18"},
     ])
 
-    stints = track_lineups(pbp, "0022500463")
+    stints = track_lineups(pbp, "0022500463", home_team_id=1)
 
     period_two = stints.filter(pl.col("period") == 2)
     assert len(period_two) == 1
@@ -139,3 +142,47 @@ def test_first_detected_lineup_backfills_when_no_prior_lineup_is_known():
     assert row["start_clock_seconds"] == 720.0
     assert row["end_clock_seconds"] == 0.0
     assert row["duration_seconds"] == 720.0
+
+
+def test_points_are_credited_to_the_home_team_even_when_the_away_team_acts_first():
+    home, away = 1, 2
+    home_players = {101, 102, 103, 104, 105}
+    away_players = {201, 202, 203, 204, 205}
+    pbp = _make_pbp([
+        {"action_type": "period", "description": "Period Start", "clock_seconds_remaining": 720.0},
+        {"action_type": "2pt", "team_id": away, "player_id": 201, "clock_seconds_remaining": 700.0,
+         "score_away": "2"},
+        {"action_type": "3pt", "team_id": home, "player_id": 101, "clock_seconds_remaining": 680.0,
+         "score_home": "3", "score_away": "2"},
+    ])
+
+    stints = track_lineups(
+        pbp,
+        "0022500463",
+        home_team_id=home,
+        starters_by_team={home: home_players, away: away_players},
+    )
+
+    by_team = {row["team_id"]: row for row in stints.iter_rows(named=True)}
+    assert (by_team[home]["points_for"], by_team[home]["points_against"]) == (3, 2)
+    assert (by_team[away]["points_for"], by_team[away]["points_against"]) == (2, 3)
+
+
+def test_substitutions_before_the_period_start_row_do_not_create_phantom_stints():
+    # The live feed lists between-period substitutions ahead of "Period Start".
+    starters = {101, 102, 103, 104, 105}
+    pbp = _make_pbp([
+        {"period": 1, "action_type": "period", "description": "Period Start", "clock_seconds_remaining": 720.0},
+        {"period": 1, "action_type": "2pt", "team_id": 1, "player_id": 101, "clock_seconds_remaining": 30.0},
+        {"period": 2, "action_type": "substitution", "team_id": 1, "player_id": 105,
+         "description": "SUB out: P. Five", "clock_seconds_remaining": 720.0},
+        {"period": 2, "action_type": "substitution", "team_id": 1, "player_id": 106,
+         "description": "SUB in: P. Six", "clock_seconds_remaining": 720.0},
+        {"period": 2, "action_type": "period", "description": "Period Start", "clock_seconds_remaining": 720.0},
+        {"period": 2, "action_type": "2pt", "team_id": 1, "player_id": 106, "clock_seconds_remaining": 600.0},
+    ])
+
+    stints = track_lineups(pbp, "0022500463", home_team_id=1, starters_by_team={1: starters})
+
+    seconds = dict(stints.group_by("period").agg(pl.col("duration_seconds").sum()).iter_rows())
+    assert seconds == {1: 720.0, 2: 720.0}

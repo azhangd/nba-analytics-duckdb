@@ -37,13 +37,14 @@ def _pbp(events: list[dict]) -> pl.DataFrame:
         "score_home": "",
         "score_away": "",
     }
-    rows = [{**defaults, "action_number": idx, **event} for idx, event in enumerate(events)]
+    rows = [{**defaults, "action_number": idx, "action_id": idx, **event} for idx, event in enumerate(events)]
     if rows:
         return pl.DataFrame(rows)
     return pl.DataFrame(
         schema={
             "game_id": pl.String,
             "action_number": pl.Int64,
+            "action_id": pl.Int64,
             "period": pl.Int64,
             "clock_seconds_remaining": pl.Float64,
             "score_home": pl.String,

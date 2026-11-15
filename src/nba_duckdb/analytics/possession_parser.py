@@ -49,32 +49,13 @@ def _norm(value: object) -> str:
     return str(value or "").strip().lower()
 
 
-def _is_period_end(action_type: str, sub_type: str, description: str) -> bool:
-    if "end period" in action_type or "end of period" in description:
-        return True
-    if action_type == "period":
-        return not sub_type or "end" in sub_type or "end" in description
-    return False
+def _is_period_end(action_type: str, sub_type: str) -> bool:
+    return action_type == "period" and sub_type == "end"
 
 
-def _is_turnover(action_type: str) -> bool:
-    return action_type == "turnover" or "turnover" in action_type
-
-
-def _field_goal_points(action_type: str, sub_type: str, description: str) -> int:
-    if "3pt" in action_type or "3pt" in sub_type or "3-" in description:
-        return 3
-    return 2
-
-
-def _is_free_throw(action_type: str) -> bool:
-    return action_type in {"freethrow", "free throw"} or "free throw" in action_type
-
-
-def _is_final_free_throw(sub_type: str, description: str) -> bool:
-    text = f"{sub_type} {description}"
-    ft_match = re.search(r"(\d+)\s+(?:of|/)\s+(\d+)", text)
-    return bool(ft_match and ft_match.group(1) == ft_match.group(2))
+def _is_final_free_throw(sub_type: str) -> bool:
+    match = re.search(r"(\d+)\s+(?:of|/)\s+(\d+)", sub_type)
+    return bool(match and match.group(1) == match.group(2))
 
 
 def _is_technical_free_throw(sub_type: str, description: str) -> bool:
@@ -84,223 +65,135 @@ def _is_technical_free_throw(sub_type: str, description: str) -> bool:
 def parse_possessions(
     pbp_df: pl.DataFrame,
     game_id: str,
-    home_team_id: int | None = None,
+    *,
+    home_team_id: int,
+    away_team_id: int,
 ) -> pl.DataFrame:
-    """Parse a game's play-by-play into possessions.
+    """Parse a game's play-by-play (silver.fct_play_by_play rows) into possessions.
 
-    Args:
-        pbp_df: Play-by-play DataFrame for a single game
-        game_id: The game ID
-        home_team_id: Home team ID, used to sign score_margin correctly
+    Expects the silver vocabulary: action_type 2pt/3pt/freethrow/rebound/turnover/period,
+    shot_result Made/Missed, and the score carried forward on every row.
 
-    Returns:
-        DataFrame with one row per possession, columns:
-        - game_id, possession_number, period
-        - offense_team_id, defense_team_id
-        - start_clock_seconds, end_clock_seconds, duration_seconds
-        - start_type (dead_ball, live_ball)
-        - end_type (made_2, made_3, miss, turnover, end_period, foul)
-        - possession_context (half_court, transition)
-        - is_garbage_time (Cleaning the Glass sliding scale: Q4 only, 25/20/15pt thresholds)
-        - score_margin (at start of possession; positive = offense team leading)
-        - points_scored
-        - events (list of action descriptions)
+    The offense is set only by offensive actions (shots, free throws, turnovers); after a
+    possession ends the other team has the ball. Rebounds are offensive or defensive by
+    comparing the rebounding team to the offense. Every made free throw counts; one taken
+    by the team that just scored (an and-one) is credited to that team's last possession.
     """
     if pbp_df.is_empty():
         return pl.DataFrame()
 
-    # Sort by period and clock (descending clock = forward in time)
-    events = pbp_df.sort(["period", "clock_seconds_remaining"], descending=[False, True])
+    other_team = {home_team_id: away_team_id, away_team_id: home_team_id}
+    events = pbp_df.sort(["period", "action_id"])
 
-    possessions = []
-    current_possession = None
+    possessions: list[dict] = []
+    current: dict | None = None
     possession_number = 0
-    prev_end_type = None
+    score_home = 0
+    score_away = 0
 
-    # Track running score from PBP score fields
-    last_score_home: int = 0
-    last_score_away: int = 0
+    def open_possession(period: int, clock: float, offense: int | None, start_type: str, prev_end: str | None) -> dict:
+        nonlocal possession_number
+        possession_number += 1
+        return {
+            "game_id": game_id,
+            "possession_number": possession_number,
+            "period": period,
+            "offense_team_id": offense,
+            "start_clock_seconds": clock,
+            "start_type": start_type,
+            "possession_context": "transition" if prev_end in ("defensive_rebound", "turnover") else "half_court",
+            "raw_margin_at_start": score_home - score_away,
+            "events": [],
+            "points_scored": 0,
+            "has_offense_action": False,
+        }
+
+    def close_possession(possession: dict, clock: float, end_type: str) -> None:
+        possession["end_clock_seconds"] = clock
+        possession["end_type"] = end_type
+        possession["duration_seconds"] = max(0.0, possession["start_clock_seconds"] - clock)
+        possession["event_count"] = len(possession["events"])
+        possession["events"] = "; ".join(possession["events"][-5:])
+        raw_margin = possession.pop("raw_margin_at_start")
+        possession.pop("has_offense_action")
+        offense = possession["offense_team_id"]
+        possession["score_margin"] = -raw_margin if offense == away_team_id else raw_margin
+        possession["is_garbage_time"] = _is_garbage_time(possession["period"], clock, score_home - score_away)
+        possessions.append(possession)
 
     for row in events.iter_rows(named=True):
-        action_type_raw = str(row.get("action_type", ""))
-        sub_type_raw = str(row.get("sub_type", ""))
-        action_type = _norm(action_type_raw)
-        sub_type = _norm(sub_type_raw)
+        action_type = _norm(row.get("action_type"))
+        sub_type = _norm(row.get("sub_type"))
+        description = str(row.get("description") or "")
         team_id = row.get("team_id")
-        period = row.get("period", 0)
-        clock = row.get("clock_seconds_remaining", 0.0)
-        description = row.get("description", "")
-        description_norm = _norm(description)
-        shot_result = _norm(row.get("shot_result", ""))
-        is_fg = row.get("is_field_goal", False)
+        period = int(row.get("period") or 0)
+        clock = float(row.get("clock_seconds_remaining") or 0.0)
+        made = _norm(row.get("shot_result")) == "made"
+        parsed_home = _parse_score(row.get("score_home"))
+        parsed_away = _parse_score(row.get("score_away"))
+        if parsed_home is not None and parsed_away is not None:
+            score_home, score_away = parsed_home, parsed_away
 
-        # Update running score from PBP score fields
-        sh = _parse_score(row.get("score_home", ""))
-        sa = _parse_score(row.get("score_away", ""))
-        if sh is not None:
-            last_score_home = sh
-        if sa is not None:
-            last_score_away = sa
-
-        # Start a new possession if we don't have one
-        if current_possession is None:
-            possession_number += 1
-
-            # Determine possession context based on how previous possession ended
-            if prev_end_type in ("defensive_rebound", "turnover"):
-                possession_context = "transition"
-            else:
-                possession_context = "half_court"
-
-            # Score margin at start of this possession
-            # Positive = home team leading (we'll sign from offense perspective after)
-            raw_margin = last_score_home - last_score_away
-
-            current_possession = {
-                "game_id": game_id,
-                "possession_number": possession_number,
-                "period": period,
-                "offense_team_id": team_id,
-                "start_clock_seconds": clock,
-                "start_type": "dead_ball",
-                "possession_context": possession_context,
-                "score_home_at_start": last_score_home,
-                "score_away_at_start": last_score_away,
-                "raw_margin_at_start": raw_margin,  # home - away, to be signed later
-                "events": [],
-                "points_scored": 0,
-            }
-
-        if current_possession.get("offense_team_id") is None and team_id:
-            current_possession["offense_team_id"] = team_id
-
-        # Track events in this possession
+        if action_type == "period" and sub_type == "start":
+            current = None
+            continue
+        if current is None:
+            current = open_possession(period, clock, None, "dead_ball", None)
         if description:
-            current_possession["events"].append(description)
+            current["events"].append(description)
 
-        # Detect possession-ending events
-        should_end = False
-        end_type = ""
+        if _is_period_end(action_type, sub_type):
+            close_possession(current, clock, "end_period")
+            current = None
+            continue
 
-        if _is_period_end(action_type, sub_type, description_norm):
-            should_end = True
-            end_type = "end_period"
-
-        elif _is_turnover(action_type):
-            should_end = True
-            end_type = "turnover"
-
-        elif is_fg and shot_result in {"made", "made shot"}:
-            points = _field_goal_points(action_type, sub_type, description_norm)
-            current_possession["points_scored"] = points
-            should_end = True
-            end_type = f"made_{points}"
-
-        elif "rebound" in action_type and team_id:
-            offense_id = current_possession.get("offense_team_id")
-            is_offensive = "offensive" in sub_type or "offensive" in description_norm
-            is_defensive = "defensive" in sub_type or "defensive" in description_norm
-            if is_defensive or (offense_id is not None and team_id != offense_id and not is_offensive):
-                should_end = True
-                end_type = "defensive_rebound"
-
-        elif (
-            _is_free_throw(action_type)
-            and _is_final_free_throw(sub_type, description_norm)
-            and not _is_technical_free_throw(sub_type, description_norm)
-            and shot_result == "made"
+        is_free_throw = action_type == "freethrow"
+        is_offense_action = action_type in ("2pt", "3pt", "turnover") or is_free_throw
+        if (
+            is_free_throw
+            and current["offense_team_id"] is not None
+            and team_id != current["offense_team_id"]
+            and not current["has_offense_action"]
         ):
-            current_possession["points_scored"] += 1
-            should_end = True
-            end_type = "free_throw"
+            # A free throw by the team that just lost the ball: an and-one, a technical or
+            # a flagrant. Credit the point to that team's last possession.
+            if made:
+                for previous in reversed(possessions):
+                    if previous["offense_team_id"] == team_id:
+                        previous["points_scored"] += 1
+                        break
+            continue
+        if is_offense_action and team_id:
+            if current["offense_team_id"] is None or not current["has_offense_action"]:
+                current["offense_team_id"] = team_id
+            elif team_id != current["offense_team_id"]:
+                # The other team acted without a recorded change of possession.
+                close_possession(current, clock, "change")
+                current = open_possession(period, clock, team_id, "dead_ball", "change")
+            current["has_offense_action"] = True
 
-        if should_end and current_possession:
-            current_possession["end_clock_seconds"] = clock
-            current_possession["end_type"] = end_type
-            duration = current_possession["start_clock_seconds"] - clock
-            current_possession["duration_seconds"] = max(0, duration)
-            current_possession["event_count"] = len(current_possession["events"])
-            current_possession["events"] = "; ".join(current_possession["events"][-5:])  # Keep last 5
+        end_type = None
+        if action_type in ("2pt", "3pt") and made:
+            current["points_scored"] += 3 if action_type == "3pt" else 2
+            end_type = f"made_{action_type[0]}"
+        elif action_type == "turnover":
+            end_type = "turnover"
+        elif is_free_throw and made:
+            current["points_scored"] += 1
+            if _is_final_free_throw(sub_type) and not _is_technical_free_throw(sub_type, description.lower()):
+                end_type = "free_throw"
+        elif action_type == "rebound" and team_id and current["offense_team_id"] and team_id != current["offense_team_id"]:
+            end_type = "defensive_rebound"
 
-            # Compute score_margin from offense team's perspective
-            offense_id = current_possession.get("offense_team_id")
-            raw_margin = current_possession.pop("raw_margin_at_start")
-            current_possession.pop("score_home_at_start")
-            current_possession.pop("score_away_at_start")
-            if home_team_id and offense_id == home_team_id:
-                score_margin = raw_margin  # home leading = positive for home offense
-            elif home_team_id and offense_id != home_team_id:
-                score_margin = -raw_margin  # away offense: flip sign
-            else:
-                score_margin = raw_margin  # unknown, keep as-is
-
-            current_possession["score_margin"] = score_margin
-
-            current_possession["is_garbage_time"] = _is_garbage_time(
-                period, clock, last_score_home - last_score_away
-            )
-
-            possessions.append(current_possession)
-
-            # Start next possession
-            next_offense = team_id if end_type == "defensive_rebound" else None
+        if end_type:
+            offense = current["offense_team_id"]
+            close_possession(current, clock, end_type)
             start_type = "live_ball" if end_type in ("defensive_rebound", "made_2", "made_3") else "dead_ball"
-            prev_end_type = end_type
+            current = open_possession(period, clock, other_team.get(offense), start_type, end_type)
 
-            current_possession = None
-            if end_type != "end_period":
-                possession_number += 1
-
-                # Context for next possession
-                if end_type in ("defensive_rebound", "turnover"):
-                    next_context = "transition"
-                else:
-                    next_context = "half_court"
-
-                raw_margin = last_score_home - last_score_away
-
-                current_possession = {
-                    "game_id": game_id,
-                    "possession_number": possession_number,
-                    "period": period,
-                    "offense_team_id": next_offense,
-                    "start_clock_seconds": clock,
-                    "start_type": start_type,
-                    "possession_context": next_context,
-                    "score_home_at_start": last_score_home,
-                    "score_away_at_start": last_score_away,
-                    "raw_margin_at_start": raw_margin,
-                    "events": [],
-                    "points_scored": 0,
-                }
-
-    # Handle any remaining possession at end of game
-    if current_possession and current_possession.get("events"):
-        current_possession["end_clock_seconds"] = 0.0
-        current_possession["end_type"] = "end_period"
-        duration = current_possession["start_clock_seconds"]
-        current_possession["duration_seconds"] = max(0, duration)
-        current_possession["event_count"] = len(current_possession["events"])
-        current_possession["events"] = "; ".join(current_possession["events"][-5:])
-
-        raw_margin = current_possession.pop("raw_margin_at_start")
-        current_possession.pop("score_home_at_start")
-        current_possession.pop("score_away_at_start")
-        offense_id = current_possession.get("offense_team_id")
-        if home_team_id and offense_id == home_team_id:
-            score_margin = raw_margin
-        elif home_team_id and offense_id != home_team_id:
-            score_margin = -raw_margin
-        else:
-            score_margin = raw_margin
-
-        current_possession["score_margin"] = score_margin
-        current_possession["is_garbage_time"] = _is_garbage_time(
-            current_possession["period"], 0.0, last_score_home - last_score_away
-        )
-        possessions.append(current_possession)
+    if current is not None and current["events"]:
+        close_possession(current, 0.0, "end_period")
 
     if not possessions:
         return pl.DataFrame()
-
     return pl.DataFrame(possessions)
