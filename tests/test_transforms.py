@@ -112,6 +112,33 @@ def test_sql_fct_games_derives_status_scores_and_type(tmp_db):
     ]
 
 
+def test_elo_history_runs_in_calendar_order_across_new_year(tmp_db):
+    from nba_duckdb.dbt_runner import run_dbt_command
+
+    tmp_db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            schedule_row(game_id="0029900002", game_date="01/02/2100 00:00:00", raw_json='{"homeTeam": {"score": 110}, "awayTeam": {"score": 100}}'),
+            schedule_row(game_id="0029900001", game_date="10/30/2099 00:00:00", raw_json='{"homeTeam": {"score": 100}, "awayTeam": {"score": 90}}'),
+        ],
+    )
+
+    run_dbt_command(["build", "--select", "+team_game_elo_history"])
+    rows = tmp_db.execute_sql(
+        """
+        SELECT game_id, CAST(game_date AS TEXT) AS game_date, elo_before
+        FROM gold.team_game_elo_history
+        WHERE is_home
+        ORDER BY game_date
+        """
+    )
+
+    assert [row["game_date"] for row in rows] == ["2099-10-30", "2100-01-02"]
+    assert rows[0]["elo_before"] == 1500.0
+    assert rows[1]["elo_before"] > 1500.0
+
+
 def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
     from nba_duckdb import dbt_runner
 

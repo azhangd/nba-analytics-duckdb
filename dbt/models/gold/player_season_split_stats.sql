@@ -28,10 +28,7 @@ WITH base AS (
         games.away_team_id,
         games.home_score,
         games.away_score,
-        try_strptime(
-            CAST(games.game_date AS TEXT),
-            ['%m/%d/%Y %H:%M:%S', '%m/%d/%Y', '%Y-%m-%d', '%Y%m%d']
-        ) AS game_date_parsed
+        games.game_date AS game_date_parsed
     FROM {{ ref('player_game_stats') }} AS stats
     JOIN {{ ref('fct_games') }} AS games
         ON stats.game_id = games.game_id

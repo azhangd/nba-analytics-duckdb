@@ -45,7 +45,7 @@ SELECT
     team_with_opponent.game_id,
     CAST(team_with_opponent.team_id AS INTEGER) AS team_id,
     COALESCE(CAST(games.season AS TEXT), '') AS season,
-    COALESCE(CAST(games.game_date AS TEXT), '') AS game_date,
+    games.game_date,
     COALESCE(CAST(games.game_type AS TEXT), 'regular_season') AS game_type,
     CAST(team_with_opponent.pts AS INTEGER) AS pts,
     CAST(team_with_opponent.opp_pts AS INTEGER) AS opp_pts,

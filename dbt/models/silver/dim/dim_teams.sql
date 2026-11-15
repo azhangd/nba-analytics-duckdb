@@ -3,7 +3,7 @@
 WITH source_teams AS (
     SELECT
         game_id,
-        game_date,
+        {{ parse_game_date("game_date") }} AS game_date,
         home_team_id AS fallback_team_id,
         home_team_abbr AS fallback_abbreviation,
         json_extract_string(raw_json, '$.homeTeam.teamId') AS raw_team_id,
@@ -24,7 +24,7 @@ WITH source_teams AS (
 
     SELECT
         game_id,
-        game_date,
+        {{ parse_game_date("game_date") }} AS game_date,
         away_team_id AS fallback_team_id,
         away_team_abbr AS fallback_abbreviation,
         json_extract_string(raw_json, '$.awayTeam.teamId') AS raw_team_id,
