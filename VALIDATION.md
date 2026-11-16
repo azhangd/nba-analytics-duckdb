@@ -15,7 +15,9 @@ advanced stats, or any betting or tracking system.
   game. Season usage comes from season totals with Basketball-Reference's
   formula; on 2024-25 and 2025-26 it is within 0.5 points of theirs for 99% of
   players with 500+ minutes. A coach's challenge is charged as a timeout but
-  isn't counted as one.
+  isn't counted as one. Clutch means the same everywhere, timeouts included:
+  the last 5 minutes of the 4th or overtime with the score within 5 before
+  the play.
   - Team possessions, pace and ratings use Basketball-Reference's formulas:
     possessions are the average of both teams' estimates, pace is possessions
     per 48 minutes (so overtime counts), and season figures come from season

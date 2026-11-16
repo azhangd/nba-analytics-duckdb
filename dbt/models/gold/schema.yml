@@ -259,6 +259,10 @@ models:
       - name: season
         data_tests:
           - not_null
+      - name: clutch_timeouts
+        description: Timeouts in the last 5 minutes of the 4th or overtime with the score within 5, the same clutch as the other clutch tables.
+      - name: clutch_timeout_pct
+        description: Clutch timeouts as a share of timeouts in the 4th and overtime.
 
   - name: team_season_ato_stats
     description: Offense and defense after timeouts

@@ -1601,13 +1601,14 @@ def test_timeout_stats_skip_coach_challenges(tmp_db):
     tmp_db.insert_rows("silver", "fct_games", [{"game_id": "0029900001", "season": "2099-00", "game_type": "regular_season"}])
     tmp_db.execute(
         "CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, period INTEGER, "
-        "clock_seconds_remaining DOUBLE, action_type TEXT, sub_type TEXT)"
+        "clock_seconds_remaining DOUBLE, action_type TEXT, sub_type TEXT, score_home TEXT, score_away TEXT)"
     )
     tmp_db.insert_rows(
         "silver",
         "fct_play_by_play",
         [
-            {"game_id": "0029900001", "team_id": 1, "period": 4, "clock_seconds_remaining": 90.0, "action_type": "timeout", "sub_type": sub_type}
+            {"game_id": "0029900001", "team_id": 1, "period": 4, "clock_seconds_remaining": 90.0, "action_type": "timeout",
+             "sub_type": sub_type, "score_home": "100", "score_away": "98"}
             for sub_type in ("full", "Regular", "challenge", "Coach Challenge")
         ],
     )
@@ -1615,6 +1616,33 @@ def test_timeout_stats_skip_coach_challenges(tmp_db):
     dbt_runner.run_model(model="team_season_timeout_stats")
 
     assert tmp_db.execute("SELECT total_timeouts FROM gold.team_season_timeout_stats")[0]["total_timeouts"] == 2
+
+
+def test_clutch_timeouts_are_the_last_five_minutes_of_the_4th_or_overtime_within_five_points(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    tmp_db.insert_rows("silver", "fct_games", [{"game_id": "0029900001", "season": "2099-00", "game_type": "regular_season"}])
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, period INTEGER, "
+        "clock_seconds_remaining DOUBLE, action_type TEXT, sub_type TEXT, score_home TEXT, score_away TEXT)"
+    )
+    # Clutch: 4th at 4:10 down 3, overtime tied. Not clutch: 4th at 1:30 down 10, 4th at 6:00 tied.
+    timeouts = [(4, 250.0, "97", "100"), (5, 200.0, "110", "110"), (4, 90.0, "90", "100"), (4, 360.0, "95", "95")]
+    tmp_db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            {"game_id": "0029900001", "team_id": 1, "period": period, "clock_seconds_remaining": clock,
+             "action_type": "timeout", "sub_type": "full", "score_home": score_home, "score_away": score_away}
+            for period, clock, score_home, score_away in timeouts
+        ],
+    )
+
+    dbt_runner.run_model(model="team_season_timeout_stats")
+
+    row = tmp_db.execute("SELECT clutch_timeouts, clutch_timeout_pct FROM gold.team_season_timeout_stats")[0]
+    assert (row["clutch_timeouts"], float(row["clutch_timeout_pct"])) == (2, 50.0)
 
 
 def test_player_clutch_stats_use_the_score_before_each_play(tmp_db):
