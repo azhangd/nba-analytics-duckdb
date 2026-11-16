@@ -4,7 +4,7 @@ WITH timeouts AS (
     SELECT
         pbp.game_id,
         fg.season,
-        pbp.action_number AS timeout_action_number,
+        pbp.action_id AS timeout_action_id,
         pbp.period,
         pbp.clock_seconds_remaining AS timeout_clock,
         pbp.team_id AS timeout_team_id,
@@ -52,13 +52,13 @@ raw_candidate_possessions AS (
 event_rollup AS (
     SELECT
         r.game_id,
-        r.timeout_action_number,
+        r.timeout_action_id,
         r.possession_number,
-        (ARRAY_AGG(e.team_id ORDER BY e.action_number) FILTER (
+        (ARRAY_AGG(e.team_id ORDER BY e.action_id) FILTER (
             WHERE e.team_id IS NOT NULL
               AND LOWER(COALESCE(CAST(e.action_type AS TEXT), '')) IN ('2pt', '3pt', 'freethrow', 'turnover', 'steal')
         ))[1] AS first_team_id,
-        (ARRAY_AGG(LOWER(COALESCE(CAST(e.action_type AS TEXT), '')) ORDER BY e.action_number) FILTER (
+        (ARRAY_AGG(LOWER(COALESCE(CAST(e.action_type AS TEXT), '')) ORDER BY e.action_id) FILTER (
             WHERE e.team_id IS NOT NULL
               AND LOWER(COALESCE(CAST(e.action_type AS TEXT), '')) IN ('2pt', '3pt', 'freethrow', 'turnover', 'steal')
         ))[1] AS first_action_type,
@@ -101,10 +101,10 @@ event_rollup AS (
     JOIN {{ ref('fct_play_by_play') }} e
       ON e.game_id = r.game_id
      AND e.period = r.period
-     AND e.action_number > r.timeout_action_number
+     AND e.action_id > r.timeout_action_id
      AND e.clock_seconds_remaining <= LEAST(r.start_clock_seconds, r.timeout_clock) + 0.1
      AND e.clock_seconds_remaining >= r.end_clock_seconds - 0.1
-    GROUP BY r.game_id, r.timeout_action_number, r.possession_number
+    GROUP BY r.game_id, r.timeout_action_id, r.possession_number
 ),
 candidate_possessions AS (
     SELECT
@@ -115,7 +115,7 @@ candidate_possessions AS (
         COALESCE(ev.opponent_points, 0) AS opponent_points,
         COALESCE(ev.timeout_team_turnovers, 0) AS timeout_team_turnovers,
         ROW_NUMBER() OVER (
-            PARTITION BY r.game_id, r.timeout_action_number
+            PARTITION BY r.game_id, r.timeout_action_id
             ORDER BY
                 CASE WHEN r.start_clock_seconds <= r.timeout_clock + 0.1 THEN 0 ELSE 1 END,
                 ABS(r.start_clock_seconds - r.timeout_clock),
@@ -124,7 +124,7 @@ candidate_possessions AS (
     FROM raw_candidate_possessions r
     JOIN event_rollup ev
       ON ev.game_id = r.game_id
-     AND ev.timeout_action_number = r.timeout_action_number
+     AND ev.timeout_action_id = r.timeout_action_id
      AND ev.possession_number = r.possession_number
     WHERE ev.first_team_id IS NOT NULL
 ),

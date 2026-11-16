@@ -25,6 +25,7 @@ All silver and gold tables with key columns. Bronze tables are excluded because 
 - `team_game_stats.avg_lead` is the team's average lead over the game clock (its score minus the opponent's, weighted by how long each score stood). It is NULL for a game with no play-by-play.
 - `fg_shoot_pct` and `fg3_shoot_pct` only rank players with at least 100 attempts (FGA or 3PA) in the season, and are NULL below that, the same way `avg_ts_pct` needs 20 shots and free throws. At 100 attempts, chance alone moves a shooting percentage by about 5 points (one standard deviation), which is about how far FG% varies between regular players.
 - In `player_game_rolling_stats`, `is_hot` and `is_cold` compare the last 5 games with the last 20 against the spread of game score over the season so far, never later games. Both are NULL for a player's first game.
+- Sort `fct_play_by_play` by `period, action_id` to get the plays in order. `action_number` is the NBA's event number (it matches `fct_shots.game_event_id`), not the order: late or corrected entries keep their number, so in most games sorting by it puts some scores, clock times and substitutions out of order.
 - `fct_lineups.player_ids_str` holds the ids of the players on the floor, sorted and separated by commas.
 - Summer League tables only join to `summer_league_games`, since their player and team ids haven't been checked against `dim_players` and `dim_teams` yet.
 

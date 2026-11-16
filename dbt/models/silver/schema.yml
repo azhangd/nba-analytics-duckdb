@@ -87,9 +87,11 @@ models:
         data_tests:
           - not_null
       - name: action_id
-        description: Source-native action identifier, unique within a game.
+        description: Play order, unique within a game; sort plays by period, action_id. A stats_v3 substitution's "in" row comes right after its "out" row.
         data_tests:
           - not_null
+      - name: action_number
+        description: The NBA's event number (fct_shots.game_event_id for shots). Not play order, since late or corrected entries keep their number, and in stats_v3 games a substitution's two rows, a turnover and its steal, and a shot and its block share one.
 
   - name: fct_possessions
     description: Every possession with how it started and ended
