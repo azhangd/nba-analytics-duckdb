@@ -6,7 +6,16 @@ WITH timeouts AS (
         fg.season,
         period,
         clock_seconds_remaining,
-        CASE WHEN period = 4 AND clock_seconds_remaining <= 120 THEN 1 ELSE 0 END AS is_clutch_timeout,
+        -- Clutch, as in the other clutch models: the last 5 minutes of the 4th or any
+        -- overtime with a margin of 5 or less. A timeout scores no points, so its
+        -- row's score is the score before it.
+        CASE
+            WHEN period >= 4
+              AND clock_seconds_remaining <= 300
+              AND ABS(CAST(pbp.score_home AS INTEGER) - CAST(pbp.score_away AS INTEGER)) <= 5
+            THEN 1
+            ELSE 0
+        END AS is_clutch_timeout,
         CASE WHEN period = 4 THEN clock_seconds_remaining ELSE NULL END AS q4_clock
     FROM {{ ref('fct_play_by_play') }} pbp
     JOIN {{ ref('fct_games') }} fg ON pbp.game_id = fg.game_id
@@ -28,7 +37,7 @@ SELECT
     SUM(is_clutch_timeout) AS clutch_timeouts,
     ROUND(AVG(q4_clock)::NUMERIC, 1) AS avg_clock_when_called_q4,
     ROUND(
-        100.0 * SUM(is_clutch_timeout) / NULLIF(SUM(CASE WHEN period = 4 THEN 1 ELSE 0 END), 0),
+        100.0 * SUM(is_clutch_timeout) / NULLIF(SUM(CASE WHEN period >= 4 THEN 1 ELSE 0 END), 0),
         1
     ) AS clutch_timeout_pct
 FROM timeouts

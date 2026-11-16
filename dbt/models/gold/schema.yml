@@ -60,6 +60,8 @@ models:
       - name: season
         data_tests:
           - not_null
+      - name: adj_ppg
+        description: Points per game, each game scaled by that season's league average defensive rating (the mean of the teams' def_rtg) over the opponent's. adj_ts_pct is scaled the same way. Both are NULL for a season where any team's def_rtg is NULL.
 
   - name: player_game_rolling_stats
     description: Last 3, 5 and 10 game averages and hot or cold flags
@@ -259,6 +261,10 @@ models:
       - name: season
         data_tests:
           - not_null
+      - name: clutch_timeouts
+        description: Timeouts in the last 5 minutes of the 4th or overtime with the score within 5, the same clutch as the other clutch tables.
+      - name: clutch_timeout_pct
+        description: Clutch timeouts as a share of timeouts in the 4th and overtime.
 
   - name: team_season_ato_stats
     description: Offense and defense after timeouts

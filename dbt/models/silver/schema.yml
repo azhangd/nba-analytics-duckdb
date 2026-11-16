@@ -97,6 +97,8 @@ models:
       - name: game_id
         data_tests:
           - not_null
+      - name: score_margin
+        description: The offense's lead when the possession started. A possession that starts on the other team's play with no recorded change of possession (end_type 'change' on the one before) uses the score before that play.
 
   - name: fct_shots
     description: Every shot with zone, distance, location and result

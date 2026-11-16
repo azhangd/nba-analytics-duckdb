@@ -257,3 +257,19 @@ def test_garbage_time_uses_the_margin_and_clock_at_the_start_of_the_possession()
 
     home = result.filter(pl.col("offense_team_id") == HOME_TEAM_ID).row(0, named=True)
     assert (home["score_margin"], home["is_garbage_time"]) == (19, False)
+
+
+def test_possession_opened_by_the_other_teams_shot_starts_before_its_points():
+    # No rebound or turnover is recorded between the home miss and the away make.
+    pbp = _make_pbp([
+        {"action_type": "2pt", "shot_result": "Missed", "is_field_goal": True, "team_id": HOME_TEAM_ID,
+         "clock_seconds_remaining": 700.0, "score_home": "10", "score_away": "10"},
+        {"action_type": "3pt", "shot_result": "Made", "is_field_goal": True, "team_id": AWAY_TEAM_ID,
+         "clock_seconds_remaining": 690.0, "score_home": "10", "score_away": "13"},
+    ])
+
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
+
+    away = result.row(1, named=True)
+    assert (away["offense_team_id"], away["start_type"], away["score_margin"]) == (AWAY_TEAM_ID, "dead_ball", 0)
+    assert result.row(0, named=True)["end_type"] == "change"

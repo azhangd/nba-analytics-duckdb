@@ -671,7 +671,7 @@ def test_full_refresh_task_reads_all_upstream_and_removes_stale_rows(tmp_db):
     ]
 
 
-def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
+def test_adjusted_stats_uses_opponent_defense_and_league_average_from_the_same_season():
     from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
 
     games = pl.DataFrame({
@@ -680,10 +680,11 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "away_team_id": [2, 2],
         "season": ["2025-26", "2026-27"],
     })
+    # League averages: 105 in 2025-26 and 115 in 2026-27 (110 if pooled).
     team_ratings = pl.DataFrame({
-        "team_id": [2, 2],
-        "season": ["2025-26", "2026-27"],
-        "def_rtg": [100.0, 120.0],
+        "team_id": [1, 2, 1, 2],
+        "season": ["2025-26", "2025-26", "2026-27", "2026-27"],
+        "def_rtg": [110.0, 100.0, 110.0, 120.0],
     })
     player_games = pl.DataFrame({
         "player_id": [7, 7],
@@ -697,13 +698,41 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "net_rating": [0.0, 0.0],
     })
 
-    adjusted, league_avg = build_adjusted_stats(
-        player_games=player_games, team_ratings=team_ratings, fct_games=games
-    )
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
     by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
-    assert by_season["2025-26"] == round(22.0 * league_avg / 100.0, 1)
-    assert by_season["2026-27"] == round(22.0 * league_avg / 120.0, 1)
+    assert by_season == {"2025-26": round(22.0 * 105 / 100, 1), "2026-27": round(22.0 * 115 / 120, 1)}
+
+
+def test_adjusted_stats_are_null_for_a_season_with_a_missing_defensive_rating():
+    from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
+
+    # 2024-25: the opponent has no rating row. 2025-26: another team's def_rtg is NULL
+    # (a game without play-by-play). 2026-27 is complete.
+    games = pl.DataFrame({
+        "game_id": ["g0", "g1", "g2"],
+        "home_team_id": [1, 1, 1],
+        "away_team_id": [4, 2, 2],
+        "season": ["2024-25", "2025-26", "2026-27"],
+    })
+    team_ratings = pl.DataFrame({
+        "team_id": [1, 1, 2, 3, 1, 2],
+        "season": ["2024-25", "2025-26", "2025-26", "2025-26", "2026-27", "2026-27"],
+        "def_rtg": [110.0, 110.0, 100.0, None, 110.0, 120.0],
+    })
+    player_games = pl.DataFrame({
+        "player_id": [7, 7, 7], "game_id": ["g0", "g1", "g2"], "team_id": [1, 1, 1], "minutes": [30.0] * 3,
+        "pts": [22.0] * 3, "fga": [15] * 3, "fta": [4] * 3, "ts_pct": [0.6] * 3, "net_rating": [5.0] * 3,
+    })
+
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
+
+    by_season = {row[0]: row[1:] for row in adjusted.select(["season", "adj_ppg", "adj_ts_pct", "adj_net_rtg"]).iter_rows()}
+    assert by_season == {
+        "2024-25": (None, None, 5.0),
+        "2025-26": (None, None, 5.0),
+        "2026-27": (round(22.0 * 115 / 120, 1), round(0.6 * 115 / 120, 3), 5.0),
+    }
 
 
 def test_adjusted_net_rating_weights_games_by_minutes():
@@ -717,7 +746,7 @@ def test_adjusted_net_rating_weights_games_by_minutes():
         "pts": [20.0, 0.0], "fga": [15, 0], "fta": [4, 0], "ts_pct": [0.6, None], "net_rating": [10.0, -50.0],
     })
 
-    adjusted, _ = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
     assert adjusted["adj_net_rtg"][0] == round((10.0 * 30 - 50.0 * 2) / 32, 1)
     assert adjusted["adj_ts_pct"][0] == 0.6
