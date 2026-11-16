@@ -37,6 +37,34 @@ play_turnovers AS (
     WHERE action_type = 'turnover'
     GROUP BY CAST(game_id AS TEXT), team_id
 ),
+-- Average lead over the game clock, from the home side: each play's margin
+-- after the play, weighted by the seconds until the next play. Box Plus/Minus
+-- uses it to correct team ratings for playing with a lead.
+play_margins AS (
+    SELECT
+        CAST(game_id AS TEXT) AS game_id,
+        CASE
+            WHEN period <= 4 THEN (period - 1) * 720 + (720 - clock_seconds_remaining)
+            ELSE 2880 + (period - 5) * 300 + (300 - clock_seconds_remaining)
+        END AS elapsed,
+        CAST(score_home AS INTEGER) - CAST(score_away AS INTEGER) AS home_margin,
+        period,
+        action_id
+    FROM {{ ref('fct_play_by_play') }}
+),
+play_intervals AS (
+    SELECT
+        game_id,
+        home_margin,
+        LEAD(elapsed) OVER (PARTITION BY game_id ORDER BY period, action_id) - elapsed AS seconds
+    FROM play_margins
+),
+game_leads AS (
+    SELECT game_id, SUM(home_margin * seconds) / SUM(seconds) AS home_avg_lead
+    FROM play_intervals
+    WHERE seconds IS NOT NULL
+    GROUP BY game_id
+),
 team_totals AS (
     SELECT
         team_boxscores.*,
@@ -95,7 +123,13 @@ SELECT
     CAST(team_with_opponent.fta AS INTEGER) AS fta,
     CAST(team_with_opponent.oreb AS INTEGER) AS oreb,
     CAST(team_with_opponent.dreb AS INTEGER) AS dreb,
-    CAST(team_with_opponent.tov AS INTEGER) AS tov
+    CAST(team_with_opponent.tov AS INTEGER) AS tov,
+    CASE
+        WHEN team_with_opponent.team_id = games.home_team_id THEN game_leads.home_avg_lead
+        ELSE -game_leads.home_avg_lead
+    END AS avg_lead
 FROM team_with_opponent
 JOIN {{ ref('fct_games') }} AS games
     ON team_with_opponent.game_id = games.game_id
+LEFT JOIN game_leads
+    ON team_with_opponent.game_id = game_leads.game_id

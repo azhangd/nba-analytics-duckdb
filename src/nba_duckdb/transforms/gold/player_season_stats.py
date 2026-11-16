@@ -14,18 +14,14 @@ def build_player_season_stats_frame(
     player_games: pl.DataFrame,
     games: pl.DataFrame,
     four_factors: pl.DataFrame,
+    team_games: pl.DataFrame,
 ) -> pl.DataFrame:
     adjusted, _league_avg_def_rtg = build_adjusted_stats(
         player_games=player_games,
         team_ratings=four_factors,
         fct_games=games,
     )
-    bpm_vorp, _league_avg_pace = build_bpm_vorp(
-        player_games=player_games,
-        fct_games=games,
-        season_stats=base,
-        four_factors=four_factors,
-    )
+    bpm_vorp = build_bpm_vorp(player_games=player_games, team_games=team_games)
     return base.join(bpm_vorp, on=["player_id", "season"], how="left").join(
         adjusted, on=["player_id", "season"], how="left"
     )

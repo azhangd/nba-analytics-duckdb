@@ -1,10 +1,10 @@
 # How much to trust the numbers
 
 Short version: the box-score stats are just arithmetic on what you loaded, and
-the fancier metrics are home-made approximations. Season usage and team pace,
-ratings and turnovers have been checked against Basketball-Reference; nothing
-else has been checked against it, the NBA's own advanced stats, or any betting
-or tracking system.
+the fancier metrics are home-made approximations. Season usage, team pace,
+ratings and turnovers, and BPM and VORP have been checked against
+Basketball-Reference; nothing else has been checked against it, the NBA's own
+advanced stats, or any betting or tracking system.
 
 ## What's what
 
@@ -36,10 +36,32 @@ or tracking system.
   - Projected records cover all 82 games. Games that aren't on the schedule
     yet, like NBA Cup knockout and makeup games, count as half a win each;
     `team_season_elo.unscheduled_games` says how many there are.
-  - BPM is a box-score estimate, shifted per team as Basketball-Reference
-    does, so each team's players add up to how the team actually played.
-    It still hasn't been checked against Basketball-Reference's numbers, and
-    anything built on it inherits that.
+  - BPM is Basketball-Reference's Box Plus/Minus 2.0, with the coefficients
+    from their explanation page (cited in
+    `src/nba_duckdb/transforms/gold/bpm_vorp.py`): box score stats per 100
+    team possessions, weighted by a position and offensive role estimated from
+    the box score, then shifted per team so its players, weighted by minutes,
+    add up to the team's net rating adjusted for schedule and for playing with
+    a lead. OBPM is done the same way with offense, and DBPM is BPM - OBPM.
+    VORP is (BPM + 2) x minutes / (48 x 82).
+  - Basketball-Reference adds up BPM game by game; this works from season
+    totals, so a player who missed a lot of games or played mostly when the
+    team was short-handed can be off by a point or so. They also blend in 50
+    minutes of each player's listed position, which the NBA's G/F/C listings
+    can't supply. That's why the columns keep `_approx`.
+  - For players with 500+ minutes in 2022-23 to 2025-26 (360 to 379 a
+    season), against Basketball-Reference:
+
+    | Season  | BPM r | BPM slope | BPM median / 90th pct gap | OBPM median / 90th | DBPM median / 90th | VORP median / 90th |
+    |---------|-------|-----------|---------------------------|--------------------|--------------------|--------------------|
+    | 2022-23 | 0.996 | 0.97      | 0.1 / 0.4                 | 0.1 / 0.2          | 0.1 / 0.3          | 0.06 / 0.15        |
+    | 2023-24 | 0.995 | 0.98      | 0.2 / 0.4                 | 0.1 / 0.2          | 0.1 / 0.3          | 0.06 / 0.15        |
+    | 2024-25 | 0.994 | 0.97      | 0.2 / 0.5                 | 0.1 / 0.3          | 0.1 / 0.3          | 0.06 / 0.16        |
+    | 2025-26 | 0.994 | 0.96      | 0.2 / 0.5                 | 0.1 / 0.3          | 0.1 / 0.3          | 0.06 / 0.16        |
+
+    The biggest BPM gaps are 1 to 1.7 points, all players with a partial
+    season or few minutes. Before this, BPM had a slope of 0.40-0.47 and a
+    median gap of 1.1-1.2, so stars came out at half their value.
 - **Rule-based.** Play-type labels and the heuristic shot quality columns
   (`expected_fg_pct_heuristic`, `quality_delta_heuristic`), which come from
   hard-coded baselines.
@@ -60,6 +82,10 @@ that season, `loaded_sample` means they weren't. `comparison_team_count` and
 can be complete while another isn't.
 
 Elo season projections are only filled in when all 30 teams are loaded.
+
+BPM and VORP only cover games between loaded teams, and are left empty for a
+season whose games can't tell each team's offense from its defense (two teams
+that only play each other, say).
 
 ## Summer League
 
