@@ -1,6 +1,10 @@
 """Shared exception types for pipeline control flow."""
 
 
+class EmptyPayloadError(ValueError):
+    """An NBA endpoint answered without the data asked for (often a rate-limit signal)."""
+
+
 class LiveEndpointUnavailableError(RuntimeError):
     """Raised when a required live collection source is unavailable."""
 

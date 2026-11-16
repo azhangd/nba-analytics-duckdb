@@ -202,3 +202,38 @@ def test_summer_league_run_ingests_each_official_competition(tmp_path, monkeypat
             "competition": "summer_league_salt_lake_city",
         },
     ]
+
+
+def test_empty_schedule_payload_falls_back_to_scoreboards_and_fails_on_missed_dates(tmp_path, monkeypatch):
+    from nba_duckdb import db
+    from nba_duckdb.exceptions import EmptyPayloadError
+    from nba_duckdb.tasks.bronze import ingest_schedule
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "schedule.duckdb"))
+    db.init_schema()
+
+    def empty_schedule(**_kwargs):
+        raise EmptyPayloadError("Incomplete response from ScheduleLeagueV2")
+
+    def scoreboard(iso_date, **_kwargs):
+        if iso_date == "2099-10-02":
+            raise TimeoutError("scoreboard timed out")
+        game = {
+            "gameId": "0029900001",
+            "gameStatus": 3,
+            "gameStatusText": "Final",
+            "homeTeam": {"teamId": 1610612737, "teamTricode": "ATL"},
+            "awayTeam": {"teamId": 1610612738, "teamTricode": "BOS"},
+        }
+        return {"scoreboard": {"games": [game]}}
+
+    monkeypatch.setattr(ingest_schedule.nba_client, "get_schedule", empty_schedule)
+    monkeypatch.setattr(ingest_schedule.nba_client, "get_scoreboard_for_date", scoreboard)
+    monkeypatch.setattr(
+        ingest_schedule, "_season_scoreboard_range", lambda _season: (date(2099, 10, 1), date(2099, 10, 2))
+    )
+    monkeypatch.setattr(ingest_schedule.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match=r"wrote 1 games but missed 1 date\(s\): 2099-10-02"):
+        _ingest_season("2099-00", is_current=False)
+    assert db.count_rows("bronze", "schedule") == 1

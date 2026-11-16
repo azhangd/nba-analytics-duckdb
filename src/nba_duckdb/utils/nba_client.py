@@ -85,7 +85,7 @@ from nba_api.stats.endpoints import (
 
 from nba_duckdb.utils.rate_limiter import nba_api_limiter
 from nba_duckdb.utils.env import positive_int
-from nba_duckdb.exceptions import LiveEndpointUnavailableError
+from nba_duckdb.exceptions import EmptyPayloadError, LiveEndpointUnavailableError
 
 # nba_api live endpoints
 from nba_api.live.nba.endpoints import BoxScore as LiveBoxScore
@@ -131,14 +131,14 @@ def _has_stats_payload(result: dict[str, Any] | None) -> bool:
 def _has_v3_boxscore_payload(result: dict[str, Any] | None, payload_key: str) -> bool:
     if not result:
         return False
-    payload = result.get(payload_key, {})
+    payload = result.get(payload_key) or {}
     return bool(payload.get("homeTeam")) and bool(payload.get("awayTeam"))
 
 
 def _has_schedule_payload(result: dict[str, Any] | None) -> bool:
     if not result:
         return False
-    schedule = result.get("leagueSchedule", result.get("LeagueSchedule", {}))
+    schedule = result.get("leagueSchedule") or result.get("LeagueSchedule") or {}
     game_dates = schedule.get("gameDates", schedule.get("GameDates"))
     return isinstance(game_dates, list) and bool(game_dates)
 
@@ -172,14 +172,17 @@ def _call_with_rate_limit(
             result = endpoint.get_dict()
             if result_validator:
                 if not result_validator(result):
-                    raise ValueError(f"Incomplete response from {endpoint_cls.__name__}")
+                    raise EmptyPayloadError(f"Incomplete response from {endpoint_cls.__name__}")
             # Empty resultSets list = rate-limit signal (HTTP 200 with no data)
             elif not _has_stats_payload(result):
-                raise ValueError("Empty resultSets — likely rate-limited")
+                raise EmptyPayloadError("Empty resultSets — likely rate-limited")
             return result
-        except TypeError:
-            # Wrong kwargs / endpoint misuse — no point retrying
-            raise
+        except TypeError as e:
+            # Wrong kwargs is endpoint misuse and won't fix itself. Other TypeErrors
+            # come from nba_api parsing a malformed response, which a retry can fix.
+            if "keyword argument" in str(e) or attempt == max_retries - 1:
+                raise
+            time.sleep(min(2 * (2 ** attempt), 120))
         except Exception as e:
             if attempt == max_retries - 1:
                 raise

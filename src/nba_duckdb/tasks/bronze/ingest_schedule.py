@@ -12,6 +12,7 @@ from nba_duckdb.competitions import (
 )
 from nba_duckdb.db import get_conn, upsert_rows
 from nba_duckdb.defaults import get_default_season, get_seasons
+from nba_duckdb.exceptions import EmptyPayloadError
 from nba_duckdb.season_utils import normalize_requested_seasons
 from nba_duckdb.utils import nba_client
 
@@ -158,14 +159,13 @@ def _ingest_season_from_scoreboard(season: str) -> int:
 
     if not rows:
         raise ValueError(f"Scoreboard fallback returned no games for season {season}")
+    count = upsert_rows("bronze", "schedule", rows, conflict_cols=["game_id"])
     if failed_dates:
-        logger.warning(
-            "Scoreboard fallback skipped %d dates for %s (%s)",
-            len(failed_dates),
-            season,
-            ", ".join(failed_dates[:5]),
+        raise RuntimeError(
+            f"Scoreboard fallback for {season} wrote {count} games but missed "
+            f"{len(failed_dates)} date(s): {', '.join(failed_dates[:5])}"
         )
-    return upsert_rows("bronze", "schedule", rows, conflict_cols=["game_id"])
+    return count
 
 
 def _refresh_recent_statuses(season: str) -> int:
@@ -286,9 +286,7 @@ def _ingest_season(season: str, is_current: bool) -> dict:
                 league_id=NBA.league_id,
                 max_retries=schedule_retries,
             )
-    except ValueError as exc:
-        if "Empty resultSets" not in str(exc):
-            raise
+    except EmptyPayloadError:
         if existing_rows <= 0:
             logger.warning(
                 "Schedule endpoint rate-limited for %s; falling back to daily scoreboard scan",

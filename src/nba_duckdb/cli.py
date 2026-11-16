@@ -347,8 +347,8 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--season")
     live_parser.add_argument("--team-ids", nargs="+")
     live_parser.add_argument("--game-ids", nargs="+")
-    live_parser.add_argument("--start-date")
-    live_parser.add_argument("--end-date")
+    live_parser.add_argument("--start-date", help="YYYY-MM-DD, inclusive; limits per-game ingest to games from this date")
+    live_parser.add_argument("--end-date", help="YYYY-MM-DD, inclusive; limits per-game ingest to games up to this date")
     live_parser.add_argument("--full-refresh", action="store_true")
     live_parser.add_argument("--no-init-schema", action="store_false", dest="init_schema")
     live_parser.add_argument(

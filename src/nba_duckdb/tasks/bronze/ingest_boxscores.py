@@ -4,12 +4,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from nba_duckdb.db import get_conn, read_table, upsert_rows
-from nba_duckdb.defaults import get_team_ids
-from nba_duckdb.season_utils import (
-    filter_frame_to_competitions,
-    requested_or_default_seasons,
-)
+from nba_duckdb.db import get_conn, upsert_rows
+from nba_duckdb.season_utils import completed_games_in_scope, requested_or_default_seasons
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.boxscores")
@@ -48,32 +44,16 @@ def _assert_target_games_written(game_ids: list[str]) -> None:
 
 
 def run(**kwargs):
-    game_ids = [str(game_id) for game_id in kwargs.get("game_ids", []) or []]
     target_seasons = requested_or_default_seasons(
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids = get_team_ids()
-
-    if not game_ids:
-        schedule = read_table("bronze", "schedule", "game_status = 3")
-        if schedule.is_empty():
-            logger.info("No completed games found in schedule")
-            return {"rows_written": 0}
-
-        import polars as pl
-
-        if target_seasons and "season" in schedule.columns:
-            schedule = schedule.filter(pl.col("season").is_in(target_seasons))
-        schedule = filter_frame_to_competitions(schedule, target_competitions)
-        team_games = schedule
-        if team_ids is not None:
-            team_games = schedule.filter(
-                pl.col("home_team_id").is_in(team_ids)
-                | pl.col("away_team_id").is_in(team_ids)
-            )
-        game_ids = team_games["game_id"].unique().to_list()
+    games = completed_games_in_scope(kwargs)
+    if games.is_empty():
+        logger.info("No completed games found in schedule")
+        return {"rows_written": 0}
+    game_ids = [str(game_id) for game_id in games["game_id"].to_list()]
 
     with get_conn() as conn:
         with conn.cursor() as cur:

@@ -4,9 +4,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from nba_duckdb.db import upsert_rows
 from nba_duckdb.defaults import ALL_TEAM_IDS, get_seasons, get_team_ids
 from nba_duckdb.season_utils import normalize_requested_seasons
+from nba_duckdb.tasks.bronze._season_payloads import upsert_then_fail_on_holes
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.matchups")
@@ -18,6 +18,7 @@ def run(**kwargs):
     seasons = normalize_requested_seasons(kwargs.get("seasons")) or ([season] if season else get_seasons())
     now = datetime.now(timezone.utc).isoformat()
     rows = []
+    failures = []
 
     for season in seasons:
         for team_id in team_ids:
@@ -35,6 +36,7 @@ def run(**kwargs):
                 })
             except Exception as e:
                 logger.warning("Failed offense matchups for %d / %s: %s", team_id, season, e)
+                failures.append(f"{season}/{team_id}/offense: {e}")
 
             logger.info("Fetching matchups for team %d / %s (defense)", team_id, season)
             try:
@@ -50,8 +52,11 @@ def run(**kwargs):
                 })
             except Exception as e:
                 logger.warning("Failed defense matchups for %d / %s: %s", team_id, season, e)
+                failures.append(f"{season}/{team_id}/defense: {e}")
 
-    count = upsert_rows("bronze", "matchups", rows, conflict_cols=["season", "team_id", "direction"])
+    count = upsert_then_fail_on_holes(
+        "matchups", rows, conflict_cols=["season", "team_id", "direction"], failures=failures
+    )
     logger.info("Upserted %d matchup records across %d seasons", count, len(seasons))
     return {"rows_written": count}
 

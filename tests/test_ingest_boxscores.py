@@ -46,3 +46,4 @@ def test_existing_traditional_boxscore_is_complete_without_advanced(tmp_db, monk
 
     assert result["rows_written"] == 0
     assert calls == []
+
