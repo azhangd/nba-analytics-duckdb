@@ -365,3 +365,23 @@ def test_injury_report_that_parses_to_nothing_keeps_the_stored_snapshot(tmp_db, 
     with pytest.raises(ValueError, match="Parsed no injury entries"):
         ingest_injuries.run()
     assert json.loads(tmp_db.execute("SELECT injuries_json FROM bronze.injuries")[0]["injuries_json"]) == stored
+
+
+def test_injury_report_is_only_fetched_for_the_current_season(tmp_db, monkeypatch):
+    from datetime import date
+
+    from nba_duckdb.tasks.bronze import ingest_injuries
+    from nba_duckdb.transforms.silver.shots import season_from_game_date
+
+    fetched = []
+    monkeypatch.setattr(ingest_injuries, "_find_latest_pdf", lambda _client: fetched.append(1) or (None, None))
+    current = season_from_game_date(date.today().isoformat())
+    start_year = int(current[:4])
+    past = f"{start_year - 2}-{str(start_year - 1)[-2:]}"
+
+    assert ingest_injuries.run(season=past) == {"rows_written": 0}
+    assert fetched == []
+    assert tmp_db.execute("SELECT COUNT(*) AS n FROM bronze.injuries")[0]["n"] == 0
+
+    ingest_injuries.run(seasons=[past, current])
+    assert fetched == [1]
