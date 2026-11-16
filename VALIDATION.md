@@ -104,6 +104,10 @@ BPM and VORP only cover games between loaded teams, and are left empty for a
 season whose games can't tell each team's offense from its defense (two teams
 that only play each other, say).
 
+`adj_ppg` and `adj_ts_pct` are scaled by the season's league average defensive
+rating, so they are left empty for every player in a season where any team's
+defensive rating is missing (a game without play-by-play, say).
+
 ## Summer League
 
 Summer League games go into their own `silver.summer_league_*` tables and never

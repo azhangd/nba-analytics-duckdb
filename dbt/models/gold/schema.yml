@@ -61,7 +61,7 @@ models:
         data_tests:
           - not_null
       - name: adj_ppg
-        description: Points per game, each game scaled by that season's league average defensive rating (the mean of the teams' def_rtg) over the opponent's. adj_ts_pct is scaled the same way.
+        description: Points per game, each game scaled by that season's league average defensive rating (the mean of the teams' def_rtg) over the opponent's. adj_ts_pct is scaled the same way. Both are NULL for a season where any team's def_rtg is NULL.
 
   - name: player_game_rolling_stats
     description: Last 3, 5 and 10 game averages and hot or cold flags

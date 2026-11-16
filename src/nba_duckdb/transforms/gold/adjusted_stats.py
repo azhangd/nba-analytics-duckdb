@@ -24,13 +24,19 @@ def build_adjusted_stats(
     """`team_ratings` has one row per team-season with its season `def_rtg`.
 
     Points and TS% are scaled by the season's league average defensive rating
-    (the mean of that season's team def_rtg) over the opponent's def_rtg.
+    (the mean of that season's team def_rtg) over the opponent's def_rtg. Both
+    are NULL for every player in a season where any team's def_rtg is NULL or
+    missing, as BPM is.
     """
     if player_games.is_empty() or team_ratings.is_empty() or fct_games.is_empty():
         return empty_adjusted_stats()
 
     ratings = team_ratings.select(["team_id", "season", "def_rtg"])
-    league_avg = ratings.group_by("season").agg(pl.col("def_rtg").mean().alias("league_avg_def_rtg"))
+    # A team's def_rtg is NULL when any of its games lacks play-by-play; the
+    # season's league average is then incomplete.
+    league_avg = ratings.group_by("season").agg(
+        pl.when(pl.col("def_rtg").null_count() == 0).then(pl.col("def_rtg").mean()).alias("league_avg_def_rtg")
+    )
     games_slim = fct_games.select(["game_id", "home_team_id", "away_team_id", "season"])
 
     played = player_games.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
@@ -46,13 +52,10 @@ def build_adjusted_stats(
         on=["opp_team_id", "season"],
         how="left",
     ).join(league_avg, on="season", how="left")
-    missing = pgs.filter(pl.col("opp_def_rtg").is_null())
-    if not missing.is_empty():
-        first = missing.row(0, named=True)
-        raise ValueError(
-            f"{missing.height} player games have no opponent defensive rating; first: game {first['game_id']}, "
-            f"team {first['team_id']}, opponent {first['opp_team_id']}, season {first['season']}"
-        )
+    # A season with any missing rating gets no adjusted points or TS% for anyone.
+    incomplete_seasons = pgs.filter(
+        pl.col("league_avg_def_rtg").is_null() | pl.col("opp_def_rtg").is_null()
+    )["season"].unique()
     scale = pl.col("league_avg_def_rtg") / pl.col("opp_def_rtg")
     pgs = pgs.with_columns([
         (pl.col("pts") * scale).alias("adj_pts"),
@@ -78,6 +81,10 @@ def build_adjusted_stats(
             pl.when(pl.col("net_weight") > 0).then(pl.col("net_weighted") / pl.col("net_weight")).alias("adj_net_rtg"),
         ])
         .drop(["ts_weighted", "ts_weight", "net_weighted", "net_weight"])
+        .with_columns([
+            pl.when(pl.col("season").is_in(incomplete_seasons.implode())).then(None).otherwise(pl.col(name)).alias(name)
+            for name in ("adj_ppg", "adj_ts_pct")
+        ])
         .with_columns([
             pl.col("adj_ppg").cast(pl.Float64, strict=False).round(1),
             pl.col("adj_ts_pct").cast(pl.Float64, strict=False).round(3),

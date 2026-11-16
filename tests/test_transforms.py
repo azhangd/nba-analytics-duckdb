@@ -704,18 +704,35 @@ def test_adjusted_stats_uses_opponent_defense_and_league_average_from_the_same_s
     assert by_season == {"2025-26": round(22.0 * 105 / 100, 1), "2026-27": round(22.0 * 115 / 120, 1)}
 
 
-def test_adjusted_stats_raises_when_an_opponent_has_no_defensive_rating():
+def test_adjusted_stats_are_null_for_a_season_with_a_missing_defensive_rating():
     from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
 
-    games = pl.DataFrame({"game_id": ["g1"], "home_team_id": [1], "away_team_id": [3], "season": ["2025-26"]})
-    team_ratings = pl.DataFrame({"team_id": [1, 2], "season": ["2025-26"] * 2, "def_rtg": [110.0, 100.0]})
+    # 2024-25: the opponent has no rating row. 2025-26: another team's def_rtg is NULL
+    # (a game without play-by-play). 2026-27 is complete.
+    games = pl.DataFrame({
+        "game_id": ["g0", "g1", "g2"],
+        "home_team_id": [1, 1, 1],
+        "away_team_id": [4, 2, 2],
+        "season": ["2024-25", "2025-26", "2026-27"],
+    })
+    team_ratings = pl.DataFrame({
+        "team_id": [1, 1, 2, 3, 1, 2],
+        "season": ["2024-25", "2025-26", "2025-26", "2025-26", "2026-27", "2026-27"],
+        "def_rtg": [110.0, 110.0, 100.0, None, 110.0, 120.0],
+    })
     player_games = pl.DataFrame({
-        "player_id": [7], "game_id": ["g1"], "team_id": [1], "minutes": [30.0],
-        "pts": [20.0], "fga": [15], "fta": [4], "ts_pct": [0.6], "net_rating": [0.0],
+        "player_id": [7, 7, 7], "game_id": ["g0", "g1", "g2"], "team_id": [1, 1, 1], "minutes": [30.0] * 3,
+        "pts": [22.0] * 3, "fga": [15] * 3, "fta": [4] * 3, "ts_pct": [0.6] * 3, "net_rating": [5.0] * 3,
     })
 
-    with pytest.raises(ValueError, match="game g1, team 1, opponent 3"):
-        build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
+
+    by_season = {row[0]: row[1:] for row in adjusted.select(["season", "adj_ppg", "adj_ts_pct", "adj_net_rtg"]).iter_rows()}
+    assert by_season == {
+        "2024-25": (None, None, 5.0),
+        "2025-26": (None, None, 5.0),
+        "2026-27": (round(22.0 * 115 / 120, 1), round(0.6 * 115 / 120, 3), 5.0),
+    }
 
 
 def test_adjusted_net_rating_weights_games_by_minutes():
