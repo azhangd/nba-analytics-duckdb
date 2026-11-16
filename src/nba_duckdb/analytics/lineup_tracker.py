@@ -20,31 +20,42 @@ def _normalize(s: str) -> str:
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
 
-def _add_name_variants(team_names: dict[str, int], player_name: str, player_id: int) -> None:
-    """Index common normalized name variants for substitution lookup."""
+def _add_name_key(team_names: dict[str, int | None], key: str, player_id: int | None) -> None:
+    """Map a name key to a player. A key two players share maps to None, so it never resolves."""
+    if not key:
+        return
+    if key in team_names and team_names[key] != player_id:
+        team_names[key] = None
+    else:
+        team_names[key] = player_id
+
+
+def _add_name_variants(team_names: dict[str, int | None], player_name: str, player_id: int) -> None:
+    """Index the full name and the surname, with its suffix if there is one ("jackson jr").
+
+    A bare suffix such as "jr" is never a key: every Jr. on a team would share it.
+    """
     pname = str(player_name or "").strip()
     if not pname or not player_id:
         return
 
-    full_norm = _normalize(pname)
-    if full_norm:
-        team_names[full_norm] = player_id
+    _add_name_key(team_names, _normalize(pname), player_id)
 
-    parts = [part for part in pname.split() if part]
+    parts = [_normalize(part) for part in pname.split() if _normalize(part)]
     if not parts:
         return
+    if parts[-1] in SUFFIXES:
+        if len(parts) >= 2:
+            _add_name_key(team_names, f"{parts[-2]} {parts[-1]}", player_id)
+    else:
+        _add_name_key(team_names, parts[-1], player_id)
 
-    last = _normalize(parts[-1])
-    if last:
-        team_names[last] = player_id
 
-    if len(parts) >= 2 and _normalize(parts[-1]) in SUFFIXES:
-        last_with_suffix = _normalize(" ".join(parts[-2:]))
-        if last_with_suffix:
-            team_names[last_with_suffix] = player_id
-        penultimate = _normalize(parts[-2])
-        if penultimate:
-            team_names[penultimate] = player_id
+def _merge_name_maps(into: dict[int, dict[str, int | None]], other: dict[int, dict[str, int | None]]) -> None:
+    for team_id, names in other.items():
+        team_names = into.setdefault(int(team_id), {})
+        for key, player_id in names.items():
+            _add_name_key(team_names, key, player_id)
 
 
 def _build_name_map(
@@ -70,9 +81,7 @@ def _build_name_map(
             name_map[tid] = {}
         _add_name_variants(name_map[tid], pname, int(pid))
 
-    for tid, team_names in (roster_name_map or {}).items():
-        merged = name_map.setdefault(int(tid), {})
-        merged.update(team_names)
+    _merge_name_maps(name_map, roster_name_map or {})
     return name_map
 
 
@@ -93,23 +102,40 @@ def _parse_sub_out_name(description: str) -> str:
 
 
 def _lookup_sub_in(sub_in_name: str, team_id: int, name_map: dict) -> int | None:
-    """Look up player_id for the sub-in player by name fragment."""
+    """Find the player a substitution names, such as "Jackson Jr.", "L. James" or "Jay. Williams".
+
+    The full name is tried first, then the surname, then a first name or initial against
+    the start of each teammate's first name, then the last word ("da Silva"). A bare surname prefers the player without a
+    suffix ("Jackson" over "Jackson Jr."). A name that matches no player, or more than
+    one, gives None.
+    """
     team_names = name_map.get(team_id, {})
-    if not sub_in_name or not team_names:
+    full = _normalize(sub_in_name or "")
+    if not full or not team_names:
         return None
-    # Try normalized last name match first
-    parts = sub_in_name.strip().split()
-    last = _normalize(parts[-1]) if parts else ""
-    if last in team_names:
-        return team_names[last]
-    # Try normalized full name
-    full = _normalize(sub_in_name)
     if full in team_names:
         return team_names[full]
-    # Partial match
-    for key, pid in team_names.items():
-        if full in key or key in full:
-            return pid
+    words = full.split()
+    if len(words) == 1:
+        matches = {team_names.get(f"{full} {suffix}") for suffix in SUFFIXES} - {None}
+        if not matches:
+            # One word of a teammate's name, such as "Hansen" for the box score's "Hansen Yang".
+            matches = {player_id for key, player_id in team_names.items() if player_id and full in key.split()}
+    else:
+        first, surname = words[0], " ".join(words[1:])
+        matches = {
+            player_id
+            for key, player_id in team_names.items()
+            if player_id is not None
+            and " " in key
+            and key.split(" ", 1)[0].startswith(first)
+            and key.split(" ", 1)[1] in (surname, *(f"{surname} {suffix}" for suffix in SUFFIXES))
+        }
+        if not matches and words[-1] not in SUFFIXES:
+            # A two-word surname with no first name, such as "da Silva".
+            return team_names.get(words[-1])
+    if len(matches) == 1:
+        return matches.pop()
     return None
 
 

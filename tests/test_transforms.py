@@ -12,6 +12,7 @@ from nba_duckdb.fixtures.generate_synthetic_fixtures import (
     SHOT_CHARTS,
 )
 from nba_duckdb.transforms.frames import require_columns, select_columns
+from nba_duckdb.transforms.silver._parsing import build_roster_name_map
 from nba_duckdb.transforms.silver.boxscores import build_fct_boxscore_rows
 from nba_duckdb.transforms.silver.play_by_play import build_fct_play_by_play_rows
 from nba_duckdb.transforms.silver.shots import build_fct_shot_rows
@@ -887,4 +888,43 @@ def test_stats_v3_substitution_becomes_an_out_row_and_an_in_row():
         (501, "in", 31, "SUB in: Bench"),
         (510, "out", 12, "SUB out: B. Other"),
         (511, "in", None, "SUB in: Unknown"),
+    ]
+
+
+def test_stats_v3_substitution_finds_the_incoming_player_by_full_surname():
+    """Two players whose names end in "Jr." are told apart by surname, a first-name prefix
+    picks between teammates who share a surname, a bare surname prefers the player without
+    a suffix, and a name that fits two players stays unresolved."""
+    def action(action_id, description):
+        return {"actionId": action_id, "actionNumber": action_id, "period": 1, "clock": "PT06M55.00S",
+                "teamId": 1610612737, "actionType": "Substitution", "subType": "", "personId": 11,
+                "playerNameI": "A. Starter", "description": description}
+
+    roster = build_roster_name_map(pl.DataFrame({
+        "team_id": [1610612737] * 6,
+        "player_id": [11, 21, 22, 31, 32, 41],
+        "player_name": ["Al Starter", "Cal Jackson Jr.", "Dee Willis Jr.", "Ed Moss", "Fay Moss", "Gus Jackson"],
+    }))
+    rows = build_fct_play_by_play_rows(
+        [{
+            "game_id": GAME_ID,
+            "source": "stats_v3",
+            "pbp_json": json.dumps({"game": {"actions": [
+                action(50, "SUB: Jackson Jr. FOR Starter"),
+                action(51, "SUB: Willis Jr. FOR Starter"),
+                action(52, "SUB: Moss FOR Starter"),
+                action(53, "SUB: Fa. Moss FOR Starter"),
+                action(54, "SUB: Jackson FOR Starter"),
+            ]}}),
+        }],
+        {GAME_ID: roster},
+    )
+
+    incoming = [(row["description"], row["player_id"]) for row in rows if row["sub_type"] == "in"]
+    assert incoming == [
+        ("SUB in: Jackson Jr.", 21),
+        ("SUB in: Willis Jr.", 22),
+        ("SUB in: Moss", None),
+        ("SUB in: Fa. Moss", 32),
+        ("SUB in: Jackson", 41),
     ]
