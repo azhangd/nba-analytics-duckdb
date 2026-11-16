@@ -119,3 +119,19 @@ def test_live_cdn_pbp_maps_cdn_coordinates(tmp_path, monkeypatch):
     rows = db.execute("SELECT pbp_source, loc_x, loc_y FROM silver.fct_play_by_play")
 
     assert rows == [{"pbp_source": "live_cdn", "loc_x": 12.5, "loc_y": 22.5}]
+
+
+def test_stats_v3_free_throw_result_ignores_names_starting_with_miss():
+    from nba_duckdb.transforms.silver.play_by_play import build_fct_play_by_play_rows
+
+    descriptions = ["Missi Free Throw 1 of 2 (1 PTS)", "MISS Missi Free Throw 2 of 2"]
+    actions = [
+        {"actionId": i, "period": 4, "clock": "PT01M00.00S", "teamId": 1610612740, "personId": 1642274,
+         "actionType": "Free Throw", "subType": f"Free Throw {i} of 2", "description": description}
+        for i, description in enumerate(descriptions, start=1)
+    ]
+    rows = build_fct_play_by_play_rows(
+        [{"game_id": "0029900001", "source": "stats_v3", "pbp_json": {"game": {"actions": actions}}}]
+    )
+
+    assert [row["shot_result"] for row in rows] == ["Made", "Missed"]

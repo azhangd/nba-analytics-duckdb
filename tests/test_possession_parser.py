@@ -226,3 +226,34 @@ def test_events_with_the_same_clock_keep_their_feed_order():
 
     assert result["offense_team_id"].to_list()[:2] == [HOME_TEAM_ID, AWAY_TEAM_ID]
     assert result["points_scored"].to_list()[:2] == [0, 2]
+
+
+def test_technical_free_throw_before_the_period_start_counts():
+    pbp = _make_pbp([
+        {"action_type": "period", "sub_type": "end", "clock_seconds_remaining": 0.0},
+        {"period": 2, "action_type": "foul", "sub_type": "technical", "team_id": AWAY_TEAM_ID},
+        {"period": 2, "action_type": "freethrow", "sub_type": "technical", "shot_result": "Made",
+         "description": "Free Throw Technical (1 PTS)", "team_id": HOME_TEAM_ID, "score_home": "1"},
+        {"period": 2, "action_type": "period", "sub_type": "start", "score_home": "1"},
+        {"period": 2, "action_type": "turnover", "team_id": AWAY_TEAM_ID, "clock_seconds_remaining": 700.0,
+         "score_home": "1"},
+    ])
+
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
+
+    assert result.filter(pl.col("offense_team_id") == HOME_TEAM_ID)["points_scored"].sum() == 1
+
+
+def test_garbage_time_uses_the_margin_and_clock_at_the_start_of_the_possession():
+    # Up 19 with 6:40 left is not garbage time (20 needed before 6:00); the 3 makes it 22.
+    pbp = _make_pbp([
+        {"period": 4, "action_type": "turnover", "team_id": AWAY_TEAM_ID, "clock_seconds_remaining": 400.0,
+         "score_home": "99", "score_away": "80"},
+        {"period": 4, "action_type": "3pt", "shot_result": "Made", "is_field_goal": True, "team_id": HOME_TEAM_ID,
+         "clock_seconds_remaining": 380.0, "score_home": "102", "score_away": "80"},
+    ])
+
+    result = parse_possessions(pbp, "0022500001", home_team_id=HOME_TEAM_ID, away_team_id=AWAY_TEAM_ID)
+
+    home = result.filter(pl.col("offense_team_id") == HOME_TEAM_ID).row(0, named=True)
+    assert (home["score_margin"], home["is_garbage_time"]) == (19, False)
