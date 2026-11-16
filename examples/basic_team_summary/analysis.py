@@ -10,7 +10,7 @@ from typing import Any
 
 import duckdb
 
-DEFAULT_WAREHOUSE = Path("data/warehouse/smoke.duckdb")
+DEFAULT_WAREHOUSE = Path("data/warehouse/nba.duckdb")
 
 QUERY = """
 WITH team_summary AS (
@@ -93,15 +93,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--warehouse",
-        help="Path to the DuckDB warehouse. Defaults to NBA_DUCKDB_PATH or data/warehouse/smoke.duckdb.",
+        help="Path to the DuckDB warehouse. Defaults to NBA_DUCKDB_PATH or data/warehouse/nba.duckdb.",
     )
     args = parser.parse_args()
 
     warehouse = _warehouse_path(args.warehouse)
     if not warehouse.exists():
         print(
-            f"Warehouse not found: {warehouse}. Run `make smoke` first, "
-            "or pass --warehouse/NBA_DUCKDB_PATH for a live warehouse.",
+            f"Warehouse not found: {warehouse}. Load a season first "
+            "(`nba-duckdb run-live --season 2026-27`) or pass --warehouse.",
             file=sys.stderr,
         )
         return 1
@@ -112,7 +112,7 @@ def main() -> int:
         rows = result.fetchall()
 
     if not rows:
-        print("No team summary rows found. Run `make smoke` or a live pipeline first.", file=sys.stderr)
+        print("No team summary rows found. Load a season with `nba-duckdb run-live` first.", file=sys.stderr)
         return 1
 
     if _uses_synthetic_fixture_season(columns, rows):
