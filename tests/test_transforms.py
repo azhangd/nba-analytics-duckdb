@@ -33,6 +33,21 @@ def test_build_fct_boxscore_rows_from_fixture_payload():
     assert rows[0]["pts"] == 10
 
 
+def test_a_player_with_minutes_counts_as_played_even_if_the_comment_says_dnp():
+    def player(person_id, minutes, comment):
+        return {"personId": person_id, "comment": comment, "statistics": {"minutes": minutes, "points": 0}}
+
+    traditional = {
+        "boxScoreTraditional": {
+            "homeTeam": {"teamId": 1, "players": [player(1, "5:14", "DNP - Coach's Decision"), player(2, "", "DNP - Coach's Decision")]},
+            "awayTeam": {"teamId": 2, "players": [player(3, "30:00", "")]},
+        }
+    }
+    rows = build_fct_boxscore_rows([{"game_id": GAME_ID, "traditional_json": traditional, "advanced_json": None}])
+
+    assert {row["player_id"]: row["counts_as_gp"] for row in rows} == {1: True, 2: False, 3: True}
+
+
 def test_build_fct_play_by_play_rows_preserves_source_coordinate_semantics():
     rows = build_fct_play_by_play_rows([
         {
@@ -222,6 +237,37 @@ def test_neutral_site_game_gives_neither_team_the_home_edge(tmp_db):
     # Two even teams and no home edge: the winner was a 50% favourite.
     shift = K * mov_multiplier(10, 0) * 0.5
     assert [row["elo_delta"] for row in rows] == [round(-shift, 2), round(shift, 2)]
+
+
+def test_games_outside_the_home_teams_state_are_neutral_when_the_schedule_flag_is_false(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    def game(game_id, city, state):
+        return schedule_row(
+            game_id=game_id,
+            raw_json=json.dumps({"isNeutral": False, "arenaCity": city, "arenaState": state}),
+        )
+
+    # Before 2024-25 the NBA leaves isNeutral false even for games abroad and
+    # the NBA Cup semifinals in Las Vegas.
+    tmp_db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            game("0029900001", "San Antonio", "TX"),
+            game("0029900002", "San Antonio", "TX"),
+            game("0029900003", "Austin", "TX"),
+            game("0029900004", "Mexico City, Mexico", ""),
+            game("0029900005", "Paris", "FR"),
+            game("0029900006", "Las Vegas", "NV"),
+            schedule_row(game_id="0029900007", raw_json='{"isNeutral": false}'),
+        ],
+    )
+
+    dbt_runner.run_model(model="fct_games")
+    rows = tmp_db.execute_sql("SELECT game_id, is_neutral FROM silver.fct_games ORDER BY game_id")
+
+    assert [row["is_neutral"] for row in rows] == [False, False, False, True, True, True, False]
 
 
 def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):

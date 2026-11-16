@@ -82,7 +82,8 @@ def parse_minutes(minutes_raw: object) -> float:
 def counts_as_game_played(player: Mapping[str, Any]) -> bool:
     stats = player.get("statistics", {})
     minutes_raw = stats.get("minutes") if isinstance(stats, Mapping) else None
-    if minutes_raw is None or player.get("comment"):
+    # Not the comment: it can still say DNP for a player who did get in.
+    if minutes_raw is None:
         return False
     played = player.get("played")
     if played is not None:
