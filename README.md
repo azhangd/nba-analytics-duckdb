@@ -23,7 +23,7 @@ You'll need Python 3.11+ and [uv](https://docs.astral.sh/uv/).
     cd nba-analytics-duckdb
     make install-live
 
-## Loading a real season
+## Loading a season
 
     $ uv run nba-duckdb run-live --season 2026-27
 
