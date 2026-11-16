@@ -181,3 +181,19 @@ def test_complete_rotation_is_still_used():
     rows = pl.DataFrame(build_fct_lineup_rows(*_one_period_game(home)))
 
     assert set(rows.filter(pl.col("team_id") == 1)["player_ids_str"]) == {"101,102,103,104,105", "101,102,103,104,106"}
+
+
+def test_a_game_end_marker_filed_under_the_next_period_does_not_count_as_a_period():
+    from nba_duckdb.transforms.silver.lineups import build_fct_lineup_rows
+
+    # The live feed can file "Game End" under a period that was never played.
+    home = [["0022500463", 1, "", "", pid, "", "", 0.0, 7200.0, 0, 0, 0] for pid in range(101, 105)]
+    home += [["0022500463", 1, "", "", 105, "", "", 0.0, 1200.0, 0, 0, 0], ["0022500463", 1, "", "", 106, "", "", 1200.0, 7200.0, 0, 0, 0]]
+    pbp, games, boxscores, detail_rows = _one_period_game(home)
+    game_end = {**pbp.row(-1, named=True), "action_id": 99, "action_number": 99, "period": 2, "action_type": "game",
+                "description": "Game End"}
+    pbp = pl.concat([pbp, pl.DataFrame([game_end], schema=pbp.schema)])
+
+    rows = pl.DataFrame(build_fct_lineup_rows(pbp, games, boxscores, detail_rows))
+
+    assert set(rows.filter(pl.col("team_id") == 1)["player_ids_str"]) == {"101,102,103,104,105", "101,102,103,104,106"}
