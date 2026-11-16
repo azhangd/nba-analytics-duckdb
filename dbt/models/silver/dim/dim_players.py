@@ -8,7 +8,7 @@ def model(dbt, session):
     boxscores = dbt.source("bronze", "boxscores")
     schedule = dbt.source("bronze", "schedule")
     boxscore_df = relation_to_polars(boxscores)
-    schedule_df = relation_to_polars(schedule).select(["game_id", "season"])
+    schedule_df = relation_to_polars(schedule).select(["game_id", "season", "game_date"])
     boxscore_rows = [] if boxscore_df.is_empty() else boxscore_df.join(schedule_df, on="game_id", how="left").to_dicts()
     rows = build_dim_player_rows(relation_to_dicts(rosters), boxscore_rows)
     return frame_from_rows(rows, DIM_PLAYERS)

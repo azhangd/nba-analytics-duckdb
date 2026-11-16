@@ -15,9 +15,7 @@ WITH source_teams AS (
         json_extract_string(raw_json, '$.homeTeam.teamCity') AS raw_team_city,
         json_extract_string(raw_json, '$.homeTeam.city') AS raw_city,
         json_extract_string(raw_json, '$.homeTeam.full_name') AS raw_full_name,
-        json_extract_string(raw_json, '$.homeTeam.fullName') AS raw_full_name_camel,
-        json_extract_string(raw_json, '$.homeTeam.conference') AS raw_conference,
-        json_extract_string(raw_json, '$.homeTeam.division') AS raw_division
+        json_extract_string(raw_json, '$.homeTeam.fullName') AS raw_full_name_camel
     FROM {{ source('bronze', 'schedule') }}
 
     UNION ALL
@@ -36,9 +34,7 @@ WITH source_teams AS (
         json_extract_string(raw_json, '$.awayTeam.teamCity') AS raw_team_city,
         json_extract_string(raw_json, '$.awayTeam.city') AS raw_city,
         json_extract_string(raw_json, '$.awayTeam.full_name') AS raw_full_name,
-        json_extract_string(raw_json, '$.awayTeam.fullName') AS raw_full_name_camel,
-        json_extract_string(raw_json, '$.awayTeam.conference') AS raw_conference,
-        json_extract_string(raw_json, '$.awayTeam.division') AS raw_division
+        json_extract_string(raw_json, '$.awayTeam.fullName') AS raw_full_name_camel
     FROM {{ source('bronze', 'schedule') }}
 ),
 normalized AS (
@@ -48,8 +44,6 @@ normalized AS (
         COALESCE(NULLIF(raw_team_city, ''), NULLIF(raw_city, ''), '') AS city,
         COALESCE(NULLIF(raw_team_name, ''), NULLIF(raw_nickname, ''), '') AS nickname,
         COALESCE(NULLIF(raw_full_name, ''), NULLIF(raw_full_name_camel, '')) AS full_name_from_payload,
-        COALESCE(raw_conference, '') AS conference,
-        COALESCE(raw_division, '') AS division,
         game_date,
         game_id
     FROM source_teams
@@ -62,7 +56,8 @@ ranked AS (
             ORDER BY game_date DESC, game_id DESC
         ) AS team_row_number
     FROM normalized
-    WHERE team_id IS NOT NULL
+    -- The 30 NBA franchises; leaves out All-Star and visiting international teams.
+    WHERE team_id BETWEEN 1610612737 AND 1610612766
 )
 SELECT
     team_id,
@@ -73,8 +68,6 @@ SELECT
         abbreviation
     ) AS full_name,
     city,
-    nickname,
-    conference,
-    division
+    nickname
 FROM ranked
 WHERE team_row_number = 1

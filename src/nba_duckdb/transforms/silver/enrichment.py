@@ -131,18 +131,37 @@ def build_fct_tracking_rows(tracking_rows: list[Mapping[str, Any]]) -> list[dict
 
 
 def build_fct_matchup_rows(matchup_rows: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """One row per (season, offense team, attacker, defender).
+
+    Bronze holds each pair twice: in the attacker's team payload ("offense") and
+    the defender's ("defense"), and the payload rows carry no team ids. Rows come
+    from the offense payloads, whose request team is the attacker's team. The
+    defender's team comes from the defense payloads when it is a single team; a
+    pair seen under several defending teams (a trade) keeps it NULL.
+    """
+    def_teams: dict[tuple[Any, Any, Any], set[int]] = {}
+    for row in matchup_rows:
+        if row.get("direction") != "defense":
+            continue
+        for parsed in result_rows(load_json(row.get("matchup_json"))):
+            key = (row.get("season"), parsed.get("off_player_id"), parsed.get("def_player_id"))
+            def_teams.setdefault(key, set()).add(int(row["team_id"]))
+
     rows = []
     for row in matchup_rows:
-        raw = load_json(row.get("matchup_json"))
-        for parsed in result_rows(raw):
+        if row.get("direction") != "offense":
+            continue
+        for parsed in result_rows(load_json(row.get("matchup_json"))):
+            key = (row.get("season"), parsed.get("off_player_id"), parsed.get("def_player_id"))
+            teams = def_teams.get(key, set())
             rows.append({
                 "season": row.get("season"),
                 "off_player_id": parsed.get("off_player_id"),
                 "off_player_name": parsed.get("off_player_name", ""),
                 "def_player_id": parsed.get("def_player_id"),
                 "def_player_name": parsed.get("def_player_name", ""),
-                "off_team_id": parsed.get("off_team_id"),
-                "def_team_id": parsed.get("def_team_id"),
+                "off_team_id": int(row["team_id"]),
+                "def_team_id": next(iter(teams)) if len(teams) == 1 else None,
                 "matchup_min": parse_minutes(parsed.get("matchup_min")),
                 "partial_poss": parsed.get("partial_poss"),
                 "player_pts": parsed.get("player_pts"),
@@ -180,11 +199,11 @@ def build_fct_defense_play_type_rows(defense_rows: list[Mapping[str, Any]]) -> l
                 "poss": parsed.get("poss"),
                 "pts": parsed.get("pts"),
                 "ppp": parsed.get("ppp"),
-                "sfpct": parsed.get("sf_pct"),
+                "sfpct": parsed.get("sf_poss_pct"),
                 "fgpct": parsed.get("fg_pct"),
                 "ft_pct": parsed.get("ft_poss_pct"),
-                "to_pct": parsed.get("to_poss_pct"),
-                "score_pct": parsed.get("score_pct"),
+                "to_pct": parsed.get("tov_poss_pct"),
+                "score_pct": parsed.get("score_poss_pct"),
                 "freq_pct": parsed.get("poss_pct"),
                 "percentile": parsed.get("percentile"),
             })

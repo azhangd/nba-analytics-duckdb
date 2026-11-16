@@ -31,7 +31,7 @@ def _coach_rows(teams: list[dict[str, Any]], season: str, now_iso: str) -> list[
                 "first_name": first,
                 "last_name": last,
                 "coach_name": f"{first} {last}",
-                "is_assistant": 0,
+                "is_assistant": 1,
                 "coach_type": "Head Coach",
                 "sort_sequence": 1,
                 "school": "Synthetic University",
@@ -106,16 +106,15 @@ def _hustle_payload(players: list[dict[str, Any]]) -> dict[str, Any]:
     return _result_set("HustleStatsPlayer", headers, rows)
 
 
-def _matchup_payload(players: list[dict[str, Any]], team_id: int, opponent_id: int) -> dict[str, Any]:
-    off_players = _players_for_team(players, team_id)[:5]
-    def_players = _players_for_team(players, opponent_id)[:5]
+def _matchup_payload(players: list[dict[str, Any]], off_team_id: int, def_team_id: int) -> dict[str, Any]:
+    # Real LeagueSeasonMatchups rows carry no team ids; the request's team filter does.
+    off_players = _players_for_team(players, off_team_id)[:5]
+    def_players = _players_for_team(players, def_team_id)[:5]
     headers = [
         "OFF_PLAYER_ID",
         "OFF_PLAYER_NAME",
         "DEF_PLAYER_ID",
         "DEF_PLAYER_NAME",
-        "OFF_TEAM_ID",
-        "DEF_TEAM_ID",
         "MATCHUP_MIN",
         "PARTIAL_POSS",
         "PLAYER_PTS",
@@ -133,14 +132,12 @@ def _matchup_payload(players: list[dict[str, Any]], team_id: int, opponent_id: i
                 off_player["full_name"],
                 def_player["player_id"],
                 def_player["full_name"],
-                team_id,
-                opponent_id,
                 f"{8 + index}:00",
                 12.0 + index,
                 4 + index,
                 2,
                 4,
-                50.0,
+                0.5,
                 1,
                 2,
             ]
@@ -158,11 +155,11 @@ def _defense_payload(players: list[dict[str, Any]], *, player_or_team: str) -> d
         "POSS",
         "PTS",
         "PPP",
-        "SF_PCT",
+        "SF_POSS_PCT",
         "FG_PCT",
         "FT_POSS_PCT",
-        "TO_POSS_PCT",
-        "SCORE_PCT",
+        "TOV_POSS_PCT",
+        "SCORE_POSS_PCT",
         "POSS_PCT",
         "PERCENTILE",
     ]
@@ -185,13 +182,13 @@ def _defense_payload(players: list[dict[str, Any]], *, player_or_team: str) -> d
                 30.0 + index,
                 28.0 + index,
                 0.9 + (index % 4) * 0.02,
-                8.0,
-                44.0,
-                10.0,
-                12.0,
-                45.0,
-                15.0,
-                55.0,
+                0.08,
+                0.44,
+                0.1,
+                0.12,
+                0.45,
+                0.15,
+                0.55,
             ]
         )
     return _result_set("Synergy", headers, rows)
@@ -367,10 +364,11 @@ def run(
                     "season": season,
                     "team_id": team["team_id"],
                     "direction": direction,
+                    # Team i attacks team i+1, so team i+1 defends against team i.
                     "matchup_json": _matchup_payload(
                         payload.players,
-                        team["team_id"],
-                        payload.teams[(index + 1) % len(payload.teams)]["team_id"],
+                        team["team_id"] if direction == "offense" else payload.teams[index - 1]["team_id"],
+                        payload.teams[(index + 1) % len(payload.teams)]["team_id"] if direction == "offense" else team["team_id"],
                     ),
                     "ingested_at": now_iso,
                 }
