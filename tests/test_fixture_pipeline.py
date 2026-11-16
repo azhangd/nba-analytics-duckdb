@@ -15,7 +15,7 @@ def test_offline_smoke_populates_warehouse_tables(smoke_db):
         ("bronze", "tracking_stats"): 3,
         ("bronze", "game_detail"): 44,
         ("silver", "dim_players"): 32,
-        ("silver", "fct_possessions"): 264,
+        ("silver", "fct_possessions"): 1584,
         ("silver", "fct_shots"): 528,
         ("silver", "fct_lineups"): 352,
         ("silver", "fct_hustle"): 32,
@@ -33,7 +33,7 @@ def test_offline_smoke_populates_warehouse_tables(smoke_db):
         ("gold", "player_zone_season_shot_quality"): 24,
         ("gold", "team_season_shot_profile"): 12,
         ("gold", "player_season_shot_profile"): 24,
-        ("gold", "team_season_play_type_stats"): 8,
+        ("gold", "team_season_play_type_stats"): 11,
         ("gold", "player_season_feature_matrix"): 32,
         ("gold", "team_season_feature_matrix"): 4,
     }
@@ -105,7 +105,7 @@ def test_boxscore_parser_flattens_player_rows():
 def test_play_by_play_fixture_matches_live_payload_shape():
     actions = PLAY_BY_PLAY[0]["game"]["actions"]
 
-    assert len(actions) == 9
+    assert len(actions) == 40
     assert actions[0]["actionNumber"] == 1
     assert actions[0]["actionType"] == "period"
     assert actions[1]["teamId"] == 1610612737
