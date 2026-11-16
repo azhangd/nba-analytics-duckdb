@@ -10,6 +10,7 @@ from typing import Any
 from nba_duckdb.analytics.lineup_tracker import (
     _add_name_variants,
     _lookup_sub_in,
+    _merge_name_maps,
     _parse_sub_in_name,
 )
 
@@ -94,8 +95,7 @@ def _game_name_maps(
         team_id, player_id = action.get("teamId"), action.get("personId")
         if team_id and player_id and int(player_id) < _MIN_TEAM_ID:
             _add_name_variants(name_map.setdefault(int(team_id), {}), str(action.get("playerNameI", "")), int(player_id))
-    for team_id, names in roster_name_maps.items():
-        name_map.setdefault(int(team_id), {}).update(names)
+    _merge_name_maps(name_map, roster_name_maps)
     return name_map
 
 

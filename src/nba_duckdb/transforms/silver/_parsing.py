@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-import unicodedata
 from typing import Any
 
 import polars as pl
+
+from nba_duckdb.analytics.lineup_tracker import _add_name_variants
 
 
 def load_json(value: Any) -> dict[str, Any]:
@@ -45,26 +46,13 @@ def parse_minutes(value: Any) -> float | None:
         return None
 
 
-def normalize_name(name: str) -> str:
-    normalized = unicodedata.normalize("NFD", name or "")
-    return "".join(c for c in normalized if unicodedata.category(c) != "Mn").lower().replace(".", "").strip()
-
-
-def build_roster_name_map(boxscores_df: pl.DataFrame) -> dict[int, dict[str, int]]:
-    roster_name_map: dict[int, dict[str, int]] = {}
+def build_roster_name_map(boxscores_df: pl.DataFrame) -> dict[int, dict[str, int | None]]:
+    roster_name_map: dict[int, dict[str, int | None]] = {}
     for row in boxscores_df.iter_rows(named=True):
         team_id = row.get("team_id")
         player_id = row.get("player_id")
         player_name = str(row.get("player_name") or "").strip()
         if not team_id or not player_id or not player_name:
             continue
-        team_names = roster_name_map.setdefault(int(team_id), {})
-        full_norm = normalize_name(player_name)
-        if full_norm:
-            team_names[full_norm] = int(player_id)
-        parts = [part for part in player_name.split() if part]
-        if parts:
-            team_names[normalize_name(parts[-1])] = int(player_id)
-            if len(parts) >= 2:
-                team_names[normalize_name(" ".join(parts[-2:]))] = int(player_id)
+        _add_name_variants(roster_name_map.setdefault(int(team_id), {}), player_name, int(player_id))
     return roster_name_map
