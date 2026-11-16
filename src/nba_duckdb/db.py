@@ -246,46 +246,18 @@ def insert_rows(
     prepared = _prepare_rows(rows, columns)
     query = _insert_sql(schema, table, columns)
     with get_conn() as conn:
-        with conn.cursor() as cur:
-            for index in range(0, len(prepared), batch_size):
-                cur.executemany(query, prepared[index : index + batch_size])
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN TRANSACTION")
+                for index in range(0, len(prepared), batch_size):
+                    cur.executemany(query, prepared[index : index + batch_size])
+            conn.commit()
+        except Exception:
+            # All batches or none: a failed batch must not leave earlier ones behind.
+            conn.rollback()
+            raise
     logger.info("Inserted %d rows into %s.%s", len(rows), schema, table)
     return len(rows)
-
-
-def truncate_and_insert(
-    schema: str,
-    table: str,
-    rows: list[Mapping[str, Any]],
-    batch_size: int = 1000,
-) -> int:
-    if not rows:
-        logger.info("No rows to insert into %s.%s", schema, table)
-        return 0
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"DELETE FROM {_quote_ident(schema)}.{_quote_ident(table)}")
-            columns = list(rows[0].keys())
-            prepared = _prepare_rows(rows, columns)
-            query = _insert_sql(schema, table, columns)
-            for index in range(0, len(prepared), batch_size):
-                cur.executemany(query, prepared[index : index + batch_size])
-        conn.commit()
-    logger.info("Refreshed %s.%s with %d rows", schema, table, len(rows))
-    return len(rows)
-
-
-def delete_where(
-    schema: str,
-    table: str,
-    where: str,
-    params: list[Any] | None = None,
-) -> int:
-    query = f"DELETE FROM {_quote_ident(schema)}.{_quote_ident(table)} WHERE {where}"
-    execute_sql(query, params)
-    return 0
 
 
 def upsert_rows(

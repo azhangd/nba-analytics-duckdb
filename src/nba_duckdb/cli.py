@@ -263,6 +263,7 @@ def backfill_source(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.init_schema:
         db.init_schema()
+    assert_no_synthetic_rows()
 
     source = normalize_source(args.source)
     source = BACKFILL_ALIASES.get(source, source)
