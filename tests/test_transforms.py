@@ -119,6 +119,11 @@ def test_build_fct_shots_preserves_game_event_id():
     ])
 
     assert rows[0]["game_event_id"] == 1
+    # GAME_DATE arrives as YYYYMMDD text; silver stores a date, like fct_games.
+    from datetime import date
+
+    assert rows[0]["game_date"] == date(2100, 1, 3)
+    assert rows[0]["season"] == "2099-00"
 
 
 def test_sql_fct_games_derives_status_scores_and_type(tmp_db):

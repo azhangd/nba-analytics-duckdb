@@ -75,24 +75,25 @@ def test_basic_team_summary_flags_mixed_synthetic_rows():
     )
 
 
-def test_basic_team_summary_defaults_to_smoke_warehouse():
+def test_basic_team_summary_defaults_to_the_pipeline_warehouse():
+    from nba_duckdb.db import DEFAULT_DUCKDB_PATH
+
     module = _load_basic_team_summary_module()
 
-    assert module.DEFAULT_WAREHOUSE == Path("data/warehouse/smoke.duckdb")
+    assert module.DEFAULT_WAREHOUSE == Path(DEFAULT_DUCKDB_PATH)
 
 
-def test_basic_team_summary_prints_synthetic_warning_by_default(
+def test_basic_team_summary_prints_synthetic_warning_for_smoke_data(
     tmp_path,
     monkeypatch,
     capsys,
 ):
     module = _load_basic_team_summary_module()
-    warehouse = tmp_path / "data" / "warehouse" / "smoke.duckdb"
+    warehouse = tmp_path / "smoke.duckdb"
     _write_team_summary_warehouse(warehouse, season="2099-00")
 
-    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.setattr(sys, "argv", ["analysis.py"])
+    monkeypatch.setattr(sys, "argv", ["analysis.py", "--warehouse", str(warehouse)])
 
     assert module.main() == 0
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 PULL_UP_KEYWORDS = ("pullup", "pull-up", "step back", "turnaround", "fadeaway", "fade away")
@@ -54,17 +54,22 @@ def shot_context(action_type: str) -> str:
     return "other"
 
 
-def season_from_game_date(game_date: str) -> str:
-    if not game_date:
-        return ""
+def parse_shot_date(game_date: str) -> date | None:
+    """Shot charts send GAME_DATE as YYYYMMDD; the other forms are accepted too."""
     for fmt in ("%Y%m%d", "%Y-%m-%d", "%m/%d/%Y"):
         try:
-            parsed = datetime.strptime(game_date, fmt)
-            start_year = parsed.year if parsed.month >= 10 else parsed.year - 1
-            return f"{start_year}-{str(start_year + 1)[-2:]}"
+            return datetime.strptime(game_date, fmt).date()
         except ValueError:
             continue
-    return ""
+    return None
+
+
+def season_from_game_date(game_date: str) -> str:
+    parsed = parse_shot_date(game_date) if game_date else None
+    if parsed is None:
+        return ""
+    start_year = parsed.year if parsed.month >= 10 else parsed.year - 1
+    return f"{start_year}-{str(start_year + 1)[-2:]}"
 
 
 def build_fct_shot_rows(bronze_rows: list[Mapping[str, Any]]) -> list[dict]:
@@ -103,7 +108,7 @@ def build_fct_shot_rows(bronze_rows: list[Mapping[str, Any]]) -> list[dict]:
                     "loc_x": safe_int(shot.get("LOC_X")),
                     "loc_y": safe_int(shot.get("LOC_Y")),
                     "shot_made": shot.get("SHOT_MADE_FLAG") == 1,
-                    "game_date": shot.get("GAME_DATE", ""),
+                    "game_date": parse_shot_date(shot.get("GAME_DATE", "")),
                     "season": season_from_game_date(shot.get("GAME_DATE", "")),
                     "shot_context": shot_context(action),
                 })
