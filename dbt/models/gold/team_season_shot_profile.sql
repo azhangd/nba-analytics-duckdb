@@ -7,7 +7,10 @@ WITH classified AS (
             WHEN CAST(shot_type AS TEXT) LIKE '%3PT%' THEN 'three'
             ELSE 'non_paint_2'
         END AS shot_bucket
-    FROM {{ ref('fct_shots') }}
+    FROM {{ ref('fct_shots') }} AS shots
+    WHERE shots.game_id IN (
+        SELECT game_id FROM {{ ref('fct_games') }} WHERE game_type = 'regular_season'
+    )
 ),
 team_agg AS (
     SELECT team_id, season, shot_bucket,

@@ -153,6 +153,23 @@ def test_sql_fct_games_derives_status_scores_and_type(tmp_db):
     ]
 
 
+def test_fct_games_labels_game_type_from_the_game_id_prefix(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    tmp_db.insert_rows(
+        "bronze",
+        "schedule",
+        [schedule_row(game_id=game_id) for game_id in ("0012500001", "0022500001", "0032500001", "0042500001", "0052500001", "0062500001")],
+    )
+
+    dbt_runner.run_model(model="fct_games")
+    rows = tmp_db.execute_sql("SELECT game_id, game_type FROM silver.fct_games ORDER BY game_id")
+
+    assert [row["game_type"] for row in rows] == [
+        "preseason", "regular_season", "all_star", "playoffs", "play_in", "nba_cup",
+    ]
+
+
 def test_elo_history_runs_in_calendar_order_across_new_year(tmp_db):
     from nba_duckdb.dbt_runner import run_dbt_command
 

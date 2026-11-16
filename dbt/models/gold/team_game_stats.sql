@@ -11,7 +11,7 @@ WITH team_boxscores AS (
         SUM(COALESCE(tov, 0)) AS tov
     FROM {{ ref('fct_boxscores') }}
     WHERE minutes > 0
-      AND COALESCE(CAST(game_id AS TEXT), '') NOT LIKE '001%'
+      AND CAST(game_id AS TEXT) LIKE '002%'
     GROUP BY CAST(game_id AS TEXT), team_id
 ),
 valid_games AS (
@@ -46,7 +46,6 @@ SELECT
     CAST(team_with_opponent.team_id AS INTEGER) AS team_id,
     COALESCE(CAST(games.season AS TEXT), '') AS season,
     games.game_date,
-    COALESCE(CAST(games.game_type AS TEXT), 'regular_season') AS game_type,
     CAST(team_with_opponent.pts AS INTEGER) AS pts,
     CAST(team_with_opponent.opp_pts AS INTEGER) AS opp_pts,
     CAST(team_with_opponent.pts - team_with_opponent.opp_pts AS INTEGER) AS margin,

@@ -61,6 +61,10 @@ models:
         description: Stable warehouse competition slug, such as nba or summer_league_vegas.
         data_tests:
           - not_null
+      - name: game_type
+        description: preseason, regular_season, all_star, playoffs, play_in or nba_cup, from the game id.
+        data_tests:
+          - not_null
 
   - name: fct_boxscores
     description: Traditional and advanced stats per player per game

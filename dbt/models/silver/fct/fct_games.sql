@@ -17,12 +17,15 @@ SELECT
         WHEN game_status = 2 THEN 'In Progress'
         ELSE 'Scheduled'
     END AS status,
-    CASE
-        WHEN CAST(game_id AS TEXT) LIKE '004%' THEN 'playoffs'
-        WHEN CAST(game_id AS TEXT) LIKE '005%' THEN 'play_in'
-        WHEN CAST(game_id AS TEXT) LIKE '006%' THEN 'nba_cup'
-        WHEN CAST(game_id AS TEXT) LIKE '001%' THEN 'preseason'
-        ELSE 'regular_season'
+    -- The game id prefix is the game type. An unknown prefix gives NULL, which
+    -- fails the not_null test instead of being counted as regular season.
+    CASE LEFT(CAST(game_id AS TEXT), 3)
+        WHEN '001' THEN 'preseason'
+        WHEN '002' THEN 'regular_season'
+        WHEN '003' THEN 'all_star'
+        WHEN '004' THEN 'playoffs'
+        WHEN '005' THEN 'play_in'
+        WHEN '006' THEN 'nba_cup'
     END AS game_type
 FROM {{ source('bronze', 'schedule') }}
 WHERE COALESCE(competition, 'nba') = 'nba'
