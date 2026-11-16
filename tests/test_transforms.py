@@ -33,6 +33,21 @@ def test_build_fct_boxscore_rows_from_fixture_payload():
     assert rows[0]["pts"] == 10
 
 
+def test_a_player_with_minutes_counts_as_played_even_if_the_comment_says_dnp():
+    def player(person_id, minutes, comment):
+        return {"personId": person_id, "comment": comment, "statistics": {"minutes": minutes, "points": 0}}
+
+    traditional = {
+        "boxScoreTraditional": {
+            "homeTeam": {"teamId": 1, "players": [player(1, "5:14", "DNP - Coach's Decision"), player(2, "", "DNP - Coach's Decision")]},
+            "awayTeam": {"teamId": 2, "players": [player(3, "30:00", "")]},
+        }
+    }
+    rows = build_fct_boxscore_rows([{"game_id": GAME_ID, "traditional_json": traditional, "advanced_json": None}])
+
+    assert {row["player_id"]: row["counts_as_gp"] for row in rows} == {1: True, 2: False, 3: True}
+
+
 def test_build_fct_play_by_play_rows_preserves_source_coordinate_semantics():
     rows = build_fct_play_by_play_rows([
         {
