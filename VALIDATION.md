@@ -34,7 +34,9 @@ advanced stats, or any betting or tracking system.
     `src/nba_duckdb/analytics/elo.py` has the numbers.
   - Neutral-site games, such as the NBA Cup semifinals in Las Vegas and games
     abroad, give neither team the home edge. The NBA marks them in the
-    schedule, and `fct_games.is_neutral` carries the flag.
+    schedule from 2024-25 on, and `fct_games.is_neutral` carries the flag.
+    Before 2024-25 the NBA's flag is always false, so a game outside the
+    state or province of the home team's usual arena counts as neutral too.
   - Projected records cover all 82 games. Games that aren't on the schedule
     yet, like NBA Cup knockout and makeup games, count as half a win each;
     `team_season_elo.unscheduled_games` says how many there are.
