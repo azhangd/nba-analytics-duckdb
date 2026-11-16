@@ -126,9 +126,8 @@ rolled AS (
         {{ minutes_weighted('net_rating', over='wseason') }} AS season_net_rtg,
         AVG(game_score) OVER wseason AS season_game_score,
         AVG(minutes) OVER wseason AS season_minutes,
-        STDDEV_SAMP(game_score) OVER (
-            PARTITION BY player_id, season
-        ) AS gs_std
+        -- Spread of game score over the games so far, so a flag never looks ahead.
+        STDDEV_SAMP(game_score) OVER wseason AS gs_std
     FROM base
     WINDOW
         w3 AS (

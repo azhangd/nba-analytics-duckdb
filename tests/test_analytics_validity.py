@@ -1306,6 +1306,143 @@ def test_games_a_player_missed_do_not_count_in_rolling_or_split_stats(tmp_db):
     assert (home["games"], home["ppg"]) == (2, 20.0)
 
 
+def _seed_player_season_inputs(db, game_count, rows, plays=()):
+    """Regular-season games one day apart, player game lines and play-by-play for player_season_stats_base."""
+    db.execute(
+        "CREATE TABLE silver.dim_players (player_id INTEGER, full_name TEXT, position TEXT, jersey_number TEXT)"
+    )
+    _create_fct_games(db)
+    _create_player_game_stats(db)
+    db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, player_id INTEGER, action_type TEXT)"
+    )
+    db.insert_rows(
+        "silver",
+        "fct_games",
+        [
+            {"game_id": f"00299000{game:02d}", "season": "2099-00", "game_date": f"2100-01-{game:02d}",
+             "home_team_id": 100, "away_team_id": 200, "status": "Final"}
+            for game in range(1, game_count + 1)
+        ],
+    )
+    db.insert_rows("gold", "player_game_stats", rows)
+    if plays:
+        db.insert_rows("silver", "fct_play_by_play", list(plays))
+
+
+def test_traded_player_is_listed_under_the_team_he_played_most_games_for(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    def line(game, player_id, team_id, played=True):
+        return {"game_id": f"00299000{game:02d}", "player_id": player_id, "team_id": team_id,
+                "player_name": f"Synthetic Player {player_id}", "counts_as_gp": played,
+                "minutes": 20.0 if played else 0.0, "pts": 10 if played else 0}
+
+    _seed_player_season_inputs(
+        tmp_db,
+        6,
+        [
+            # Player 1 played two games for team 100, then sat inactive three times for team 200 before playing once.
+            line(1, 1, 100), line(2, 1, 100),
+            line(3, 1, 200, played=False), line(4, 1, 200, played=False), line(5, 1, 200, played=False),
+            line(6, 1, 200),
+            # Player 2 played one game for each team; the tie goes to the later team.
+            line(1, 2, 100), line(2, 2, 200),
+        ],
+    )
+
+    dbt_runner.run_model(model="player_season_stats_base")
+    rows = tmp_db.execute("SELECT player_id, team_id FROM gold.player_season_stats_base ORDER BY player_id")
+
+    assert [(row["player_id"], row["team_id"]) for row in rows] == [(1, 100), (2, 200)]
+
+
+def test_shooting_percentiles_need_100_attempts(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    def line(player_id, attempts, makes):
+        return {"game_id": "0029900001", "player_id": player_id, "team_id": 100,
+                "player_name": f"Synthetic Player {player_id}", "counts_as_gp": True, "minutes": 30.0,
+                "fga": attempts, "fgm": makes, "fg3a": attempts, "fg3m": makes}
+
+    _seed_player_season_inputs(tmp_db, 1, [line(1, 10, 10), line(2, 100, 50), line(3, 100, 30)])
+
+    dbt_runner.run_model(model="player_season_stats_base")
+    rows = tmp_db.execute(
+        "SELECT player_id, fg_shoot_pct, fg3_shoot_pct FROM gold.player_season_stats_base ORDER BY player_id"
+    )
+
+    assert [(row["player_id"], row["fg_shoot_pct"], row["fg3_shoot_pct"]) for row in rows] == [
+        (1, None, None),
+        (2, 100, 100),
+        (3, 0, 0),
+    ]
+
+
+def test_season_usage_comes_from_season_totals_with_team_turnovers(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    def line(game, player_id, minutes, fga, fta, tov):
+        return {"game_id": f"00299000{game:02d}", "player_id": player_id, "team_id": 100,
+                "player_name": f"Synthetic Player {player_id}", "counts_as_gp": minutes > 0, "minutes": minutes,
+                "fga": fga, "fta": fta, "tov": tov, "usg_pct": 0.30}
+
+    turnover = {"game_id": "0029900001", "team_id": 100, "action_type": "turnover"}
+    _seed_player_season_inputs(
+        tmp_db,
+        2,
+        [
+            line(1, 1, 30.0, 20, 5, 3), line(1, 2, 18.0, 10, 0, 1),
+            # Game 2 has no play-by-play, so team turnovers are unknown there.
+            line(2, 1, 0.0, 0, 0, 0), line(2, 2, 48.0, 40, 0, 0),
+        ],
+        # Four player turnovers plus one team turnover (shot clock) in game 1.
+        [{**turnover, "player_id": 1}] * 3 + [{**turnover, "player_id": 2}, {**turnover, "player_id": None}],
+    )
+
+    dbt_runner.run_model(model="player_season_stats_base")
+    rows = tmp_db.execute("SELECT player_id, avg_usg_pct FROM gold.player_season_stats_base ORDER BY player_id")
+
+    # Player 1, game 1 only: (20 + 0.44 * 5 + 3) * (48 / 5) / (30 * (30 + 0.44 * 5 + 5)) = 0.2168
+    assert [(row["player_id"], row["avg_usg_pct"]) for row in rows] == [(1, pytest.approx(0.217)), (2, None)]
+
+
+def test_hot_and_cold_flags_use_only_games_so_far(tmp_db):
+    from datetime import date, timedelta
+
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    _create_player_game_stats(tmp_db)
+    # Fifteen quiet games, a five-game hot streak, then two wild games that later widen the season's spread.
+    scores = [10.0] * 15 + [20.0] * 5 + [100.0, -50.0]
+    game_ids = [f"00299000{game:02d}" for game in range(1, len(scores) + 1)]
+    tmp_db.insert_rows(
+        "silver",
+        "fct_games",
+        [
+            {"game_id": game_id, "season": "2099-00", "game_date": date(2100, 1, 1) + timedelta(days=day),
+             "home_team_id": 100, "away_team_id": 200, "status": "Final"}
+            for day, game_id in enumerate(game_ids)
+        ],
+    )
+    tmp_db.insert_rows(
+        "gold",
+        "player_game_stats",
+        [
+            {"game_id": game_id, "player_id": 1, "team_id": 100, "player_name": "Synthetic Guard",
+             "counts_as_gp": True, "minutes": 30.0, "game_score": score}
+            for game_id, score in zip(game_ids, scores)
+        ],
+    )
+
+    dbt_runner.run_model(model="player_game_rolling_stats")
+    row = tmp_db.execute("SELECT is_hot FROM gold.player_game_rolling_stats WHERE game_number = 20")[0]
+
+    # Last 5 (20.0) minus last 20 (12.5) is 7.5, above the 4.4 spread of the first 20 games.
+    assert row["is_hot"] is True
+
+
 def test_shot_profiles_count_only_regular_season_games(tmp_db):
     db = tmp_db
     from nba_duckdb import dbt_runner

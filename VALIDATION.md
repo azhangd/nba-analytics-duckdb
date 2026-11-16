@@ -1,17 +1,20 @@
 # How much to trust the numbers
 
 Short version: the box-score stats are just arithmetic on what you loaded, and
-the fancier metrics are home-made approximations. Nothing here has been checked
-against Basketball-Reference, the NBA's own advanced stats, or any betting or
-tracking system.
+the fancier metrics are home-made approximations. Apart from season usage,
+nothing here has been checked against Basketball-Reference, the NBA's own
+advanced stats, or any betting or tracking system.
 
 ## What's what
 
 - **Plain summaries.** Player and team game stats, four factors, clutch,
   starters vs. bench, opponent scouting, timeouts and after-timeout plays.
-  These just add up the games in your database. Season usage and ratings are
-  weighted by minutes, so a two-minute stint doesn't count as much as a full
-  game. A coach's challenge is charged as a timeout but isn't counted as one.
+  These just add up the games in your database. Season ratings are weighted
+  by minutes, so a two-minute stint doesn't count as much as a full game.
+  Season usage comes from season totals with Basketball-Reference's formula;
+  on 2024-25 and 2025-26 it is within 0.5 points of theirs for 99% of
+  players with 500+ minutes. A coach's challenge is charged as a timeout but
+  isn't counted as one.
 - **Simple formulas.** Elo ratings, and `bpm_approx` and `vorp_approx`.
   - Elo follows FiveThirtyEight's NBA method, with the home edge set to 50
     points instead of their 100. 50 predicted 2025-26 best; the comment in
