@@ -168,7 +168,16 @@ def _call_with_rate_limit(
     for attempt in range(max_retries):
         nba_api_limiter.acquire()
         try:
-            endpoint = endpoint_cls(timeout=timeout, **kwargs)
+            try:
+                endpoint = endpoint_cls(timeout=timeout, **kwargs)
+            except (AttributeError, TypeError) as e:
+                if "keyword argument" in str(e):
+                    raise  # wrong kwargs: endpoint misuse, which a retry won't fix
+                # nba_api parses the response inside the constructor, and fails this way when the
+                # response lacks fields it expects (e.g. All-Star games have no misc box score).
+                raise EmptyPayloadError(
+                    f"{endpoint_cls.__name__} returned a response without the expected data ({e})"
+                ) from e
             result = endpoint.get_dict()
             if result_validator:
                 if not result_validator(result):
@@ -177,12 +186,8 @@ def _call_with_rate_limit(
             elif not _has_stats_payload(result):
                 raise EmptyPayloadError("Empty resultSets — likely rate-limited")
             return result
-        except TypeError as e:
-            # Wrong kwargs is endpoint misuse and won't fix itself. Other TypeErrors
-            # come from nba_api parsing a malformed response, which a retry can fix.
-            if "keyword argument" in str(e) or attempt == max_retries - 1:
-                raise
-            time.sleep(min(2 * (2 ** attempt), 120))
+        except TypeError:
+            raise  # only wrong-kwargs TypeErrors and bugs in our own code get here; retrying won't help
         except Exception as e:
             if attempt == max_retries - 1:
                 raise

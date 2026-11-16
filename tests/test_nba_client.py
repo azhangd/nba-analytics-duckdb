@@ -189,3 +189,38 @@ def test_play_by_play_rejects_empty_actions_from_fallback(monkeypatch):
 
     with pytest.raises(LiveEndpointUnavailableError, match="PlayByPlayV3"):
         nba_client.get_play_by_play_with_source("0029900001")
+
+
+def test_unparseable_stats_response_raises_empty_payload_error(monkeypatch):
+    from nba_duckdb.exceptions import EmptyPayloadError
+    from nba_duckdb.utils import nba_client
+
+    monkeypatch.setattr(nba_client, "_ensure_live_fetch_allowed", lambda: None)
+    monkeypatch.setattr(nba_client.nba_api_limiter, "acquire", lambda: None)
+    monkeypatch.setattr(nba_client.time, "sleep", lambda _: None)
+
+    class TeamWithoutStats:
+        """Like BoxScoreMiscV3 for an All-Star game: nba_api's parser hits a team with no stats."""
+
+        def __init__(self, timeout, **kwargs):
+            None.get("statistics")
+
+    with pytest.raises(EmptyPayloadError, match="TeamWithoutStats returned a response without the expected data"):
+        nba_client._call_with_rate_limit(TeamWithoutStats, max_retries=2, game_id="0032500004")
+
+
+def test_wrong_endpoint_arguments_fail_without_retry(monkeypatch):
+    from nba_duckdb.utils import nba_client
+
+    monkeypatch.setattr(nba_client, "_ensure_live_fetch_allowed", lambda: None)
+    monkeypatch.setattr(nba_client.nba_api_limiter, "acquire", lambda: None)
+    calls = []
+
+    class Endpoint:
+        def __init__(self, timeout, **kwargs):
+            calls.append(kwargs)
+            raise TypeError("Endpoint.__init__() got an unexpected keyword argument 'game_id'")
+
+    with pytest.raises(TypeError, match="keyword argument"):
+        nba_client._call_with_rate_limit(Endpoint, max_retries=3, game_id="0022600001")
+    assert len(calls) == 1
