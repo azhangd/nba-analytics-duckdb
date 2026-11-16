@@ -1,11 +1,82 @@
 {{ config(materialized='table', schema='gold', alias='player_season_stats_base', tags=['gold_mart']) }}
 
-WITH base AS (
+WITH team_games_played AS (
+    SELECT
+        pgs.player_id,
+        fg.season,
+        pgs.team_id,
+        SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END) AS games_played,
+        MAX(fg.game_date) AS last_game_date
+    FROM {{ ref('player_game_stats') }} pgs
+    LEFT JOIN {{ ref('fct_games') }} fg ON pgs.game_id = fg.game_id
+    GROUP BY pgs.player_id, fg.season, pgs.team_id
+),
+-- A traded player is listed under the team they played the most games for;
+-- a tie goes to the team they played for last.
+primary_team AS (
+    SELECT player_id, season, team_id
+    FROM team_games_played
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY player_id, season
+        ORDER BY games_played DESC, last_game_date DESC
+    ) = 1
+),
+-- Team minutes, shots and free throws in each game, for season usage.
+team_game_totals AS (
+    SELECT
+        game_id,
+        team_id,
+        SUM(COALESCE(minutes, 0)) AS minutes,
+        SUM(COALESCE(fga, 0)) AS fga,
+        SUM(COALESCE(fta, 0)) AS fta
+    FROM {{ ref('player_game_stats') }}
+    GROUP BY game_id, team_id
+),
+-- Team turnovers come from play-by-play, because the box score only has the
+-- players' turnovers and leaves out team ones (shot clock, 8 seconds).
+play_by_play_games AS (
+    SELECT DISTINCT CAST(game_id AS TEXT) AS game_id
+    FROM {{ ref('fct_play_by_play') }}
+),
+team_game_turnovers AS (
+    SELECT CAST(game_id AS TEXT) AS game_id, team_id, COUNT(*) AS tov
+    FROM {{ ref('fct_play_by_play') }}
+    WHERE action_type = 'turnover'
+      AND team_id IS NOT NULL
+    GROUP BY CAST(game_id AS TEXT), team_id
+),
+-- Season usage from season totals over the games the player played, as
+-- Basketball-Reference computes it. NULL if any of those games has no play-by-play.
+season_usage AS (
+    SELECT
+        pgs.player_id,
+        fg.season,
+        CASE WHEN COUNT(pbp.game_id) = COUNT(*) THEN
+            SUM(COALESCE(pgs.fga, 0) + 0.44 * COALESCE(pgs.fta, 0) + COALESCE(pgs.tov, 0))
+            * SUM(team.minutes) / 5
+            / NULLIF(
+                SUM(pgs.minutes)
+                * SUM(team.fga + 0.44 * team.fta + COALESCE(tov.tov, 0)),
+                0
+            )
+        END AS usg_pct
+    FROM {{ ref('player_game_stats') }} pgs
+    LEFT JOIN {{ ref('fct_games') }} fg ON pgs.game_id = fg.game_id
+    JOIN team_game_totals team
+        ON pgs.game_id = team.game_id
+       AND pgs.team_id = team.team_id
+    LEFT JOIN play_by_play_games pbp ON pgs.game_id = pbp.game_id
+    LEFT JOIN team_game_turnovers tov
+        ON pgs.game_id = tov.game_id
+       AND pgs.team_id = tov.team_id
+    WHERE pgs.minutes > 0
+    GROUP BY pgs.player_id, fg.season
+),
+base AS (
     SELECT
         pgs.player_id,
         fg.season AS season,
         mode() WITHIN GROUP (ORDER BY pgs.player_name) AS player_name,
-        mode() WITHIN GROUP (ORDER BY pgs.team_id) AS team_id,
         SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END) AS games_played,
         ROUND(
             SUM(COALESCE(pgs.minutes, 0))::NUMERIC
@@ -53,7 +124,8 @@ WITH base AS (
         ROUND(AVG(pgs.game_score) FILTER (WHERE COALESCE(pgs.counts_as_gp, pgs.minutes > 0))::NUMERIC, 1) AS avg_game_score,
         ROUND(({{ minutes_weighted('pgs.off_rating', minutes='pgs.minutes') }})::NUMERIC, 1) AS avg_off_rating,
         ROUND(({{ minutes_weighted('pgs.def_rating', minutes='pgs.minutes') }})::NUMERIC, 1) AS avg_def_rating,
-        ROUND(({{ minutes_weighted('pgs.usg_pct', minutes='pgs.minutes') }})::NUMERIC, 3) AS avg_usg_pct,
+        SUM(pgs.fga) AS fga_total,
+        SUM(pgs.fg3a) AS fg3a_total,
         CASE WHEN SUM(pgs.fga) + SUM(pgs.fta) >= 20 THEN
             LEAST(ROUND(SUM(pgs.pts)::NUMERIC / (2.0 * (SUM(pgs.fga) + 0.44 * SUM(pgs.fta))), 3), 1.0)
         END AS avg_ts_pct
@@ -63,11 +135,15 @@ WITH base AS (
     HAVING SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END) > 0
 ),
 with_advanced AS (
-    SELECT *,
+    SELECT base.*,
+        primary_team.team_id,
+        ROUND(season_usage.usg_pct::NUMERIC, 3) AS avg_usg_pct,
         CASE WHEN mpg > 0 THEN ROUND((ppg / mpg * 36)::NUMERIC, 1) END AS pts_per_36,
         CASE WHEN mpg > 0 THEN ROUND((apg / mpg * 36)::NUMERIC, 1) END AS ast_per_36,
         CASE WHEN mpg > 0 THEN ROUND((rpg / mpg * 36)::NUMERIC, 1) END AS reb_per_36
     FROM base
+    JOIN primary_team USING (player_id, season)
+    LEFT JOIN season_usage USING (player_id, season)
 ),
 with_info AS (
     SELECT
@@ -104,8 +180,8 @@ SELECT
     {{ season_percentile('spg', 'w.season') }} AS spg_pct,
     {{ season_percentile('bpg', 'w.season') }} AS bpg_pct,
     {{ season_percentile('mpg', 'w.season') }} AS mpg_pct,
-    {{ season_percentile('fg_pct', 'w.season') }} AS fg_shoot_pct,
-    {{ season_percentile('fg3_pct', 'w.season') }} AS fg3_shoot_pct,
+    {{ season_percentile('CASE WHEN w.fga_total >= 100 THEN w.fg_pct END', 'w.season') }} AS fg_shoot_pct,
+    {{ season_percentile('CASE WHEN w.fg3a_total >= 100 THEN w.fg3_pct END', 'w.season') }} AS fg3_shoot_pct,
     {{ season_percentile('avg_ts_pct', 'w.season') }} AS ts_pct_rank,
     {{ season_percentile('avg_usg_pct', 'w.season') }} AS usg_pct_rank,
     {{ season_percentile('avg_game_score', 'w.season') }} AS game_score_pct
