@@ -19,6 +19,8 @@ def _normalize(s: str) -> str:
 
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue"})
+
 
 def _add_name_key(team_names: dict[str, int | None], key: str, player_id: int | None) -> None:
     """Map a name key to a player. A key two players share maps to None, so it never resolves."""
@@ -39,16 +41,18 @@ def _add_name_variants(team_names: dict[str, int | None], player_name: str, play
     if not pname or not player_id:
         return
 
-    _add_name_key(team_names, _normalize(pname), player_id)
+    # "Schröder" is indexed as "schroder" and "schroeder", the two ways the feeds spell it.
+    for spelling in {pname, pname.translate(_UMLAUTS)}:
+        _add_name_key(team_names, _normalize(spelling), player_id)
 
-    parts = [_normalize(part) for part in pname.split() if _normalize(part)]
-    if not parts:
-        return
-    if parts[-1] in SUFFIXES:
-        if len(parts) >= 2:
-            _add_name_key(team_names, f"{parts[-2]} {parts[-1]}", player_id)
-    else:
-        _add_name_key(team_names, parts[-1], player_id)
+        parts = [_normalize(part) for part in spelling.split() if _normalize(part)]
+        if not parts:
+            continue
+        if parts[-1] in SUFFIXES:
+            if len(parts) >= 2:
+                _add_name_key(team_names, f"{parts[-2]} {parts[-1]}", player_id)
+        else:
+            _add_name_key(team_names, parts[-1], player_id)
 
 
 def _merge_name_maps(into: dict[int, dict[str, int | None]], other: dict[int, dict[str, int | None]]) -> None:
@@ -108,11 +112,38 @@ def _lookup_sub_in(sub_in_name: str, team_id: int, name_map: dict) -> int | None
     the start of each teammate's first name, then the last word ("da Silva"). A bare surname prefers the player without a
     suffix ("Jackson" over "Jackson Jr."). A name that matches no player, or more than
     one, gives None.
+
+    When the surname appears nowhere on the team, the name is tried again the way the roster
+    may spell it: with umlauts spelt out ("Pöltl" for "Jakob Poeltl") or without a suffix the
+    roster leaves off ("Martin Jr." for "KJ Martin").
     """
     team_names = name_map.get(team_id, {})
     full = _normalize(sub_in_name or "")
     if not full or not team_names:
         return None
+    player_id = _resolve_name(full, team_names)
+    if player_id is not None or _surname_on_team(full, team_names):
+        return player_id
+    words = full.split()
+    alternatives = [_normalize(sub_in_name.translate(_UMLAUTS))]
+    if len(words) > 1 and words[-1] in SUFFIXES:
+        alternatives.append(" ".join(words[:-1]))
+    for alternative in alternatives:
+        if alternative != full:
+            player_id = _resolve_name(alternative, team_names)
+            if player_id is not None:
+                return player_id
+    return None
+
+
+def _surname_on_team(full: str, team_names: dict[str, int | None]) -> bool:
+    """Whether the surname of a normalized name, with its suffix if it has one, is part of any key."""
+    words = full.split()
+    surname = " ".join(words[-2:] if len(words) > 1 and words[-1] in SUFFIXES else words[-1:])
+    return any(f" {surname} " in f" {key} " for key in team_names)
+
+
+def _resolve_name(full: str, team_names: dict[str, int | None]) -> int | None:
     if full in team_names:
         return team_names[full]
     words = full.split()
