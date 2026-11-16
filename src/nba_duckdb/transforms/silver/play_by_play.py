@@ -7,6 +7,12 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from nba_duckdb.analytics.lineup_tracker import (
+    _add_name_variants,
+    _lookup_sub_in,
+    _parse_sub_in_name,
+)
+
 FCT_PLAY_BY_PLAY = (
     "game_id",
     "action_id",
@@ -78,11 +84,34 @@ def _v3_action(action: Mapping[str, Any]) -> tuple[str, str, str]:
     return action_type.lower().replace(" ", ""), sub_type, shot_result
 
 
-def build_fct_play_by_play_rows(bronze_rows: list[Mapping[str, Any]]) -> list[dict]:
+def _game_name_maps(
+    actions: list[Mapping[str, Any]], roster_name_maps: Mapping[int, dict[str, int]]
+) -> dict[int, dict[str, int]]:
+    """team_id -> {name fragment -> player_id}, from the game's own actions plus its box score roster."""
+    name_map: dict[int, dict[str, int]] = {}
+    for action in actions:
+        team_id, player_id = action.get("teamId"), action.get("personId")
+        if team_id and player_id and int(player_id) < _MIN_TEAM_ID:
+            _add_name_variants(name_map.setdefault(int(team_id), {}), str(action.get("playerNameI", "")), int(player_id))
+    for team_id, names in roster_name_maps.items():
+        name_map.setdefault(int(team_id), {}).update(names)
+    return name_map
+
+
+def build_fct_play_by_play_rows(
+    bronze_rows: list[Mapping[str, Any]],
+    roster_name_maps: Mapping[str, Mapping[int, dict[str, int]]] | None = None,
+) -> list[dict]:
     """One row per action, in event order, with both sources in the live CDN vocabulary.
 
     stats_v3 only reports the score on scoring plays, so the score is carried forward:
     every row holds the score at that moment.
+
+    stats_v3 writes a substitution as one row, "SUB: X FOR Y", whose player is Y. It becomes
+    an "out" row for Y and an "in" row for X, like the live feed. X's id is matched by name
+    against `roster_name_maps` (game_id -> build_roster_name_map of its box score) and the
+    game's own actions; it's left empty if no name matches. stats_v3 action ids are scaled by
+    10 so the "in" row can follow its "out" row.
     """
     output = []
     for bronze_row in bronze_rows:
@@ -97,6 +126,9 @@ def build_fct_play_by_play_rows(bronze_rows: list[Mapping[str, Any]]) -> list[di
             key=lambda action: (int(action.get("period") or 0), _action_order(action)),
         )
         score_home, score_away = "0", "0"
+        name_maps = (
+            _game_name_maps(actions, (roster_name_maps or {}).get(game_id, {})) if pbp_source == "stats_v3" else {}
+        )
         for action in actions:
             loc_x = action.get("x") if pbp_source != "stats_v3" else None
             loc_y = action.get("y") if pbp_source != "stats_v3" else None
@@ -113,9 +145,9 @@ def build_fct_play_by_play_rows(bronze_rows: list[Mapping[str, Any]]) -> list[di
             if str(action.get("scoreHome", "")).strip() and str(action.get("scoreAway", "")).strip():
                 score_home = str(action["scoreHome"]).strip()
                 score_away = str(action["scoreAway"]).strip()
-            output.append({
+            row = {
                 "game_id": game_id,
-                "action_id": _action_order(action),
+                "action_id": _action_order(action) * 10 if pbp_source == "stats_v3" else _action_order(action),
                 "action_number": int(action.get("actionNumber") or 0),
                 "period": int(action.get("period") or 0),
                 "clock": str(action.get("clock", "")),
@@ -133,5 +165,18 @@ def build_fct_play_by_play_rows(bronze_rows: list[Mapping[str, Any]]) -> list[di
                 "pbp_source": pbp_source,
                 "loc_x": float(loc_x) if loc_x is not None else None,
                 "loc_y": float(loc_y) if loc_y is not None else None,
-            })
+            }
+            incoming_name = _parse_sub_in_name(row["description"]) if action_type == "substitution" else ""
+            if pbp_source == "stats_v3" and incoming_name:
+                incoming_id = _lookup_sub_in(incoming_name, row["team_id"], name_maps) if row["team_id"] else None
+                output.append({**row, "sub_type": "out", "description": f"SUB out: {row['player_name']}"})
+                row = {
+                    **row,
+                    "action_id": row["action_id"] + 1,
+                    "player_id": incoming_id,
+                    "player_name": incoming_name,
+                    "sub_type": "in",
+                    "description": f"SUB in: {incoming_name}",
+                }
+            output.append(row)
     return output
