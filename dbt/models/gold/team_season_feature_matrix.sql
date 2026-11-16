@@ -78,8 +78,8 @@ starter_bench AS (
     SELECT
         team_id,
         season,
-        ROUND(SUM(CASE WHEN LOWER(role) LIKE '%start%' THEN COALESCE(ppg, 0) ELSE 0 END), 1) AS starter_ppg,
-        ROUND(SUM(CASE WHEN LOWER(role) LIKE '%bench%' THEN COALESCE(ppg, 0) ELSE 0 END), 1) AS bench_ppg
+        ROUND(SUM(CASE WHEN LOWER(role) LIKE '%start%' THEN pts_per_team_game ELSE 0 END), 1) AS starter_ppg,
+        ROUND(SUM(CASE WHEN LOWER(role) LIKE '%bench%' THEN pts_per_team_game ELSE 0 END), 1) AS bench_ppg
     FROM {{ ref('team_season_starter_bench_stats') }}
     GROUP BY team_id, season
 ),

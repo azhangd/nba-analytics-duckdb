@@ -412,82 +412,81 @@ def test_sql_player_game_stats_adds_game_score_and_shot_splits(tmp_db):
     ]
 
 
-def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
-    from nba_duckdb import dbt_runner
+def _create_team_box_inputs(db, games):
+    """One box-score row per team and game, play-by-play turnovers, and the games.
 
-    db = tmp_db
+    `games` maps game_id to (minutes, {team_id: stats}); stats carry `player_tov`
+    (credited to players) and `team_tov` (no player, e.g. shot clock).
+    """
     db.execute(
         """
         CREATE TABLE silver.fct_boxscores (
-            game_id TEXT,
-            team_id INTEGER,
-            minutes DOUBLE,
-            pts INTEGER,
-            fga INTEGER,
-            fta INTEGER,
-            oreb INTEGER,
-            tov INTEGER
+            game_id TEXT, team_id INTEGER, minutes DOUBLE, pts INTEGER,
+            fgm INTEGER, fga INTEGER, fg3m INTEGER, ftm INTEGER, fta INTEGER,
+            oreb INTEGER, dreb INTEGER, tov INTEGER, pace DOUBLE
         )
         """
     )
-    db.execute(
-        """
-        CREATE TABLE silver.fct_games (
-            game_id TEXT,
-            season TEXT,
-            game_date TEXT,
-            game_type TEXT
-        )
-        """
-    )
-    db.insert_rows(
-        "silver",
-        "fct_boxscores",
-        [
-            {
-                "game_id": "002SYN0001",
-                "team_id": 10,
-                "minutes": 240.0,
-                "pts": 100,
-                "fga": 80,
-                "fta": 20,
-                "oreb": 10,
-                "tov": 12,
-            },
-            {
-                "game_id": "002SYN0001",
-                "team_id": 20,
-                "minutes": 240.0,
-                "pts": 90,
-                "fga": 75,
-                "fta": 15,
-                "oreb": 8,
-                "tov": 14,
-            },
-        ],
-    )
+    db.execute("CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, player_id INTEGER, action_type TEXT)")
+    db.execute("CREATE TABLE silver.fct_games (game_id TEXT, season TEXT, game_date TEXT, game_type TEXT)")
+    db.execute("CREATE TABLE silver.dim_teams (team_id INTEGER, abbreviation TEXT)")
+    box_rows, play_rows = [], []
+    for game_id, (minutes, teams) in games.items():
+        for team_id, stats in teams.items():
+            box_stats = {key: value for key, value in stats.items() if key not in ("player_tov", "team_tov")}
+            box_rows.append(
+                {"game_id": game_id, "team_id": team_id, "minutes": minutes, "fg3m": 0, "ftm": 0,
+                 "tov": stats["player_tov"], "pace": 1000.0, **box_stats}
+            )
+            turnover = {"game_id": game_id, "team_id": team_id, "action_type": "turnover"}
+            play_rows += [{**turnover, "player_id": 1}] * stats["player_tov"]
+            play_rows += [{**turnover, "player_id": None}] * stats["team_tov"]
+    db.insert_rows("silver", "fct_boxscores", box_rows)
+    db.insert_rows("silver", "fct_play_by_play", play_rows)
     db.insert_rows(
         "silver",
         "fct_games",
         [
-            {
-                "game_id": "002SYN0001",
-                "season": "2099-00",
-                "game_date": "01/01/2100",
-                "game_type": "regular_season",
-            }
+            {"game_id": game_id, "season": "2099-00", "game_date": "01/01/2100", "game_type": "regular_season"}
+            for game_id in games
         ],
     )
+    db.insert_rows("silver", "dim_teams", [{"team_id": 10, "abbreviation": "AAA"}, {"team_id": 20, "abbreviation": "BBB"}])
+
+
+_REGULATION_GAME = (
+    240.0,
+    {
+        10: {"pts": 100, "fgm": 36, "fga": 80, "fta": 20, "oreb": 10, "dreb": 30, "player_tov": 12, "team_tov": 1},
+        20: {"pts": 90, "fgm": 33, "fga": 75, "fta": 15, "oreb": 8, "dreb": 32, "player_tov": 14, "team_tov": 0},
+    },
+)
+_OVERTIME_GAME = (
+    265.0,
+    {
+        10: {"pts": 120, "fgm": 44, "fga": 95, "fta": 25, "oreb": 12, "dreb": 38, "player_tov": 14, "team_tov": 1},
+        20: {"pts": 115, "fgm": 42, "fga": 92, "fta": 22, "oreb": 11, "dreb": 36, "player_tov": 16, "team_tov": 0},
+    },
+)
+
+
+def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    db = tmp_db
+    _create_team_box_inputs(db, {"002SYN0001": _REGULATION_GAME})
 
     result = dbt_runner.run_model(model="team_game_stats")
     rows = db.execute_sql(
         """
-        SELECT team_id, pts, opp_pts, margin, is_win, off_rtg, def_rtg, net_rtg
+        SELECT team_id, pts, opp_pts, margin, is_win, tov, off_rtg, def_rtg, net_rtg
         FROM gold.team_game_stats
         ORDER BY team_id
         """
     )
 
+    # Basketball-Reference's possession estimate (87.66 for both teams), with
+    # team 10's shot-clock turnover that has no player counted.
     assert result["rows_written"] == 2
     assert rows == [
         {
@@ -496,9 +495,10 @@ def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
             "opp_pts": 90,
             "margin": 10,
             "is_win": True,
-            "off_rtg": 110.1,
+            "tov": 13,
+            "off_rtg": 114.1,
             "def_rtg": 102.7,
-            "net_rtg": 7.4,
+            "net_rtg": 11.4,
         },
         {
             "team_id": 20,
@@ -506,10 +506,76 @@ def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
             "opp_pts": 100,
             "margin": -10,
             "is_win": False,
+            "tov": 14,
             "off_rtg": 102.7,
-            "def_rtg": 110.1,
-            "net_rtg": -7.4,
+            "def_rtg": 114.1,
+            "net_rtg": -11.4,
         },
+    ]
+
+
+def test_four_factors_use_season_possessions_team_minutes_and_team_turnovers(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    db = tmp_db
+    _create_team_box_inputs(db, {"002SYN0001": _REGULATION_GAME, "002SYN0002": _OVERTIME_GAME})
+
+    dbt_runner.run_model(model="team_game_stats")
+    dbt_runner.run_model(model="team_season_four_factors")
+    row = db.execute_sql(
+        """
+        SELECT pace, off_rtg, def_rtg, net_rtg, off_tov_pct, def_tov_pct, tov_per_game
+        FROM gold.team_season_four_factors
+        WHERE team_id = 10
+        """
+    )[0]
+
+    # 193.23 possessions from season totals over 505 team minutes (one overtime
+    # game): pace = 48 * 193.23 / (505 / 5); ratings are per 100 of them.
+    assert {key: float(value) for key, value in row.items()} == {
+        "pace": 91.8,
+        "off_rtg": 113.9,
+        "def_rtg": 106.1,
+        "net_rtg": 7.8,
+        "off_tov_pct": 12.6,
+        "def_tov_pct": 14.1,
+        "tov_per_game": 14.0,
+    }
+
+
+def test_starter_and_bench_points_per_team_game_add_up_to_team_ppg(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    db = tmp_db
+    # Two games: five starters with 20 points each; three bench players with
+    # 10 each in game 1, one with 4 in game 2. Team ppg is (130 + 104) / 2 = 117.
+    db.execute(
+        """
+        CREATE TABLE silver.fct_boxscores AS
+        SELECT game_id, 10 AS team_id, started, 20.0 AS minutes, pts,
+               0 AS reb, 0 AS ast, 0 AS fgm, 0 AS fga, 0 AS fta, 0 AS plus_minus
+        FROM (VALUES ('0029900001', TRUE, 20), ('0029900002', TRUE, 20),
+                     ('0029900001', FALSE, 10), ('0029900002', FALSE, 4)) AS t(game_id, started, pts),
+             (VALUES (1), (2), (3), (4), (5)) AS players(n)
+        WHERE started OR n <= CASE WHEN game_id = '0029900001' THEN 3 ELSE 1 END
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE silver.fct_games AS
+        SELECT * FROM (VALUES ('0029900001', '2099-00', 'regular_season'),
+                              ('0029900002', '2099-00', 'regular_season')) AS t(game_id, season, game_type)
+        """
+    )
+
+    dbt_runner.run_model(model="team_season_starter_bench_stats")
+    rows = db.execute_sql(
+        "SELECT role, ppg, pts_per_team_game FROM gold.team_season_starter_bench_stats ORDER BY role"
+    )
+
+    assert [(row["role"], float(row["ppg"]), float(row["pts_per_team_game"])) for row in rows] == [
+        ("bench", 8.5, 17.0),
+        ("starter", 20.0, 100.0),
     ]
 
 
@@ -555,7 +621,7 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "away_team_id": [2, 2],
         "season": ["2025-26", "2026-27"],
     })
-    team_log = pl.DataFrame({
+    team_ratings = pl.DataFrame({
         "team_id": [2, 2],
         "season": ["2025-26", "2026-27"],
         "def_rtg": [100.0, 120.0],
@@ -573,7 +639,7 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
     })
 
     adjusted, league_avg = build_adjusted_stats(
-        player_games=player_games, team_log=team_log, fct_games=games
+        player_games=player_games, team_ratings=team_ratings, fct_games=games
     )
 
     by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
@@ -585,14 +651,14 @@ def test_adjusted_net_rating_weights_games_by_minutes():
     from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
 
     games = pl.DataFrame({"game_id": ["g1", "g2"], "home_team_id": [1, 1], "away_team_id": [2, 2], "season": ["2025-26"] * 2})
-    team_log = pl.DataFrame({"team_id": [2], "season": ["2025-26"], "def_rtg": [110.0]})
+    team_ratings = pl.DataFrame({"team_id": [2], "season": ["2025-26"], "def_rtg": [110.0]})
     # A full game at +10 and a two-minute stint at -50.
     player_games = pl.DataFrame({
         "player_id": [7, 7], "game_id": ["g1", "g2"], "team_id": [1, 1], "minutes": [30.0, 2.0],
         "pts": [20.0, 0.0], "fga": [15, 0], "fta": [4, 0], "ts_pct": [0.6, None], "net_rating": [10.0, -50.0],
     })
 
-    adjusted, _ = build_adjusted_stats(player_games=player_games, team_log=team_log, fct_games=games)
+    adjusted, _ = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
     assert adjusted["adj_net_rtg"][0] == round((10.0 * 30 - 50.0 * 2) / 32, 1)
     assert adjusted["adj_ts_pct"][0] == 0.6

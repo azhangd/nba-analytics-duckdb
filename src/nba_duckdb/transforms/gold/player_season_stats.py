@@ -12,13 +12,12 @@ def build_player_season_stats_frame(
     *,
     base: pl.DataFrame,
     player_games: pl.DataFrame,
-    team_games: pl.DataFrame,
     games: pl.DataFrame,
     four_factors: pl.DataFrame,
 ) -> pl.DataFrame:
     adjusted, _league_avg_def_rtg = build_adjusted_stats(
         player_games=player_games,
-        team_log=team_games,
+        team_ratings=four_factors,
         fct_games=games,
     )
     bpm_vorp, _league_avg_pace = build_bpm_vorp(

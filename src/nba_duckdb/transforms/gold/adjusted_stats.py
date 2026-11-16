@@ -20,21 +20,21 @@ def empty_adjusted_stats() -> pl.DataFrame:
 def build_adjusted_stats(
     *,
     player_games: pl.DataFrame,
-    team_log: pl.DataFrame,
+    team_ratings: pl.DataFrame,
     fct_games: pl.DataFrame,
 ) -> tuple[pl.DataFrame, float]:
-    if player_games.is_empty() or team_log.is_empty() or fct_games.is_empty():
+    """`team_ratings` has one row per team-season with its season `def_rtg`."""
+    if player_games.is_empty() or team_ratings.is_empty() or fct_games.is_empty():
         return empty_adjusted_stats(), _LEAGUE_AVG_DEF_RTG
 
-    valid_rtg = team_log.filter(pl.col("def_rtg").is_not_null() & (pl.col("def_rtg") > 80))
+    valid_rtg = team_ratings.filter(pl.col("def_rtg").is_not_null() & (pl.col("def_rtg") > 80))
     league_avg = valid_rtg["def_rtg"].mean() if not valid_rtg.is_empty() else _LEAGUE_AVG_DEF_RTG
 
     games_slim = fct_games.select(["game_id", "home_team_id", "away_team_id", "season"])
     team_def_rtg = (
-        team_log
+        team_ratings
         .filter(pl.col("def_rtg").is_not_null())
-        .group_by(["team_id", "season"])
-        .agg(pl.col("def_rtg").mean().alias("season_def_rtg"))
+        .select(["team_id", "season", pl.col("def_rtg").alias("season_def_rtg")])
     )
 
     pgs = player_games.join(games_slim, on="game_id", how="left")
