@@ -17,6 +17,7 @@ All silver and gold tables with key columns. Bronze tables are excluded because 
 ## Notes
 
 - Silver tables include every game type (preseason, regular season, All-Star, playoffs, play-in and NBA Cup), which you can find in `fct_games.game_type`. Gold tables only count regular-season games.
+- `fct_games.is_neutral` marks games where neither team is at home, such as NBA Cup games in Las Vegas and games abroad. They count in every stat except home/away splits, and `team_game_elo_history.is_home` is empty for them.
 - `player_season_stats` has one row per player per season, so a traded player is listed under the team they played the most games for, counting only games they got into. A tie goes to the team they played for last.
 - In `player_season_stats`, `avg_usg_pct` is season usage as a fraction (0.25 means 25%), worked out from the player's season totals and their team's totals in the games they played, as Basketball-Reference does. Team turnovers come from play-by-play, so it is NULL if any of those games has no play-by-play.
 - `fg_shoot_pct` and `fg3_shoot_pct` only rank players with at least 100 attempts (FGA or 3PA) in the season, and are NULL below that, the same way `avg_ts_pct` needs 20 shots and free throws. At 100 attempts, chance alone moves a shooting percentage by about 5 points (one standard deviation), which is about how far FG% varies between regular players.

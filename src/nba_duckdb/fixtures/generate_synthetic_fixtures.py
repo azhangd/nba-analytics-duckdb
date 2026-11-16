@@ -16,6 +16,8 @@ SECOND_GAME_ID = "002SYN0002"
 HOME_TEAM_ID = TEAM_IDS[0]
 AWAY_TEAM_ID = TEAM_IDS[1]
 GAME_COUNT = 44
+# One game is played at a neutral site, like an NBA Cup semifinal.
+NEUTRAL_GAME_INDEX = GAME_COUNT - 1
 PLAYERS_PER_TEAM = 8
 
 
@@ -90,6 +92,7 @@ def _schedule_game(index: int) -> dict:
         "gameStatus": 3,
         "gameStatusText": "Final",
         "season": SEASON,
+        "isNeutral": index == NEUTRAL_GAME_INDEX,
         "homeTeam": _team_payload(TEAMS[home_index], home_score),
         "awayTeam": _team_payload(TEAMS[away_index], away_score),
     }

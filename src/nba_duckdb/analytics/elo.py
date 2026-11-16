@@ -8,8 +8,8 @@ Based on FiveThirtyEight's NBA Elo methodology:
   - Autocorrelation correction (favorites expected to win by more)
 - Win probability: 1 / (1 + 10^(-elo_diff/400))
 
-Additionally computes projected record by simulating remaining schedule
-using pairwise Elo-based win probabilities.
+Additionally projects each team's 82-game record: Elo win probabilities for
+the scheduled remaining games, and even odds for games not yet scheduled.
 """
 
 # Default starting Elo for all teams
@@ -24,14 +24,19 @@ K = 20.0
 # 55.4%, about 38 points between even teams.
 HOME_ADVANTAGE = 50.0
 
+REGULAR_SEASON_GAMES = 82
 
-def _home_adjusted_diff(elo_a: float, elo_b: float, a_is_home: bool) -> float:
-    # Every game has a home team: the edge goes to A when A is home, else to B.
+
+def _home_adjusted_diff(elo_a: float, elo_b: float, a_is_home: bool | None) -> float:
+    # The edge goes to A when A is home, to B when B is home, and to nobody at a
+    # neutral site (a_is_home is None), such as the NBA Cup semifinals in Las Vegas.
+    if a_is_home is None:
+        return elo_a - elo_b
     return elo_a - elo_b + (HOME_ADVANTAGE if a_is_home else -HOME_ADVANTAGE)
 
 
-def win_probability(elo_a: float, elo_b: float, *, a_is_home: bool) -> float:
-    """Probability that team A beats team B; the home team is A or else B."""
+def win_probability(elo_a: float, elo_b: float, *, a_is_home: bool | None) -> float:
+    """Probability that team A beats team B; a_is_home is None at a neutral site."""
     diff = _home_adjusted_diff(elo_a, elo_b, a_is_home)
     return 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
 
@@ -58,9 +63,9 @@ def update_elo(
     loser_elo: float,
     margin: int,
     *,
-    winner_home: bool,
+    winner_home: bool | None,
 ) -> tuple[float, float]:
-    """Update Elo ratings after a game.
+    """Update Elo ratings after a game; winner_home is None at a neutral site.
 
     Returns (new_winner_elo, new_loser_elo).
     """
@@ -82,26 +87,38 @@ def project_record(
     remaining_games: list[dict],
     all_elos: dict[int, float],
 ) -> dict:
-    """Project final record based on current Elo and remaining schedule.
+    """Project the 82-game record from current Elo and the remaining schedule.
+
+    Games not on the schedule yet (NBA Cup knockout and makeup games) count as
+    even odds, half a win each.
 
     Args:
         team_elo: This team's current Elo
         current_wins: Wins so far
         current_losses: Losses so far
-        remaining_games: List of {opponent_id, home} for unplayed games
+        remaining_games: List of {opponent_id, home} for scheduled unplayed games;
+            home is None at a neutral site
         all_elos: Dict of team_id -> current Elo for all teams
 
     Returns:
-        {projected_wins, projected_losses, win_pct, remaining_expected_wins}
+        {projected_wins, projected_losses, win_pct, remaining_expected_wins,
+        remaining_games, unscheduled_games}
     """
+    unscheduled_games = REGULAR_SEASON_GAMES - current_wins - current_losses - len(remaining_games)
+    if unscheduled_games < 0:
+        raise ValueError(
+            f"{current_wins + current_losses} played and {len(remaining_games)} scheduled games "
+            f"is more than {REGULAR_SEASON_GAMES}"
+        )
     expected_remaining = 0.0
     for game in remaining_games:
-        opp_elo = all_elos.get(game["opponent_id"], DEFAULT_ELO)
+        opp_elo = all_elos[game["opponent_id"]]
         wp = win_probability(team_elo, opp_elo, a_is_home=game["home"])
         expected_remaining += wp
+    expected_remaining += 0.5 * unscheduled_games
 
     proj_wins = current_wins + expected_remaining
-    proj_losses = current_losses + (len(remaining_games) - expected_remaining)
+    proj_losses = current_losses + (len(remaining_games) + unscheduled_games - expected_remaining)
     total = proj_wins + proj_losses
 
     return {
@@ -110,4 +127,5 @@ def project_record(
         "win_pct": round(proj_wins / total, 3) if total > 0 else 0.5,
         "remaining_expected_wins": round(expected_remaining, 1),
         "remaining_games": len(remaining_games),
+        "unscheduled_games": unscheduled_games,
     }

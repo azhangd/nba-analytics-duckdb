@@ -20,6 +20,7 @@ TEAM_SEASON_ELO = (
     "projected_losses",
     "projected_win_pct",
     "remaining_games",
+    "unscheduled_games",
     "win_pct",
 )
 
@@ -106,11 +107,14 @@ def build_team_elo_rows(
 
             margin = abs(home_score - away_score)
             home_won = home_score > away_score
+            # At a neutral site neither team gets the home edge, or counts as home.
+            home_side = None if game["is_neutral"] else True
+            away_side = None if game["is_neutral"] else False
             home_before = elos[home_id]
             away_before = elos[away_id]
             if home_won:
                 new_winner, new_loser = update_elo(
-                    elos[home_id], elos[away_id], margin, winner_home=True
+                    elos[home_id], elos[away_id], margin, winner_home=home_side
                 )
                 elos[home_id] = new_winner
                 elos[away_id] = new_loser
@@ -118,7 +122,7 @@ def build_team_elo_rows(
                 records[away_id]["losses"] += 1
             else:
                 new_winner, new_loser = update_elo(
-                    elos[away_id], elos[home_id], margin, winner_home=False
+                    elos[away_id], elos[home_id], margin, winner_home=away_side
                 )
                 elos[away_id] = new_winner
                 elos[home_id] = new_loser
@@ -129,11 +133,11 @@ def build_team_elo_rows(
             away_after = elos[away_id]
             game_id = game.get("game_id")
             game_date = game.get("game_date")
-            for team_id, opp_id, before, after, opp_before, opp_after, is_home in (
-                (home_id, away_id, home_before, home_after, away_before, away_after, True),
-                (away_id, home_id, away_before, away_after, home_before, home_after, False),
+            for team_id, opp_id, before, after, opp_before, opp_after, is_home, listed_home in (
+                (home_id, away_id, home_before, home_after, away_before, away_after, home_side, True),
+                (away_id, home_id, away_before, away_after, home_before, home_after, away_side, False),
             ):
-                won = (is_home and home_won) or (not is_home and not home_won)
+                won = home_won if listed_home else not home_won
                 signed_margin = margin if won else -margin
                 history_rows.append({
                     "team_id": team_id,
@@ -158,10 +162,15 @@ def build_team_elo_rows(
         for game in scheduled.iter_rows(named=True):
             home_id = game.get("home_team_id")
             away_id = game.get("away_team_id")
-            if home_id and home_id in remaining_by_team:
-                remaining_by_team[home_id].append({"opponent_id": away_id, "home": True})
-            if away_id and away_id in remaining_by_team:
-                remaining_by_team[away_id].append({"opponent_id": home_id, "home": False})
+            # A team id of 0 means the teams aren't known yet, like an NBA Cup
+            # knockout game; the projection counts it among the unscheduled games.
+            if not home_id or not away_id:
+                continue
+            neutral = game["is_neutral"]
+            if home_id in remaining_by_team:
+                remaining_by_team[home_id].append({"opponent_id": away_id, "home": None if neutral else True})
+            if away_id in remaining_by_team:
+                remaining_by_team[away_id].append({"opponent_id": home_id, "home": None if neutral else False})
 
         for team_id in sorted(all_team_ids):
             rec = records[team_id]
@@ -177,7 +186,10 @@ def build_team_elo_rows(
                 projected_losses = projection["projected_losses"]
                 projected_win_pct = projection["win_pct"]
             else:
-                projection = {"remaining_games": len(remaining_by_team.get(team_id, []))}
+                projection = {
+                    "remaining_games": len(remaining_by_team.get(team_id, [])),
+                    "unscheduled_games": None,
+                }
                 projected_wins = None
                 projected_losses = None
                 projected_win_pct = None
@@ -198,6 +210,7 @@ def build_team_elo_rows(
                 "projected_losses": projected_losses,
                 "projected_win_pct": projected_win_pct,
                 "remaining_games": projection["remaining_games"],
+                "unscheduled_games": projection["unscheduled_games"],
                 "win_pct": win_pct,
             })
 

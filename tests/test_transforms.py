@@ -182,8 +182,8 @@ def test_elo_history_runs_in_calendar_order_across_new_year(tmp_db):
         "bronze",
         "schedule",
         [
-            schedule_row(game_id="0029900002", game_date="01/02/2100 00:00:00", raw_json='{"homeTeam": {"score": 110}, "awayTeam": {"score": 100}}'),
-            schedule_row(game_id="0029900001", game_date="10/30/2099 00:00:00", raw_json='{"homeTeam": {"score": 100}, "awayTeam": {"score": 90}}'),
+            schedule_row(game_id="0029900002", game_date="01/02/2100 00:00:00", raw_json='{"isNeutral": false, "homeTeam": {"score": 110}, "awayTeam": {"score": 100}}'),
+            schedule_row(game_id="0029900001", game_date="10/30/2099 00:00:00", raw_json='{"isNeutral": false, "homeTeam": {"score": 100}, "awayTeam": {"score": 90}}'),
         ],
     )
 
@@ -200,6 +200,27 @@ def test_elo_history_runs_in_calendar_order_across_new_year(tmp_db):
     assert [row["game_date"] for row in rows] == ["2099-10-30", "2100-01-02"]
     assert rows[0]["elo_before"] == 1500.0
     assert rows[1]["elo_before"] > 1500.0
+
+
+def test_neutral_site_game_gives_neither_team_the_home_edge(tmp_db):
+    from nba_duckdb.analytics.elo import K, mov_multiplier
+    from nba_duckdb.dbt_runner import run_dbt_command
+
+    tmp_db.insert_rows(
+        "bronze",
+        "schedule",
+        [schedule_row(raw_json='{"isNeutral": true, "homeTeam": {"score": 110}, "awayTeam": {"score": 100}}')],
+    )
+
+    run_dbt_command(["build", "--select", "+team_game_elo_history"])
+    game = tmp_db.execute_sql("SELECT is_neutral FROM silver.fct_games")[0]
+    rows = tmp_db.execute_sql("SELECT is_home, elo_delta FROM gold.team_game_elo_history ORDER BY elo_delta")
+
+    assert game["is_neutral"] is True
+    assert [row["is_home"] for row in rows] == [None, None]
+    # Two even teams and no home edge: the winner was a 50% favourite.
+    shift = K * mov_multiplier(10, 0) * 0.5
+    assert [row["elo_delta"] for row in rows] == [round(-shift, 2), round(shift, 2)]
 
 
 def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
