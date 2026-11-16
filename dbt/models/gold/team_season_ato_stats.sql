@@ -13,8 +13,8 @@ WITH timeouts AS (
             - COALESCE(NULLIF(REGEXP_REPLACE(CAST(pbp.score_away AS TEXT), '[^0-9-]', '', 'g'), '')::INTEGER, 0)
         ) AS score_margin,
         CASE
-            WHEN pbp.period > 4 THEN 1
-            WHEN pbp.period = 4
+            -- Clutch: the last 5 minutes of the 4th or any overtime with a margin of 5 or less.
+            WHEN pbp.period >= 4
               AND COALESCE(pbp.clock_seconds_remaining, 9999) <= 300
               AND ABS(
                     COALESCE(NULLIF(REGEXP_REPLACE(CAST(pbp.score_home AS TEXT), '[^0-9-]', '', 'g'), '')::INTEGER, 0)

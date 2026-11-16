@@ -118,7 +118,9 @@ def parse_possessions(
         possession.pop("has_offense_action")
         offense = possession["offense_team_id"]
         possession["score_margin"] = -raw_margin if offense == away_team_id else raw_margin
-        possession["is_garbage_time"] = _is_garbage_time(possession["period"], clock, score_home - score_away)
+        possession["is_garbage_time"] = _is_garbage_time(
+            possession["period"], possession["start_clock_seconds"], raw_margin
+        )
         possessions.append(possession)
 
     for row in events.iter_rows(named=True):
@@ -135,6 +137,10 @@ def parse_possessions(
             score_home, score_away = parsed_home, parsed_away
 
         if action_type == "period" and sub_type == "start":
+            # Technical free throws between periods come before the period start; the
+            # substitutions there are not a possession.
+            if current is not None and current["has_offense_action"]:
+                close_possession(current, clock, "end_period")
             current = None
             continue
         if current is None:

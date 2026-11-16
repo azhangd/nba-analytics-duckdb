@@ -1521,6 +1521,90 @@ def test_timeout_stats_skip_coach_challenges(tmp_db):
     assert tmp_db.execute("SELECT total_timeouts FROM gold.team_season_timeout_stats")[0]["total_timeouts"] == 2
 
 
+def test_player_clutch_stats_use_the_score_before_each_play(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    game_ids = ["0029900001", "0029900002"]
+    tmp_db.insert_rows("silver", "fct_games", [{"game_id": game_id, "season": "2099-00"} for game_id in game_ids])
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, period INTEGER, action_id BIGINT, "
+        "clock_seconds_remaining DOUBLE, player_id INTEGER, player_name TEXT, team_id INTEGER, action_type TEXT, "
+        "sub_type TEXT, description TEXT, shot_result TEXT, is_field_goal BOOLEAN, score_home TEXT, score_away TEXT)"
+    )
+    # Down 6, player 1's layup makes it 4: not clutch. Down 4, player 2's 3 makes it 7: clutch.
+    plays = [
+        (None, None, "", False, "94", "100"),
+        (1, 100, "2pt", True, "96", "100"),
+        (2, 200, "3pt", True, "96", "103"),
+    ]
+    tmp_db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            {"game_id": game_id, "period": 4, "action_id": action_id, "clock_seconds_remaining": 60.0 - action_id,
+             "player_id": player_id, "player_name": f"Player {player_id}", "team_id": team_id,
+             "action_type": action_type, "sub_type": "", "description": action_type.upper(), "shot_result": "Made",
+             "is_field_goal": is_field_goal, "score_home": score_home, "score_away": score_away}
+            for game_id in game_ids
+            for action_id, (player_id, team_id, action_type, is_field_goal, score_home, score_away) in enumerate(plays)
+        ],
+    )
+
+    dbt_runner.run_model(model="player_season_clutch_stats")
+
+    rows = tmp_db.execute("SELECT player_id, points FROM gold.player_season_clutch_stats")
+    assert rows == [{"player_id": 2, "points": 6}]
+
+
+def test_overtime_ato_is_clutch_only_within_five_points(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    margins = {"0029900001": 10, "0029900002": 3}
+    tmp_db.insert_rows("silver", "fct_games", [{"game_id": game_id, "season": "2099-00"} for game_id in margins])
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, action_number INTEGER, period INTEGER, "
+        "clock_seconds_remaining DOUBLE, team_id INTEGER, action_type TEXT, sub_type TEXT, shot_result TEXT, "
+        "score_home TEXT, score_away TEXT)"
+    )
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_possessions (game_id TEXT, possession_number INTEGER, period INTEGER, "
+        "start_clock_seconds DOUBLE, end_clock_seconds DOUBLE, end_type TEXT, is_garbage_time BOOLEAN)"
+    )
+    # Team 1 calls a timeout in overtime, then scores on the next possession.
+    tmp_db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            row
+            for game_id, margin in margins.items()
+            for row in (
+                {"game_id": game_id, "action_number": 1, "period": 5, "clock_seconds_remaining": 200.0, "team_id": 1,
+                 "action_type": "timeout", "sub_type": "full", "shot_result": "",
+                 "score_home": str(100 + margin), "score_away": "100"},
+                {"game_id": game_id, "action_number": 2, "period": 5, "clock_seconds_remaining": 190.0, "team_id": 1,
+                 "action_type": "2pt", "sub_type": "", "shot_result": "Made",
+                 "score_home": str(102 + margin), "score_away": "100"},
+            )
+        ],
+    )
+    tmp_db.insert_rows(
+        "silver",
+        "fct_possessions",
+        [
+            {"game_id": game_id, "possession_number": 1, "period": 5, "start_clock_seconds": 200.0,
+             "end_clock_seconds": 190.0, "end_type": "made_2", "is_garbage_time": False}
+            for game_id in margins
+        ],
+    )
+
+    dbt_runner.run_model(model="team_season_ato_stats")
+
+    row = tmp_db.execute("SELECT offensive_ato_possessions, clutch_ato_possessions FROM gold.team_season_ato_stats")[0]
+    assert (row["offensive_ato_possessions"], row["clutch_ato_possessions"]) == (2, 1)
+
+
 def test_bpm_is_centered_on_each_teams_rating():
     import polars as pl
 
