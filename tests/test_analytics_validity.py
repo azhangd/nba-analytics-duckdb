@@ -1688,7 +1688,7 @@ def test_overtime_ato_is_clutch_only_within_five_points(tmp_db):
     margins = {"0029900001": 10, "0029900002": 3}
     tmp_db.insert_rows("silver", "fct_games", [{"game_id": game_id, "season": "2099-00"} for game_id in margins])
     tmp_db.execute(
-        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, action_number INTEGER, period INTEGER, "
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, action_id BIGINT, period INTEGER, "
         "clock_seconds_remaining DOUBLE, team_id INTEGER, action_type TEXT, sub_type TEXT, shot_result TEXT, "
         "score_home TEXT, score_away TEXT)"
     )
@@ -1704,10 +1704,10 @@ def test_overtime_ato_is_clutch_only_within_five_points(tmp_db):
             row
             for game_id, margin in margins.items()
             for row in (
-                {"game_id": game_id, "action_number": 1, "period": 5, "clock_seconds_remaining": 200.0, "team_id": 1,
+                {"game_id": game_id, "action_id": 1, "period": 5, "clock_seconds_remaining": 200.0, "team_id": 1,
                  "action_type": "timeout", "sub_type": "full", "shot_result": "",
                  "score_home": str(100 + margin), "score_away": "100"},
-                {"game_id": game_id, "action_number": 2, "period": 5, "clock_seconds_remaining": 190.0, "team_id": 1,
+                {"game_id": game_id, "action_id": 2, "period": 5, "clock_seconds_remaining": 190.0, "team_id": 1,
                  "action_type": "2pt", "sub_type": "", "shot_result": "Made",
                  "score_home": str(102 + margin), "score_away": "100"},
             )
@@ -1727,3 +1727,51 @@ def test_overtime_ato_is_clutch_only_within_five_points(tmp_db):
 
     row = tmp_db.execute("SELECT offensive_ato_possessions, clutch_ato_possessions FROM gold.team_season_ato_stats")[0]
     assert (row["offensive_ato_possessions"], row["clutch_ato_possessions"]) == (2, 1)
+
+
+def test_ato_follows_play_order_not_the_nba_event_number(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    tmp_db.insert_rows("silver", "fct_games", [{"game_id": "0029900001", "season": "2099-00"}])
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, action_id BIGINT, action_number INTEGER, period INTEGER, "
+        "clock_seconds_remaining DOUBLE, team_id INTEGER, action_type TEXT, sub_type TEXT, shot_result TEXT, "
+        "score_home TEXT, score_away TEXT)"
+    )
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_possessions (game_id TEXT, possession_number INTEGER, period INTEGER, "
+        "start_clock_seconds DOUBLE, end_clock_seconds DOUBLE, end_type TEXT, is_garbage_time BOOLEAN)"
+    )
+    # Team 2 scores, team 1 calls a timeout, then team 1 scores. The NBA logged team 2's basket late, so its
+    # event number (4) is higher than the timeout's (3); play order (action_id) puts it before the timeout.
+    plays = [
+        (1, 4, 100.0, 2, "2pt", "Made", "0", "2"),
+        (2, 3, 100.0, 1, "timeout", "", "0", "2"),
+        (3, 5, 95.0, 1, "2pt", "Made", "2", "2"),
+    ]
+    tmp_db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            {"game_id": "0029900001", "action_id": action_id, "action_number": action_number, "period": 2,
+             "clock_seconds_remaining": clock, "team_id": team_id, "action_type": action_type,
+             "sub_type": "full" if action_type == "timeout" else "", "shot_result": shot_result,
+             "score_home": score_home, "score_away": score_away}
+            for action_id, action_number, clock, team_id, action_type, shot_result, score_home, score_away in plays
+        ],
+    )
+    tmp_db.insert_rows(
+        "silver",
+        "fct_possessions",
+        [{"game_id": "0029900001", "possession_number": 2, "period": 2, "start_clock_seconds": 100.0,
+          "end_clock_seconds": 95.0, "end_type": "made_2", "is_garbage_time": False}],
+    )
+
+    dbt_runner.run_model(model="team_season_ato_stats")
+
+    row = tmp_db.execute(
+        "SELECT offensive_ato_possessions, offensive_ato_points, defensive_ato_possessions "
+        "FROM gold.team_season_ato_stats WHERE team_id = 1"
+    )[0]
+    assert (row["offensive_ato_possessions"], row["offensive_ato_points"], row["defensive_ato_possessions"]) == (1, 2, 0)
