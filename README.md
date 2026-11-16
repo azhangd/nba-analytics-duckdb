@@ -23,26 +23,6 @@ You'll need Python 3.11+ and [uv](https://docs.astral.sh/uv/).
     cd nba-analytics-duckdb
     make install-live
 
-## Trying it out
-
-The repo ships with a fake season (made-up teams and players) so you can see
-everything work without touching the NBA's servers:
-
-    $ uv run nba-duckdb run-smoke
-
-That writes `data/warehouse/smoke.duckdb`. Open it with the
-[DuckDB CLI](https://duckdb.org/docs/installation/) and poke around:
-
-    $ duckdb data/warehouse/smoke.duckdb
-    D SELECT player_name, ppg, rpg, apg FROM gold.player_season_stats ORDER BY ppg DESC LIMIT 3;
-    ┌──────────────┬────────┬────────┬────────┐
-    │ player_name  │  ppg   │  rpg   │  apg   │
-    ├──────────────┼────────┼────────┼────────┤
-    │ Harper Cove  │   26.0 │    5.0 │    4.8 │
-    │ Harper Drift │   25.0 │    5.0 │    4.0 │
-    │ Harper Arc   │   25.0 │    5.0 │    4.6 │
-    └──────────────┴────────┴────────┴────────┘
-
 ## Loading a real season
 
     $ uv run nba-duckdb run-live --season 2026-27
