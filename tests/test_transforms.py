@@ -562,6 +562,7 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "minutes": [30.0, 30.0],
         "pts": [22.0, 22.0],
         "fga": [15, 15],
+        "fta": [4, 4],
         "ts_pct": [0.6, 0.6],
         "net_rating": [0.0, 0.0],
     })
@@ -573,6 +574,23 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
     by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
     assert by_season["2025-26"] == round(22.0 * league_avg / 100.0, 1)
     assert by_season["2026-27"] == round(22.0 * league_avg / 120.0, 1)
+
+
+def test_adjusted_net_rating_weights_games_by_minutes():
+    from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
+
+    games = pl.DataFrame({"game_id": ["g1", "g2"], "home_team_id": [1, 1], "away_team_id": [2, 2], "season": ["2025-26"] * 2})
+    team_log = pl.DataFrame({"team_id": [2], "season": ["2025-26"], "def_rtg": [110.0]})
+    # A full game at +10 and a two-minute stint at -50.
+    player_games = pl.DataFrame({
+        "player_id": [7, 7], "game_id": ["g1", "g2"], "team_id": [1, 1], "minutes": [30.0, 2.0],
+        "pts": [20.0, 0.0], "fga": [15, 0], "fta": [4, 0], "ts_pct": [0.6, None], "net_rating": [10.0, -50.0],
+    })
+
+    adjusted, _ = build_adjusted_stats(player_games=player_games, team_log=team_log, fct_games=games)
+
+    assert adjusted["adj_net_rtg"][0] == round((10.0 * 30 - 50.0 * 2) / 32, 1)
+    assert adjusted["adj_ts_pct"][0] == 0.6
 
 
 MATCHUP_HEADERS = ["SEASON_ID", "OFF_PLAYER_ID", "OFF_PLAYER_NAME", "DEF_PLAYER_ID", "DEF_PLAYER_NAME", "MATCHUP_MIN", "PARTIAL_POSS"]
@@ -669,3 +687,48 @@ def test_dim_teams_keeps_only_nba_franchises(tmp_db):
     rows = tmp_db.execute_sql("SELECT team_id FROM silver.dim_teams ORDER BY team_id")
 
     assert [row["team_id"] for row in rows] == [1610612737, 1610612738]
+
+
+def test_margin_buckets_are_symmetric():
+    from nba_duckdb.transforms.gold.team_season_play_type_stats import margin_bucket
+
+    for margin, label in [(0, "tied"), (1, "close"), (5, "close"), (6, "comfortable"), (14, "comfortable"), (15, "big")]:
+        expected = "tied" if label == "tied" else f"up_{label}"
+        assert margin_bucket(margin) == expected
+        assert margin_bucket(-margin) == expected.replace("up_", "down_")
+
+
+def test_play_type_fallbacks_do_not_call_turnovers_isolation():
+    from nba_duckdb.analytics.play_type_classifier import _classify_single
+
+    def play(events, end_type="missed_shot", event_count=2, duration=12.0):
+        return _classify_single(
+            {"events": events, "end_type": end_type, "event_count": event_count, "duration_seconds": duration}
+        )[0]
+
+    assert play("bad pass turnover", end_type="turnover") == "Miscellaneous"
+    assert play("shooting foul", end_type="free_throw") == "Miscellaneous"
+    assert play("pullup jump shot", event_count=6, duration=18.0) == "Isolation"
+    assert play("3pt jump shot") == "Spotup"
+
+
+def test_shot_quality_reads_real_action_labels_and_game_clock():
+    from nba_duckdb.analytics.shot_quality_model import compute_shot_quality
+
+    shots = pl.DataFrame({
+        "shot_zone_basic": ["Restricted Area", "Restricted Area", "Backcourt"],
+        "action_type": ["Dunk Shot", "Jump Shot", "Jump Shot"],
+        "shot_made": [True, True, False],
+        "shot_distance_ft": [1.0, 1.0, 50.0],
+        "period": [1, 1, 2],
+        "minutes_remaining": [5, 5, 0],
+        "seconds_remaining": [0, 0, 1],
+        "shot_type": ["2PT Field Goal", "2PT Field Goal", "3PT Field Goal"],
+    })
+
+    result = compute_shot_quality(shots)
+
+    dunk, jumper, heave = result["expected_fg_pct_heuristic"].to_list()
+    assert dunk == pytest.approx(jumper + 0.30)
+    assert result["is_heave"].to_list() == [False, False, True]
+    assert heave == 0.03

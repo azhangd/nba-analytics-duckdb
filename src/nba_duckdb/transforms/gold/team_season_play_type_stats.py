@@ -30,22 +30,17 @@ TEAM_SEASON_PLAY_TYPE_SPLITS = (
 
 PLAY_TYPE_COLUMNS = list(TEAM_SEASON_PLAY_TYPE_STATS)
 SITUATIONAL_COLUMNS = list(TEAM_SEASON_PLAY_TYPE_SPLITS)
-MARGIN_BUCKETS = [
-    (-100, -15, "down_big"),
-    (-15, -6, "down_comfortable"),
-    (-6, -1, "down_close"),
-    (-1, 1, "tied"),
-    (1, 6, "up_close"),
-    (6, 15, "up_comfortable"),
-    (15, 100, "up_big"),
-]
-
-
 def margin_bucket(margin: int) -> str:
-    for low, high, label in MARGIN_BUCKETS:
-        if low <= margin <= high:
-            return label
-    return "unknown"
+    """Score margin for the offense: tied, close (1-5), comfortable (6-14), big (15+)."""
+    if margin == 0:
+        return "tied"
+    size = abs(margin)
+    side = "up" if margin > 0 else "down"
+    if size <= 5:
+        return f"{side}_close"
+    if size <= 14:
+        return f"{side}_comfortable"
+    return f"{side}_big"
 
 
 def games_with_season(games: pl.DataFrame) -> pl.DataFrame:

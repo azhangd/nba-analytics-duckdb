@@ -335,7 +335,7 @@ def _create_team_feature_matrix_inputs(db):
             team_id INTEGER,
             season TEXT,
             shot_bucket TEXT,
-            freq_pct REAL
+            attempts INTEGER
         )
         """
     )
@@ -747,9 +747,9 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_db):
         "gold",
         "team_season_shot_profile",
         [
-            {"team_id": 100, "season": "2099-00", "shot_bucket": "Paint", "freq_pct": 0.45},
-            {"team_id": 100, "season": "2099-00", "shot_bucket": "3PT", "freq_pct": 0.35},
-            {"team_id": 100, "season": "2099-00", "shot_bucket": "Midrange", "freq_pct": 0.20},
+            {"team_id": 100, "season": "2099-00", "shot_bucket": "paint_2", "attempts": 45},
+            {"team_id": 100, "season": "2099-00", "shot_bucket": "three", "attempts": 35},
+            {"team_id": 100, "season": "2099-00", "shot_bucket": "non_paint_2", "attempts": 20},
         ],
     )
     db.insert_rows(
@@ -812,9 +812,8 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_db):
     assert row["ppg"] == pytest.approx(110.0)
     assert row["l5_wins"] == 1
     assert row["l5_losses"] == 1
-    assert row["l5_net_rtg"] == pytest.approx(3.0)
-    assert row["paint_freq"] == pytest.approx(0.45)
-    assert row["three_freq"] == pytest.approx(0.35)
+    assert row["l5_avg_margin"] == pytest.approx(3.0)
+    assert (row["paint_freq"], row["three_freq"], row["mid_freq"]) == pytest.approx((45.0, 35.0, 20.0))
     assert row["starter_ppg"] == pytest.approx(70.0)
     assert row["bench_ppg"] == pytest.approx(35.0)
     assert row["clutch_ppp"] == pytest.approx(1.12)
@@ -1339,3 +1338,45 @@ def test_shot_profiles_count_only_regular_season_games(tmp_db):
 
     assert db.execute("SELECT SUM(attempts) AS n FROM gold.team_season_shot_profile")[0]["n"] == 1
     assert db.execute("SELECT SUM(attempts) AS n FROM gold.player_season_shot_profile")[0]["n"] == 1
+
+
+def test_team_percentiles_leave_missing_values_unranked(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    def team(team_id, pace):
+        return {
+            "team_id": team_id, "season": "2099-00", "team_abbreviation": f"T{team_id}", "games": 1,
+            "ppg": 100, "opp_ppg": 99, "pace": pace, "off_efg_pct": 50, "off_tov_pct": 12, "off_oreb_pct": 25,
+            "off_ft_rate": 20, "def_efg_pct": 50, "def_tov_pct": 12, "def_oreb_pct": 25, "def_ft_rate": 20,
+        }
+
+    _create_team_season_four_factors(tmp_db)
+    tmp_db.insert_rows("gold", "team_season_four_factors", [team(1, 95.0), team(2, 105.0), team(3, None)])
+
+    dbt_runner.run_model(model="team_season_percentile_ranks")
+    rows = tmp_db.execute("SELECT team_id, pace_pct FROM gold.team_season_percentile_ranks ORDER BY team_id")
+
+    assert [(row["team_id"], row["pace_pct"]) for row in rows] == [(1, 0), (2, 100), (3, None)]
+
+
+def test_timeout_stats_skip_coach_challenges(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(tmp_db)
+    tmp_db.insert_rows("silver", "fct_games", [{"game_id": "0029900001", "season": "2099-00", "game_type": "regular_season"}])
+    tmp_db.execute(
+        "CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, period INTEGER, "
+        "clock_seconds_remaining DOUBLE, action_type TEXT, sub_type TEXT)"
+    )
+    tmp_db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            {"game_id": "0029900001", "team_id": 1, "period": 4, "clock_seconds_remaining": 90.0, "action_type": "timeout", "sub_type": sub_type}
+            for sub_type in ("full", "Regular", "challenge", "Coach Challenge")
+        ],
+    )
+
+    dbt_runner.run_model(model="team_season_timeout_stats")
+
+    assert tmp_db.execute("SELECT total_timeouts FROM gold.team_season_timeout_stats")[0]["total_timeouts"] == 2

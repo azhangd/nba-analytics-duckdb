@@ -22,17 +22,14 @@ K = 20.0
 HOME_ADVANTAGE = 100.0
 
 
-def win_probability(elo_a: float, elo_b: float, home_a: bool = False) -> float:
-    """Probability that team A beats team B.
+def _home_adjusted_diff(elo_a: float, elo_b: float, a_is_home: bool) -> float:
+    # Every game has a home team: the edge goes to A when A is home, else to B.
+    return elo_a - elo_b + (HOME_ADVANTAGE if a_is_home else -HOME_ADVANTAGE)
 
-    Args:
-        elo_a: Team A's current Elo
-        elo_b: Team B's current Elo
-        home_a: True if team A is the home team
-    """
-    diff = elo_a - elo_b
-    if home_a:
-        diff += HOME_ADVANTAGE
+
+def win_probability(elo_a: float, elo_b: float, *, a_is_home: bool) -> float:
+    """Probability that team A beats team B; the home team is A or else B."""
+    diff = _home_adjusted_diff(elo_a, elo_b, a_is_home)
     return 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
 
 
@@ -45,8 +42,9 @@ def mov_multiplier(margin: int, elo_diff: float) -> float:
     # Sublinear margin component: (|margin| + 3)^0.8
     mov_component = (abs(margin) + 3.0) ** 0.8
 
-    # Autocorrelation correction: prevents rating inflation for favorites
-    # elo_diff is winner minus loser (always positive)
+    # Autocorrelation correction: prevents rating inflation for favorites.
+    # elo_diff is winner minus loser with home court; negative for an upset,
+    # which makes the upset count for more.
     autocorr = 7.5 + 0.006 * elo_diff
 
     return mov_component / autocorr
@@ -56,22 +54,17 @@ def update_elo(
     winner_elo: float,
     loser_elo: float,
     margin: int,
-    winner_home: bool = False,
+    *,
+    winner_home: bool,
 ) -> tuple[float, float]:
     """Update Elo ratings after a game.
 
     Returns (new_winner_elo, new_loser_elo).
     """
     # Expected win probability for the winner
-    expected = win_probability(winner_elo, loser_elo, home_a=winner_home)
-
-    # Elo difference (winner - loser, pre-game)
-    elo_diff = winner_elo - loser_elo
-    if winner_home:
-        elo_diff += HOME_ADVANTAGE
-
-    # MOV multiplier
-    mov_mult = mov_multiplier(margin, max(0, elo_diff))
+    expected = win_probability(winner_elo, loser_elo, a_is_home=winner_home)
+    elo_diff = _home_adjusted_diff(winner_elo, loser_elo, winner_home)
+    mov_mult = mov_multiplier(margin, elo_diff)
 
     # Elo shift
     shift = K * mov_mult * (1.0 - expected)
@@ -101,7 +94,7 @@ def project_record(
     expected_remaining = 0.0
     for game in remaining_games:
         opp_elo = all_elos.get(game["opponent_id"], DEFAULT_ELO)
-        wp = win_probability(team_elo, opp_elo, home_a=game.get("home", False))
+        wp = win_probability(team_elo, opp_elo, a_is_home=game["home"])
         expected_remaining += wp
 
     proj_wins = current_wins + expected_remaining

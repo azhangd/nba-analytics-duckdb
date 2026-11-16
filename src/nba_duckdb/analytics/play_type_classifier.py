@@ -168,23 +168,26 @@ def _classify_single(possession: dict) -> tuple[str, float]:
     if _has_any(events_str, ISO_KEYWORDS):
         return "Isolation", 0.7
 
-    # Pull-up with short possession → isolation
+    # A pull-up is a shot off the dribble, never a spot-up.
     if _has_any(events_str, PULLUP_KEYWORDS):
-        if duration <= 10.0 and event_count <= 4:
-            return "Isolation", 0.55
-        return "Spotup", 0.45
+        return "Isolation", 0.55
 
     # Driving plays = isolation/penetration
     if _has_any(events_str, DRIVING_KEYWORDS):
         return "Isolation", 0.55
 
+    # ── 10. Default heuristics ───────────────────────────────────────────
+    # A turnover or a trip to the line without a described shot says nothing
+    # about the play that was run.
+    if possession.get("end_type") in ("turnover", "free_throw"):
+        return "Miscellaneous", 0.2
+
+    if "3pt" in events_str:
+        return "Spotup", 0.3
+
     # Low event count + longer duration = likely ISO
     if event_count <= 3 and duration > 6.0:
         return "Isolation", 0.35
-
-    # ── 10. Default heuristics ───────────────────────────────────────────
-    if "3pt" in events_str:
-        return "Spotup", 0.3
 
     # Note: do NOT default layup/dunk to "Cut" — drives and non-cut rim finishes
     # are far more common than actual cuts, and 0.25 confidence pollutes the data.

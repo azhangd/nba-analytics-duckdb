@@ -26,6 +26,8 @@ WITH timeouts AS (
     FROM {{ ref('fct_play_by_play') }} pbp
     JOIN {{ ref('fct_games') }} fg ON fg.game_id = pbp.game_id
     WHERE LOWER(CAST(pbp.action_type AS TEXT)) LIKE '%timeout%'
+      -- A coach's challenge is charged as a timeout but isn't one.
+      AND LOWER(COALESCE(pbp.sub_type, '')) NOT LIKE '%challenge%'
       AND pbp.team_id IS NOT NULL
       AND pbp.clock_seconds_remaining IS NOT NULL
       AND fg.game_type = 'regular_season'

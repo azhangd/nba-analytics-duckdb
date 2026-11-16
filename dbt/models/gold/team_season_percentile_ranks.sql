@@ -17,18 +17,18 @@ SELECT
     f.team_abbreviation,
     s.comparison_scope,
     s.comparison_team_count,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY off_efg_pct) * 100)::INT AS off_efg_pct_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY off_tov_pct DESC) * 100)::INT AS off_tov_pct_pct,  -- lower TOV% = better
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY off_oreb_pct) * 100)::INT AS off_oreb_pct_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY off_ft_rate) * 100)::INT AS off_ft_rate_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY def_efg_pct DESC) * 100)::INT AS def_efg_pct_pct,  -- lower def eFG% = better
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY def_tov_pct) * 100)::INT AS def_tov_pct_pct,       -- higher forced TOV% = better
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY def_oreb_pct DESC) * 100)::INT AS def_oreb_pct_pct,  -- lower opp OREB% = better
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY def_ft_rate DESC) * 100)::INT AS def_ft_rate_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY pace) * 100)::INT AS pace_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY ppg) * 100)::INT AS ppg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY opp_ppg DESC) * 100)::INT AS opp_ppg_pct,      -- lower opp PPG = better
+    {{ season_percentile('off_efg_pct', 'f.season') }} AS off_efg_pct_pct,
+    {{ season_percentile('off_tov_pct', 'f.season', descending=true) }} AS off_tov_pct_pct,  -- lower TOV% = better
+    {{ season_percentile('off_oreb_pct', 'f.season') }} AS off_oreb_pct_pct,
+    {{ season_percentile('off_ft_rate', 'f.season') }} AS off_ft_rate_pct,
+    {{ season_percentile('def_efg_pct', 'f.season', descending=true) }} AS def_efg_pct_pct,  -- lower def eFG% = better
+    {{ season_percentile('def_tov_pct', 'f.season') }} AS def_tov_pct_pct,       -- higher forced TOV% = better
+    {{ season_percentile('def_oreb_pct', 'f.season', descending=true) }} AS def_oreb_pct_pct,  -- lower opp OREB% = better
+    {{ season_percentile('def_ft_rate', 'f.season', descending=true) }} AS def_ft_rate_pct,
+    {{ season_percentile('pace', 'f.season') }} AS pace_pct,
+    {{ season_percentile('ppg', 'f.season') }} AS ppg_pct,
+    {{ season_percentile('opp_ppg', 'f.season', descending=true) }} AS opp_ppg_pct,      -- lower opp PPG = better
     ppg - opp_ppg AS point_diff,
-    (PERCENT_RANK() OVER (PARTITION BY f.season ORDER BY ppg - opp_ppg) * 100)::INT AS point_diff_pct
+    {{ season_percentile('ppg - opp_ppg', 'f.season') }} AS point_diff_pct
 FROM {{ ref('team_season_four_factors') }} f
 LEFT JOIN season_scope s ON s.season = f.season

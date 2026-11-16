@@ -46,10 +46,10 @@ recent_form AS (
         season,
         SUM(CASE WHEN game_recency <= 5 AND margin > 0 THEN 1 ELSE 0 END) AS l5_wins,
         SUM(CASE WHEN game_recency <= 5 AND margin <= 0 THEN 1 ELSE 0 END) AS l5_losses,
-        ROUND(AVG(CASE WHEN game_recency <= 5 THEN margin END), 1) AS l5_net_rtg,
+        ROUND(AVG(CASE WHEN game_recency <= 5 THEN margin END), 1) AS l5_avg_margin,
         SUM(CASE WHEN game_recency <= 10 AND margin > 0 THEN 1 ELSE 0 END) AS l10_wins,
         SUM(CASE WHEN game_recency <= 10 AND margin <= 0 THEN 1 ELSE 0 END) AS l10_losses,
-        ROUND(AVG(CASE WHEN game_recency <= 10 THEN margin END), 1) AS l10_net_rtg
+        ROUND(AVG(CASE WHEN game_recency <= 10 THEN margin END), 1) AS l10_avg_margin
     FROM team_games_ranked
     GROUP BY team_id, season
 ),
@@ -57,32 +57,9 @@ shot_diet AS (
     SELECT
         team_id,
         season,
-        SUM(
-            CASE
-                WHEN LOWER(shot_bucket) LIKE '%paint%' OR LOWER(shot_bucket) LIKE '%restricted%'
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS paint_freq,
-        SUM(
-            CASE
-                WHEN LOWER(shot_bucket) LIKE '%3pt%' OR LOWER(shot_bucket) LIKE '%three%'
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS three_freq,
-        SUM(
-            CASE
-                WHEN NOT (
-                    LOWER(shot_bucket) LIKE '%paint%'
-                    OR LOWER(shot_bucket) LIKE '%restricted%'
-                    OR LOWER(shot_bucket) LIKE '%3pt%'
-                    OR LOWER(shot_bucket) LIKE '%three%'
-                )
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS mid_freq
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'paint_2') * 100.0 / SUM(attempts), 1) AS paint_freq,
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'three') * 100.0 / SUM(attempts), 1) AS three_freq,
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'non_paint_2') * 100.0 / SUM(attempts), 1) AS mid_freq
     FROM {{ ref('team_season_shot_profile') }}
     GROUP BY team_id, season
 ),
@@ -92,7 +69,6 @@ play_type_mix AS (
         season,
         MAX(CASE WHEN play_type = 'Transition' THEN ROUND(frequency_pct, 3) END) AS transition_freq,
         MAX(CASE WHEN play_type = 'Isolation' THEN ROUND(frequency_pct, 3) END) AS isolation_freq,
-        MAX(CASE WHEN play_type = 'PRBallHandler' THEN ROUND(frequency_pct, 3) END) AS pnr_freq,
         MAX(CASE WHEN play_type = 'Spotup' THEN ROUND(frequency_pct, 3) END) AS spot_up_freq,
         MAX(CASE WHEN play_type = 'Postup' THEN ROUND(frequency_pct, 3) END) AS post_up_freq
     FROM {{ ref('team_season_play_type_stats') }}
@@ -136,16 +112,15 @@ SELECT
     elo.win_pct,
     recent_form.l5_wins,
     recent_form.l5_losses,
-    recent_form.l5_net_rtg,
+    recent_form.l5_avg_margin,
     recent_form.l10_wins,
     recent_form.l10_losses,
-    recent_form.l10_net_rtg,
+    recent_form.l10_avg_margin,
     shot_diet.paint_freq,
     shot_diet.three_freq,
     shot_diet.mid_freq,
     play_type_mix.transition_freq,
     play_type_mix.isolation_freq,
-    play_type_mix.pnr_freq,
     play_type_mix.spot_up_freq,
     play_type_mix.post_up_freq,
     starter_bench.starter_ppg,

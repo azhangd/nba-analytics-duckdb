@@ -60,12 +60,21 @@ def build_adjusted_stats(
 
     adjusted = (
         pgs.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
+        .with_columns((pl.col("fga") + 0.44 * pl.col("fta")).alias("tsa"))
         .group_by(["player_id", "season"])
         .agg([
             pl.col("adj_pts").mean().alias("adj_ppg"),
-            pl.col("adj_ts_pct_raw").drop_nulls().mean().alias("adj_ts_pct"),
-            pl.col("net_rating").mean().alias("adj_net_rtg"),
+            # Weighted like pooled rates: TS% by shooting attempts, net rating by minutes.
+            (pl.col("adj_ts_pct_raw") * pl.col("tsa")).sum().alias("ts_weighted"),
+            pl.col("tsa").filter(pl.col("adj_ts_pct_raw").is_not_null()).sum().alias("ts_weight"),
+            (pl.col("net_rating") * pl.col("minutes")).sum().alias("net_weighted"),
+            pl.col("minutes").filter(pl.col("net_rating").is_not_null()).sum().alias("net_weight"),
         ])
+        .with_columns([
+            pl.when(pl.col("ts_weight") > 0).then(pl.col("ts_weighted") / pl.col("ts_weight")).alias("adj_ts_pct"),
+            pl.when(pl.col("net_weight") > 0).then(pl.col("net_weighted") / pl.col("net_weight")).alias("adj_net_rtg"),
+        ])
+        .drop(["ts_weighted", "ts_weight", "net_weighted", "net_weight"])
         .with_columns([
             pl.col("adj_ppg").cast(pl.Float64, strict=False).round(1),
             pl.col("adj_ts_pct").cast(pl.Float64, strict=False).round(3),

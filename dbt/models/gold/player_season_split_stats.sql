@@ -119,9 +119,9 @@ SELECT
     ROUND(SUM(fg3m) / NULLIF(SUM(fg3a), 0), 3) AS fg3_pct,
     ROUND(SUM(ftm) / NULLIF(SUM(fta), 0), 3) AS ft_pct,
     ROUND(SUM(pts) / NULLIF(2.0 * (SUM(fga) + 0.44 * SUM(fta)), 0), 3) AS ts_pct,
-    ROUND(AVG(usg_pct), 3) AS usg_pct,
+    ROUND({{ minutes_weighted('usg_pct') }}, 3) AS usg_pct,
     ROUND(AVG(plus_minus), 1) AS plus_minus,
-    ROUND(AVG(net_rating), 1) AS net_rating,
+    ROUND({{ minutes_weighted('net_rating') }}, 1) AS net_rating,
     ROUND(AVG(game_score), 1) AS game_score
 FROM split_rows
 WHERE split_value IS NOT NULL
