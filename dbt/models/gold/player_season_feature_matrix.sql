@@ -64,36 +64,13 @@ rolling_latest AS (
     WHERE rn = 1
 ),
 shot_diet AS (
+    -- Shares of the player's attempts across all of his teams that season.
     SELECT
         player_id,
         season,
-        SUM(
-            CASE
-                WHEN LOWER(shot_bucket) LIKE '%paint%' OR LOWER(shot_bucket) LIKE '%restricted%' OR LOWER(shot_bucket) LIKE '%0-3%'
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS paint_freq,
-        SUM(
-            CASE
-                WHEN LOWER(shot_bucket) LIKE '%3pt%' OR LOWER(shot_bucket) LIKE '%three%'
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS three_freq,
-        SUM(
-            CASE
-                WHEN NOT (
-                    LOWER(shot_bucket) LIKE '%paint%'
-                    OR LOWER(shot_bucket) LIKE '%restricted%'
-                    OR LOWER(shot_bucket) LIKE '%0-3%'
-                    OR LOWER(shot_bucket) LIKE '%3pt%'
-                    OR LOWER(shot_bucket) LIKE '%three%'
-                )
-                    THEN COALESCE(freq_pct, 0)
-                ELSE 0
-            END
-        ) AS mid_freq
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'paint_2') * 100.0 / SUM(attempts), 1) AS paint_freq,
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'three') * 100.0 / SUM(attempts), 1) AS three_freq,
+        ROUND(SUM(attempts) FILTER (WHERE shot_bucket = 'non_paint_2') * 100.0 / SUM(attempts), 1) AS mid_freq
     FROM {{ ref('player_season_shot_profile') }}
     GROUP BY player_id, season
 ),
@@ -123,6 +100,7 @@ consistency AS (
     JOIN {{ ref('fct_games') }} AS games
         ON stats.game_id = games.game_id
     WHERE games.game_type = 'regular_season'
+      AND COALESCE(stats.counts_as_gp, stats.minutes > 0)
     GROUP BY stats.player_id, games.season
 )
 SELECT

@@ -32,6 +32,7 @@ WITH base AS (
     JOIN {{ ref('fct_games') }} AS games
         ON stats.game_id = games.game_id
     WHERE games.game_type = 'regular_season'
+      AND COALESCE(stats.counts_as_gp, stats.minutes > 0)
 ),
 rolled AS (
     SELECT

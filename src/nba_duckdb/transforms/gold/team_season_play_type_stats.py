@@ -49,7 +49,12 @@ def margin_bucket(margin: int) -> str:
 
 
 def games_with_season(games: pl.DataFrame) -> pl.DataFrame:
-    return games.select(["game_id", "season"]).unique(subset=["game_id"])
+    """Regular-season games and their season; joined inner so other games drop out."""
+    return (
+        games.filter(pl.col("game_type") == "regular_season")
+        .select(["game_id", "season"])
+        .unique(subset=["game_id"])
+    )
 
 
 def build_play_type_rows(possessions: pl.DataFrame, pbp: pl.DataFrame, games: pl.DataFrame) -> list[dict]:
@@ -58,7 +63,7 @@ def build_play_type_rows(possessions: pl.DataFrame, pbp: pl.DataFrame, games: pl
         return []
     summary = (
         classified
-        .join(games_with_season(games), on="game_id", how="left")
+        .join(games_with_season(games), on="game_id", how="inner")
         .filter(pl.col("play_type") != "")
         .group_by(["offense_team_id", "season", "play_type"])
         .agg(
@@ -89,7 +94,7 @@ def build_situational_play_type_rows(
     classified = (
         classified
         .filter(pl.col("play_type") != "")
-        .join(games_with_season(games), on="game_id", how="left")
+        .join(games_with_season(games), on="game_id", how="inner")
         .with_columns(
             pl.when(pl.col("play_type") == "Transition")
             .then(pl.lit("transition"))

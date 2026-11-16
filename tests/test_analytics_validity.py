@@ -1258,3 +1258,84 @@ def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db):
     assert feature_result["rows_written"] == 2
     assert feature_row["bpm_approx"] == pytest.approx(7.5)
     assert feature_row["vorp_approx"] == pytest.approx(3.1)
+
+
+def test_games_a_player_missed_do_not_count_in_rolling_or_split_stats(tmp_db):
+    db = tmp_db
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(db)
+    _create_player_game_stats(db)
+    db.insert_rows(
+        "silver",
+        "fct_games",
+        [
+            {"game_id": f"002990000{day}", "season": "2099-00", "game_type": "regular_season",
+             "game_date": f"2100-01-0{day}", "home_team_id": 100, "away_team_id": 200,
+             "home_score": 100, "away_score": 90, "status": "Final"}
+            for day in (1, 2, 3)
+        ],
+    )
+    played = {"player_id": 1, "team_id": 100, "player_name": "Synthetic Guard", "counts_as_gp": True,
+              "minutes": 30.0, "pts": 20, "fga": 15, "fta": 2, "game_score": 15.0}
+    db.insert_rows(
+        "gold",
+        "player_game_stats",
+        [
+            {**played, "game_id": "0029900001"},
+            {**played, "game_id": "0029900002", "counts_as_gp": False, "minutes": 0.0, "pts": 0,
+             "fga": 0, "fta": 0, "game_score": 0.0},
+            {**played, "game_id": "0029900003"},
+        ],
+    )
+
+    dbt_runner.run_model(model="player_game_rolling_stats")
+    dbt_runner.run_model(model="player_season_split_stats")
+
+    rolling = db.execute(
+        "SELECT game_id, game_number FROM gold.player_game_rolling_stats ORDER BY game_number"
+    )
+    home = db.execute(
+        "SELECT games, ppg FROM gold.player_season_split_stats WHERE split_value = 'Home'"
+    )[0]
+    assert [(row["game_id"], row["game_number"]) for row in rolling] == [
+        ("0029900001", 1),
+        ("0029900003", 2),
+    ]
+    assert (home["games"], home["ppg"]) == (2, 20.0)
+
+
+def test_shot_profiles_count_only_regular_season_games(tmp_db):
+    db = tmp_db
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(db)
+    db.insert_rows(
+        "silver",
+        "fct_games",
+        [
+            {"game_id": game_id, "season": "2099-00", "game_type": game_type, "game_date": "2100-01-01",
+             "home_team_id": 100, "away_team_id": 200, "status": "Final"}
+            for game_id, game_type in (
+                ("0019900001", "preseason"),
+                ("0029900001", "regular_season"),
+                ("0039900001", "all_star"),
+                ("0049900001", "playoffs"),
+            )
+        ],
+    )
+    db.execute(
+        """
+        CREATE TABLE silver.fct_shots AS
+        SELECT game_id, 1 AS player_id, 'Synthetic Guard' AS player_name, 100 AS team_id,
+               '2099-00' AS season, 'Restricted Area' AS shot_zone_basic, '2PT Field Goal' AS shot_type,
+               TRUE AS shot_made
+        FROM silver.fct_games
+        """
+    )
+
+    dbt_runner.run_model(model="team_season_shot_profile")
+    dbt_runner.run_model(model="player_season_shot_profile")
+
+    assert db.execute("SELECT SUM(attempts) AS n FROM gold.team_season_shot_profile")[0]["n"] == 1
+    assert db.execute("SELECT SUM(attempts) AS n FROM gold.player_season_shot_profile")[0]["n"] == 1
