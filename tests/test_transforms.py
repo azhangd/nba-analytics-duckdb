@@ -212,8 +212,8 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
                 "first_name": "Pat",
                 "last_name": "Coach",
                 "coach_name": "",
-                "is_assistant": 0,
-                "coach_type": "",
+                "is_assistant": 1,
+                "coach_type": "Head Coach",
                 "sort_sequence": 1,
             },
             {
@@ -223,7 +223,7 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
                 "first_name": "Lead",
                 "last_name": "Assistant",
                 "coach_name": "Lead Assistant",
-                "is_assistant": 1,
+                "is_assistant": 2,
                 "coach_type": "Assistant Coach",
                 "sort_sequence": 2,
             },
@@ -234,7 +234,7 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
                 "first_name": "Associate",
                 "last_name": "Head",
                 "coach_name": "Associate Head",
-                "is_assistant": 1,
+                "is_assistant": 9,
                 "coach_type": "Associate Head Coach",
                 "sort_sequence": 3,
             },
@@ -259,9 +259,9 @@ def test_sql_coach_models_shape_dimensions_and_roles(tmp_db):
         {"coach_id": "c3", "full_name": "Associate Head"},
     ]
     assert roles == [
-        {"coach_id": "c1", "role": "head", "coach_type": "", "sort_seq": 1},
+        {"coach_id": "c1", "role": "head", "coach_type": "Head Coach", "sort_seq": 1},
         {"coach_id": "c2", "role": "assistant", "coach_type": "Assistant Coach", "sort_seq": 2},
-        {"coach_id": "c3", "role": "head", "coach_type": "Associate Head Coach", "sort_seq": 3},
+        {"coach_id": "c3", "role": "assistant", "coach_type": "Associate Head Coach", "sort_seq": 3},
     ]
 
 
@@ -573,3 +573,99 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
     by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
     assert by_season["2025-26"] == round(22.0 * league_avg / 100.0, 1)
     assert by_season["2026-27"] == round(22.0 * league_avg / 120.0, 1)
+
+
+MATCHUP_HEADERS = ["SEASON_ID", "OFF_PLAYER_ID", "OFF_PLAYER_NAME", "DEF_PLAYER_ID", "DEF_PLAYER_NAME", "MATCHUP_MIN", "PARTIAL_POSS"]
+
+
+def _matchup_bronze(team_id, direction, pairs):
+    rows = [["22099", off, f"O{off}", dfn, f"D{dfn}", "10:00", 20.0] for off, dfn in pairs]
+    return {
+        "season": "2099-00",
+        "team_id": team_id,
+        "direction": direction,
+        "matchup_json": json.dumps({"resultSets": [{"headers": MATCHUP_HEADERS, "rowSet": rows}]}),
+    }
+
+
+def test_matchups_keep_one_row_per_pair_with_both_team_ids():
+    from nba_duckdb.transforms.silver.enrichment import build_fct_matchup_rows
+
+    # Team 1 attacks team 2. Player 21 was traded, so he defended player 11 for teams 2 and 3.
+    rows = build_fct_matchup_rows([
+        _matchup_bronze(1, "offense", [(11, 20), (11, 21)]),
+        _matchup_bronze(2, "defense", [(11, 20), (11, 21)]),
+        _matchup_bronze(3, "defense", [(11, 21)]),
+    ])
+
+    assert sorted((r["off_player_id"], r["def_player_id"], r["off_team_id"], r["def_team_id"]) for r in rows) == [
+        (11, 20, 1, 2),
+        (11, 21, 1, None),
+    ]
+
+
+def test_defense_play_types_read_the_real_synergy_headers():
+    from nba_duckdb.transforms.silver.enrichment import build_fct_defense_play_type_rows
+
+    headers = ["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "SF_POSS_PCT", "FT_POSS_PCT", "TOV_POSS_PCT", "SCORE_POSS_PCT"]
+    rows = build_fct_defense_play_type_rows([{
+        "season": "2099-00",
+        "player_or_team": "P",
+        "type_grouping": "defensive",
+        "play_type": "Isolation",
+        "defense_json": json.dumps({"resultSets": [{"headers": headers, "rowSet": [[7, "P7", 1, 0.17, 0.18, 0.08, 0.55]]}]}),
+    }])
+
+    assert {k: rows[0][k] for k in ("sfpct", "ft_pct", "to_pct", "score_pct")} == {
+        "sfpct": 0.17, "ft_pct": 0.18, "to_pct": 0.08, "score_pct": 0.55,
+    }
+
+
+def _box(game_date, team_id, player_id, position="F"):
+    player = {"personId": player_id, "firstName": "P", "familyName": str(player_id), "position": position}
+    return {
+        "game_date": game_date,
+        "season": "2099-00",
+        "traditional_json": {"game": {"homeTeam": {"teamId": team_id, "players": [player]}, "awayTeam": {}}},
+    }
+
+
+def test_dim_players_takes_position_and_team_from_the_latest_roster_and_latest_game():
+    from nba_duckdb.transforms.silver.players import build_dim_player_rows
+
+    roster = [
+        {"player_id": 1, "team_id": 10, "player_name": "Traded", "jersey_number": "1", "position": "G-F",
+         "season": "2099-00", "ingested_at": "2099-11-01"},
+        {"player_id": 1, "team_id": 20, "player_name": "Traded", "jersey_number": "1", "position": "G-F",
+         "season": "2099-00", "ingested_at": "2099-12-01"},
+    ]
+    # Player 2 isn't on a roster; his latest game is for team 30. Rows arrive out of date order.
+    boxscores = [
+        _box("01/02/2100 00:00:00", 30, 2),
+        _box("12/30/2099 00:00:00", 40, 2),
+        _box("01/02/2100 00:00:00", 20, 1, position="F"),
+    ]
+
+    players = {row["player_id"]: row for row in build_dim_player_rows(roster, boxscores)}
+
+    assert (players[1]["current_team_id"], players[1]["position"]) == (20, "G-F")
+    assert (players[2]["current_team_id"], players[2]["position"]) == (30, "")
+
+
+def test_dim_teams_keeps_only_nba_franchises(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    tmp_db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            schedule_row(game_id="0029900001"),
+            schedule_row(game_id="0039900001", home_team_id=1610616859, away_team_id=1610616861, home_team_abbr="STR", away_team_abbr="WLD"),
+            schedule_row(game_id="0019900001", home_team_id=1610612737, away_team_id=15016, away_team_abbr="MEL"),
+        ],
+    )
+
+    dbt_runner.run_model(model="dim_teams")
+    rows = tmp_db.execute_sql("SELECT team_id FROM silver.dim_teams ORDER BY team_id")
+
+    assert [row["team_id"] for row in rows] == [1610612737, 1610612738]

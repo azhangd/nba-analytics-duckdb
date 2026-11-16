@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from nba_duckdb.defaults import get_default_season
@@ -39,13 +40,25 @@ def parse_weight_lbs(weight: object) -> int:
     return int(weight_str) if weight_str.isdigit() else 0
 
 
+def _game_day(game_date: object) -> datetime:
+    return datetime.strptime(str(game_date), "%m/%d/%Y %H:%M:%S")
+
+
 def build_dim_player_rows(
     roster_rows: list[Mapping[str, Any]],
     boxscore_rows: list[Mapping[str, Any]],
 ) -> list[dict]:
+    """One row per player.
+
+    Roster fields win. Rosters are never pruned, so a traded player can have rows
+    for an old team; the most recently refreshed row (season, then ingested_at)
+    is the current one. Players on no roster take their team, name and jersey from
+    their latest game. Box-score position is the slot a starter played, not the
+    player's position, so it is never used.
+    """
     default_season = get_default_season()
     seen = {}
-    for row in roster_rows:
+    for row in sorted(roster_rows, key=lambda r: (str(r["season"]), str(r.get("ingested_at") or ""))):
         seen[row["player_id"]] = {
             "player_id": int(row["player_id"]),
             "full_name": row["player_name"],
@@ -59,8 +72,9 @@ def build_dim_player_rows(
             "season": row["season"],
             "is_active": True,
         }
+    on_roster = set(seen)
 
-    for row in boxscore_rows:
+    for row in sorted(boxscore_rows, key=lambda r: _game_day(r["game_date"])):
         traditional = row["traditional_json"]
         if isinstance(traditional, str):
             traditional = json.loads(traditional)
@@ -68,26 +82,24 @@ def build_dim_player_rows(
         for team_key in ("homeTeam", "awayTeam"):
             team = game.get(team_key, {}) or {}
             team_id = team.get("teamId")
-            boxscore_season = row.get("season") or default_season
             for player in team.get("players", []):
                 player_id = player.get("personId")
-                if not player_id:
+                if not player_id or player_id in on_roster:
                     continue
                 first_name = (player.get("firstName") or "").strip()
                 family_name = (player.get("familyName") or "").strip()
                 full_name = f"{first_name} {family_name}".strip() or player.get("nameI", "").strip()
-                current = seen.get(player_id, {})
                 seen[player_id] = {
                     "player_id": int(player_id),
-                    "full_name": full_name or current.get("full_name", ""),
-                    "jersey_number": player.get("jerseyNum") or current.get("jersey_number", ""),
-                    "position": player.get("position") or current.get("position", ""),
-                    "height_inches": current.get("height_inches", 0),
-                    "weight_lbs": current.get("weight_lbs", 0),
-                    "birth_date": current.get("birth_date", ""),
-                    "experience": current.get("experience", ""),
-                    "current_team_id": int(team_id) if team_id else current.get("current_team_id", 0),
-                    "season": current.get("season", boxscore_season),
-                    "is_active": current.get("is_active", True),
+                    "full_name": full_name,
+                    "jersey_number": player.get("jerseyNum") or "",
+                    "position": "",
+                    "height_inches": 0,
+                    "weight_lbs": 0,
+                    "birth_date": "",
+                    "experience": "",
+                    "current_team_id": int(team_id) if team_id else 0,
+                    "season": row.get("season") or default_season,
+                    "is_active": True,
                 }
     return list(seen.values())

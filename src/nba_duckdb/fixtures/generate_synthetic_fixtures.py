@@ -26,8 +26,6 @@ TEAMS = [
         "full_name": name,
         "city": name.rsplit(" ", 1)[0],
         "nickname": name.rsplit(" ", 1)[1],
-        "conference": "Synthetic",
-        "division": "Verification",
     }
     for team_id, abbr, name in zip(TEAM_IDS, TEAM_ABBRS, TEAM_NAMES, strict=True)
 ]
@@ -72,8 +70,6 @@ def _team_payload(team: dict, score: int) -> dict:
         "teamCity": team["city"],
         "teamName": team["nickname"],
         "score": score,
-        "conference": team["conference"],
-        "division": team["division"],
     }
 
 

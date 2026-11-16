@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: dim_teams
-    description: Team names, conference and division
+    description: The 30 NBA teams with names and abbreviations
     columns:
       - name: team_id
         data_tests:
