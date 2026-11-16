@@ -35,15 +35,15 @@ module so the CLI and Airflow pick it up, put its DDL in
 `src/nba_duckdb/sql/schema/`, and list it in `dbt/models/sources.yml`.
 
 Each table should have exactly one producer. Either way, give it a one-line
-description in the dbt YAML and run `make diagrams` to redraw the table
-diagram in the README. Add a test that runs against the fake fixtures, and
+description in the dbt YAML, then run `make smoke` and `make diagrams` to
+redraw the diagrams (they read columns from the smoke warehouse). Add a test that runs against the fake fixtures, and
 update `VALIDATION.md` if the new numbers are approximate or only make sense
 for a full league.
 
 ## Data
 
-Don't commit real NBA data: no DuckDB files, raw API responses, exports,
-notebooks or model files. `make check-artifacts` catches most of that, and
+Don't commit real NBA data: no DuckDB files, raw API responses, exports or
+notebooks. `make check-artifacts` catches most of that, and
 `tests/test_no_real_data.py` checks that the fixtures stay fake. If you're
 adding a new data source, say in the issue where it comes from and what its
 terms of use allow.

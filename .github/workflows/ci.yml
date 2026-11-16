@@ -26,9 +26,9 @@ jobs:
       - run: make dbt-parse
       - run: uv run pytest
       - run: make check-artifacts
-      - run: make check-diagrams
       - run: uv run nba-duckdb run-smoke
       - run: make quality
+      - run: make check-diagrams
       - run: uv run nba-duckdb run-smoke --quick
       - run: make example-basic-team-summary
       - run: make check-wheel

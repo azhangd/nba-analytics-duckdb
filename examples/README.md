@@ -1,11 +1,8 @@
 # Examples
 
-Small scripts that query the warehouse. They run against the fake smoke data:
+Small scripts that query the warehouse. They read `data/warehouse/nba.duckdb` unless you pass `--warehouse` or set `NBA_DUCKDB_PATH`:
 
-    make smoke
-    make example-basic-team-summary
-
-They read `data/warehouse/smoke.duckdb` unless you set `NBA_DUCKDB_PATH`.
+    uv run python examples/basic_team_summary/analysis.py
 
 - [basic_team_summary](basic_team_summary/) prints a team summary from
   `gold.team_game_stats`, `gold.team_season_elo` and

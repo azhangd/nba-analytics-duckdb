@@ -9,13 +9,24 @@ tracking system.
 
 - **Plain summaries.** Player and team game stats, four factors, clutch,
   starters vs. bench, opponent scouting, timeouts and after-timeout plays.
-  These just add up the games in your database.
-- **Simple formulas.** Elo ratings, and `bpm_approx` and `vorp_approx`. The
-  BPM and VORP columns are box-score approximations that haven't been compared
-  with Basketball-Reference, and anything built on them inherits that.
+  These just add up the games in your database. Season usage and ratings are
+  weighted by minutes, so a two-minute stint doesn't count as much as a full
+  game. A coach's challenge is charged as a timeout but isn't counted as one.
+- **Simple formulas.** Elo ratings, and `bpm_approx` and `vorp_approx`.
+  - Elo follows FiveThirtyEight's NBA method, with the home edge set to 50
+    points instead of their 100. 50 predicted 2025-26 best; the comment in
+    `src/nba_duckdb/analytics/elo.py` has the numbers.
+  - BPM is a box-score estimate, shifted per team as Basketball-Reference
+    does, so each team's players add up to how the team actually played.
+    It still hasn't been checked against Basketball-Reference's numbers, and
+    anything built on it inherits that.
 - **Rule-based.** Play-type labels and the heuristic shot quality columns
   (`expected_fg_pct_heuristic`, `quality_delta_heuristic`), which come from
   hard-coded baselines.
+  - Play types are guessed from play-by-play text, which never mentions
+    screens or handoffs. So no possession is labelled pick-and-roll, handoff
+    or off-screen, and a turnover or a trip to the line with no shot
+    described counts as Miscellaneous.
 - **Experimental.** The MVP ladder and the feature matrices. Useful for poking
   around, but nothing in them is a calibrated forecast.
 
