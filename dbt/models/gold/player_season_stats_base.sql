@@ -42,18 +42,18 @@ WITH base AS (
             / NULLIF(SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END), 0),
             1
         ) AS topg,
-        COALESCE(ROUND(SUM(pgs.fgm)::NUMERIC / NULLIF(SUM(pgs.fga), 0), 3), 0.000) AS fg_pct,
-        COALESCE(ROUND(SUM(pgs.fg3m)::NUMERIC / NULLIF(SUM(pgs.fg3a), 0), 3), 0.000) AS fg3_pct,
-        COALESCE(ROUND(SUM(pgs.ftm)::NUMERIC / NULLIF(SUM(pgs.fta), 0), 3), 0.000) AS ft_pct,
+        ROUND(SUM(pgs.fgm)::NUMERIC / NULLIF(SUM(pgs.fga), 0), 3) AS fg_pct,
+        ROUND(SUM(pgs.fg3m)::NUMERIC / NULLIF(SUM(pgs.fg3a), 0), 3) AS fg3_pct,
+        ROUND(SUM(pgs.ftm)::NUMERIC / NULLIF(SUM(pgs.fta), 0), 3) AS ft_pct,
         ROUND(
             SUM(COALESCE(pgs.plus_minus, 0))::NUMERIC
             / NULLIF(SUM(CASE WHEN COALESCE(pgs.counts_as_gp, pgs.minutes > 0) THEN 1 ELSE 0 END), 0),
             1
         ) AS plus_minus_avg,
         ROUND(AVG(pgs.game_score) FILTER (WHERE COALESCE(pgs.counts_as_gp, pgs.minutes > 0))::NUMERIC, 1) AS avg_game_score,
-        ROUND(AVG(pgs.off_rating) FILTER (WHERE COALESCE(pgs.counts_as_gp, pgs.minutes > 0))::NUMERIC, 1) AS avg_off_rating,
-        ROUND(AVG(pgs.def_rating) FILTER (WHERE COALESCE(pgs.counts_as_gp, pgs.minutes > 0))::NUMERIC, 1) AS avg_def_rating,
-        ROUND(AVG(pgs.usg_pct) FILTER (WHERE COALESCE(pgs.counts_as_gp, pgs.minutes > 0))::NUMERIC, 3) AS avg_usg_pct,
+        ROUND(({{ minutes_weighted('pgs.off_rating', minutes='pgs.minutes') }})::NUMERIC, 1) AS avg_off_rating,
+        ROUND(({{ minutes_weighted('pgs.def_rating', minutes='pgs.minutes') }})::NUMERIC, 1) AS avg_def_rating,
+        ROUND(({{ minutes_weighted('pgs.usg_pct', minutes='pgs.minutes') }})::NUMERIC, 3) AS avg_usg_pct,
         CASE WHEN SUM(pgs.fga) + SUM(pgs.fta) >= 20 THEN
             LEAST(ROUND(SUM(pgs.pts)::NUMERIC / (2.0 * (SUM(pgs.fga) + 0.44 * SUM(pgs.fta))), 3), 1.0)
         END AS avg_ts_pct
@@ -98,16 +98,16 @@ SELECT
     pts_per_36, ast_per_36, reb_per_36,
     s.comparison_scope,
     s.comparison_player_count,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY ppg) * 100)::INT AS ppg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY rpg) * 100)::INT AS rpg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY apg) * 100)::INT AS apg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY spg) * 100)::INT AS spg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY bpg) * 100)::INT AS bpg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY mpg) * 100)::INT AS mpg_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY fg_pct) * 100)::INT AS fg_shoot_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY fg3_pct) * 100)::INT AS fg3_shoot_pct,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_ts_pct) * 100)::INT AS ts_pct_rank,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_usg_pct) * 100)::INT AS usg_pct_rank,
-    (PERCENT_RANK() OVER (PARTITION BY w.season ORDER BY avg_game_score) * 100)::INT AS game_score_pct
+    {{ season_percentile('ppg', 'w.season') }} AS ppg_pct,
+    {{ season_percentile('rpg', 'w.season') }} AS rpg_pct,
+    {{ season_percentile('apg', 'w.season') }} AS apg_pct,
+    {{ season_percentile('spg', 'w.season') }} AS spg_pct,
+    {{ season_percentile('bpg', 'w.season') }} AS bpg_pct,
+    {{ season_percentile('mpg', 'w.season') }} AS mpg_pct,
+    {{ season_percentile('fg_pct', 'w.season') }} AS fg_shoot_pct,
+    {{ season_percentile('fg3_pct', 'w.season') }} AS fg3_shoot_pct,
+    {{ season_percentile('avg_ts_pct', 'w.season') }} AS ts_pct_rank,
+    {{ season_percentile('avg_usg_pct', 'w.season') }} AS usg_pct_rank,
+    {{ season_percentile('avg_game_score', 'w.season') }} AS game_score_pct
 FROM with_info w
 LEFT JOIN season_scope s ON s.season = w.season

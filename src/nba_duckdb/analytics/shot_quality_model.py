@@ -62,6 +62,15 @@ ACTION_TYPE_ADJUSTMENTS = {
     "Catch and Shoot": 0.02,
 }
 
+
+
+def _action_key(action: str) -> str:
+    # Real labels vary in case and suffix ("Dunk Shot", "Pullup Jump shot").
+    return action.lower().replace("pull-up", "pullup").removesuffix(" shot").strip()
+
+
+_ACTION_ADJUSTMENTS_BY_KEY = {_action_key(name): adj for name, adj in ACTION_TYPE_ADJUSTMENTS.items()}
+
 # Distance-based micro-adjustments within zones
 # Longer distance within same zone = harder shot
 DISTANCE_PENALTY_PER_FOOT = -0.005  # -0.5% per foot beyond zone midpoint
@@ -144,7 +153,8 @@ def compute_shot_quality(shots_df: pl.DataFrame) -> pl.DataFrame:
         made = shot.get("shot_made", False)
         distance = shot.get("shot_distance_ft", shot.get("shot_distance"))
         period = shot.get("period")
-        clock = shot.get("clock_seconds_remaining", shot.get("shot_clock", None))
+        minutes, seconds = shot.get("minutes_remaining"), shot.get("seconds_remaining")
+        clock = minutes * 60 + seconds if minutes is not None and seconds is not None else None
 
         # Heave detection — assign very low expected FG%
         if _is_heave(period, clock, distance):
@@ -154,7 +164,7 @@ def compute_shot_quality(shots_df: pl.DataFrame) -> pl.DataFrame:
             base_efg = LEAGUE_AVG_BY_ZONE.get(zone, 0.40)
 
             # Action type adjustment
-            action_adj = ACTION_TYPE_ADJUSTMENTS.get(action, 0.0)
+            action_adj = _ACTION_ADJUSTMENTS_BY_KEY.get(_action_key(action or ""), 0.0)
 
             # Distance within zone
             dist_adj = _distance_adjustment(zone, distance)
