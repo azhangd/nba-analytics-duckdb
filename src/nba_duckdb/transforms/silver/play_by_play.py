@@ -73,7 +73,8 @@ def _v3_action(action: Mapping[str, Any]) -> tuple[str, str, str]:
     if action_type in ("Made Shot", "Missed Shot"):
         return ("3pt" if action.get("shotValue") == 3 else "2pt"), sub_type, shot_result
     if action_type == "Free Throw":
-        result = "Missed" if description.upper().startswith("MISS") else "Made"
+        # A miss is "MISS Edwards Free Throw 1 of 2"; a make is "Missi Free Throw 1 of 2 (1 PTS)".
+        result = "Missed" if description.startswith("MISS ") else "Made"
         return "freethrow", sub_type.removeprefix("Free Throw ").strip(), result
     if action_type == "":
         upper = description.upper()

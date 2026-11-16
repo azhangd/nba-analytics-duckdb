@@ -1,6 +1,17 @@
 {{ config(materialized='table', schema='gold', alias='player_season_clutch_stats', tags=['gold_mart']) }}
 
-WITH clutch_events AS (
+WITH scored_events AS (
+    -- A row's score already includes its own points. Clutch is judged on the score before
+    -- the play, as team_season_clutch_stats uses the margin at the start of the possession.
+    SELECT
+        pbp.*,
+        LAG(CAST(NULLIF(CAST(pbp.score_home AS TEXT), '') AS INTEGER), 1, 0) OVER game_order
+            - LAG(CAST(NULLIF(CAST(pbp.score_away AS TEXT), '') AS INTEGER), 1, 0) OVER game_order
+            AS margin_before
+    FROM {{ ref('fct_play_by_play') }} pbp
+    WINDOW game_order AS (PARTITION BY pbp.game_id ORDER BY pbp.period, pbp.action_id)
+),
+clutch_events AS (
     SELECT
         pbp.game_id,
         g.season,
@@ -13,18 +24,13 @@ WITH clutch_events AS (
         CAST(pbp.description AS TEXT) AS description,
         CAST(pbp.shot_result AS TEXT) AS shot_result,
         pbp.is_field_goal
-    FROM {{ ref('fct_play_by_play') }} pbp
+    FROM scored_events pbp
     JOIN {{ ref('fct_games') }} g ON pbp.game_id = g.game_id
     WHERE g.game_type = 'regular_season'
       AND pbp.period >= 4
       AND pbp.clock_seconds_remaining <= 300
       AND pbp.player_id IS NOT NULL
-      AND NULLIF(CAST(pbp.score_home AS TEXT), '') IS NOT NULL
-      AND NULLIF(CAST(pbp.score_away AS TEXT), '') IS NOT NULL
-      AND ABS(
-            CAST(NULLIF(CAST(pbp.score_home AS TEXT), '') AS INTEGER)
-            - CAST(NULLIF(CAST(pbp.score_away AS TEXT), '') AS INTEGER)
-          ) <= 5
+      AND ABS(pbp.margin_before) <= 5
 ),
 player_agg AS (
     SELECT
