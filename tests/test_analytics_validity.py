@@ -345,7 +345,8 @@ def _create_team_feature_matrix_inputs(db):
             team_id INTEGER,
             season TEXT,
             role TEXT,
-            ppg REAL
+            ppg REAL,
+            pts_per_team_game REAL
         )
         """
     )
@@ -792,8 +793,8 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_db):
         "gold",
         "team_season_starter_bench_stats",
         [
-            {"team_id": 100, "season": "2099-00", "role": "Starter", "ppg": 70.0},
-            {"team_id": 100, "season": "2099-00", "role": "Bench", "ppg": 35.0},
+            {"team_id": 100, "season": "2099-00", "role": "Starter", "ppg": 14.0, "pts_per_team_game": 70.0},
+            {"team_id": 100, "season": "2099-00", "role": "Bench", "ppg": 8.0, "pts_per_team_game": 40.0},
         ],
     )
     db.insert_rows(
@@ -814,8 +815,10 @@ def test_team_season_feature_matrix_grain_and_core_inputs(tmp_db):
     assert row["l5_losses"] == 1
     assert row["l5_avg_margin"] == pytest.approx(3.0)
     assert (row["paint_freq"], row["three_freq"], row["mid_freq"]) == pytest.approx((45.0, 35.0, 20.0))
+    # Points per team game, not per player appearance, so they add up to the team's ppg.
     assert row["starter_ppg"] == pytest.approx(70.0)
-    assert row["bench_ppg"] == pytest.approx(35.0)
+    assert row["bench_ppg"] == pytest.approx(40.0)
+    assert row["starter_ppg"] + row["bench_ppg"] == pytest.approx(row["ppg"])
     assert row["clutch_ppp"] == pytest.approx(1.12)
     assert db.execute(
         """

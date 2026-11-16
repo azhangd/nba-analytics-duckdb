@@ -187,7 +187,7 @@ models:
           - not_null
 
   - name: team_season_four_factors
-    description: Four factors, pace and Pythagorean wins
+    description: Four factors, pace, ratings and Pythagorean wins
     columns:
       - name: team_id
         data_tests:
