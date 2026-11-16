@@ -173,7 +173,9 @@ def _refresh_recent_statuses(season: str) -> int:
     if latest_final is None:
         return 0
 
-    start_date = latest_final + timedelta(days=1)
+    # Include the latest final date itself: games that tipped off late that day may
+    # have still been in progress when it was last fetched.
+    start_date = latest_final
     end_date = date.today()
     if start_date > end_date:
         return 0

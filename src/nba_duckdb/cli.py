@@ -19,6 +19,7 @@ from nba_duckdb.dependencies import (
     require_optional_groups,
 )
 from nba_duckdb.exceptions import (
+    NoRunToResumeError,
     PipelineStateNotInitializedError,
     SyntheticDataInLiveWarehouseError,
 )
@@ -417,6 +418,7 @@ CLI_ERRORS = (
     (PipelineStateNotInitializedError, "not_initialized", 1),
     (DuckDBLockTimeoutError, "warehouse_busy", 2),
     (SyntheticDataInLiveWarehouseError, "synthetic_data_in_live_warehouse", 1),
+    (NoRunToResumeError, "no_run_to_resume", 1),
     (MissingOptionalDependencyError, "missing_optional_dependency", 1),
     (MissingRequiredDependencyError, "missing_dependency", 1),
 )
