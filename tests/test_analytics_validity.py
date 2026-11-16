@@ -1062,13 +1062,19 @@ def test_raw_bpm_reproduces_the_published_worked_example():
     assert raw == pytest.approx(15.6, abs=0.15)
 
 
-def _bpm_round_robin():
-    """Three teams play each other once, 100 possessions a game, five players
-    each playing all 48 minutes. Scores (home first) and the home team's
-    average lead: A 110-100 B (+4), B 105-100 C (+2), C 100-100 A (0)."""
+def _bpm_round_robin(rounds=1):
+    """Three teams play each other `rounds` times, 100 possessions a game,
+    five players each playing all 48 minutes. Scores (home first) and the home
+    team's average lead: A 110-100 B (+4), B 105-100 C (+2), C 100-100 A (0)."""
     import polars as pl
 
-    games = [("g1", "A", "B", 110, 100, 4.0), ("g2", "B", "C", 105, 100, 2.0), ("g3", "C", "A", 100, 100, 0.0)]
+    games = [
+        (f"g{3 * r + i}", home, away, home_pts, away_pts, home_lead)
+        for r in range(rounds)
+        for i, (home, away, home_pts, away_pts, home_lead) in enumerate(
+            [("A", "B", 110, 100, 4.0), ("B", "C", 105, 100, 2.0), ("C", "A", 100, 100, 0.0)], start=1
+        )
+    ]
     team_ids = {"A": 1, "B": 2, "C": 3}
     # Points and attempts split unevenly so players differ in position, role and BPM.
     shares = [0.30, 0.25, 0.20, 0.15, 0.10]
@@ -1087,32 +1093,88 @@ def _bpm_round_robin():
     return pl.DataFrame(player_rows), pl.DataFrame(team_rows)
 
 
-def test_bpm_team_sums_hit_net_rating_adjusted_for_schedule_and_lead():
+def test_bpm_team_sums_hit_the_average_of_their_game_targets():
     from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
 
-    player_games, team_games = _bpm_round_robin()
+    # Five rounds, so every player has 480 minutes and his season rating isn't
+    # pulled toward the low-minutes estimate.
+    player_games, team_games = _bpm_round_robin(rounds=5)
 
     result = build_bpm_vorp(player_games=player_games, team_games=team_games)
 
-    # Plain net ratings are A +5, B -2.5, C -2.5. Adjusted for schedule (each
-    # team's offense and defense credited with its opponents' average):
-    # offense A +5/3, B +5/3, C -10/3; net A +10/3, B -5/3, C -5/3. Average leads
-    # are A +2, B -1, C -1; BPM adds 0.175 x lead, OBPM half that.
-    targets = {
-        1: (10 / 3 + 0.175 * 2, 5 / 3 + 0.0875 * 2),
-        2: (-5 / 3 - 0.175, 5 / 3 - 0.0875),
-        3: (-5 / 3 - 0.175, -10 / 3 - 0.0875),
-    }
+    # Season ratings: plain net ratings are A +5, B -2.5, C -2.5. Adjusted for
+    # schedule, offense A +5/3, B +5/3, C -10/3 and net A +10/3, B -5/3, C -5/3.
+    # Average leads are A +2, B -1, C -1; BPM adds 0.175 x lead, OBPM half that.
+    # With every player on for every minute, these are each game's lineup
+    # qualities.
+    quality = {"A": 10 / 3 + 0.175 * 2, "B": -5 / 3 - 0.175, "C": -5 / 3 - 0.175}
+    offense = {"A": 5 / 3 + 0.0875 * 2, "B": 5 / 3 - 0.0875, "C": -10 / 3 - 0.0875}
+    league_ortg = 100 * (110 + 100 + 105 + 100 + 100 + 100) / 600
+    # Each game, per team: (team, opponent, points for, points against, average lead).
+    sides = [("A", "B", 110, 100, 4.0), ("B", "A", 100, 110, -4.0), ("B", "C", 105, 100, 2.0),
+             ("C", "B", 100, 105, -2.0), ("C", "A", 100, 100, 0.0), ("A", "C", 100, 100, 0.0)]
+    game_targets = {"A": [], "B": [], "C": []}
+    for team, opp, pts, opp_pts, lead in sides:
+        bpm_target = (quality[team] + quality[opp] + pts - opp_pts) / 2 + 0.175 * lead
+        opp_defense = quality[opp] - offense[opp]
+        obpm_target = (offense[team] + opp_defense + pts - league_ortg) / 2 + 0.0875 * lead
+        game_targets[team].append((bpm_target, obpm_target))
     rows = result.sort("player_id").rows_by_key("player_id", named=True, unique=True)
-    for team_id, (bpm_target, obpm_target) in targets.items():
+    for team_id, team_name in ((1, "A"), (2, "B"), (3, "C")):
         team = [rows[10 * team_id + slot] for slot in range(5)]
+        bpm_target = sum(target for target, _ in game_targets[team_name]) / 2
+        obpm_target = sum(target for _, target in game_targets[team_name]) / 2
         # Every player has a 100% share of minutes; BPM, OBPM and DBPM are rounded to 0.1.
         assert sum(row["bpm_approx"] for row in team) == pytest.approx(bpm_target, abs=0.25)
         assert sum(row["obpm"] for row in team) == pytest.approx(obpm_target, abs=0.25)
         for row in team:
             assert row["dbpm"] == pytest.approx(row["bpm_approx"] - row["obpm"], abs=0.11)
-            assert row["vorp_approx"] == pytest.approx((row["bpm_approx"] + 2) * 96 / (48 * 82), abs=0.01)
+            assert row["vorp_approx"] == pytest.approx((row["bpm_approx"] + 2) * 480 / (48 * 82), abs=0.01)
     assert len({row["bpm_approx"] for row in rows.values()}) > 5
+
+
+def test_bpm_team_adjustment_follows_who_played_each_game():
+    import polars as pl
+
+    from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
+
+    # A and B meet ten times. A scores 100 every game with the same box score,
+    # and wins 100-80 (average lead +8) or loses 100-120 (-8) depending on how
+    # many B scores. A's fifth slot is player 14 in the wins and player 15 in
+    # the losses, with identical lines, so their season totals are identical.
+    # C ties A and B once each (A's fifth slot is player 16 there), so the
+    # schedule separates every team's offense from its defense.
+    games = [(f"g{game}", 1, 2, 100, 80 if game % 2 == 0 else 120) for game in range(10)]
+    games += [("c1", 1, 3, 100, 100), ("c2", 2, 3, 100, 100)]
+    team_rows, player_rows = [], []
+    for game_id, home, away, home_pts, away_pts in games:
+        lead = 0.4 * (home_pts - away_pts)
+        team_rows += [
+            {"game_id": game_id, "team_id": home, "season": "2099-00", "pts": home_pts, "opp_pts": away_pts,
+             "possessions": 100.0, "avg_lead": lead},
+            {"game_id": game_id, "team_id": away, "season": "2099-00", "pts": away_pts, "opp_pts": home_pts,
+             "possessions": 100.0, "avg_lead": -lead},
+        ]
+        for team_id, pts in ((home, home_pts), (away, away_pts)):
+            for slot, share in enumerate([0.30, 0.25, 0.20, 0.15, 0.10]):
+                player_id = 10 * team_id + slot
+                if team_id == 1 and slot == 4:
+                    player_id = 16 if away == 3 else 14 if away_pts == 80 else 15
+                player_rows.append({
+                    "game_id": game_id, "player_id": player_id, "team_id": team_id, "minutes": 48.0,
+                    "pts": round(pts * share), "fga": round(85 * share), "fta": round(22 * share),
+                    "fg3m": slot % 3, "oreb": slot, "dreb": 2 + slot, "reb": 2 + 2 * slot, "ast": 5 - slot,
+                    "stl": 1 + slot % 2, "blk": slot // 2, "tov": 3 - slot // 2, "pf": 2,
+                })
+
+    result = build_bpm_vorp(player_games=pl.DataFrame(player_rows), team_games=pl.DataFrame(team_rows))
+    rows = result.rows_by_key("player_id", named=True, unique=True)
+
+    # Both lineups are the same strength every game and A's box score never
+    # changes, so the only difference is each game's target: margin +20 and
+    # lead +8 against -20 and -8, that is (20 + 2 x 0.175 x 8) / 5 more per
+    # player in the wins. A season-level team adjustment rates them the same.
+    assert rows[14]["bpm_approx"] - rows[15]["bpm_approx"] == pytest.approx((20 + 2 * 0.175 * 8) / 5, abs=0.11)
 
 
 def test_bpm_gives_a_traded_player_one_row_weighted_by_minutes():
