@@ -1177,6 +1177,24 @@ def test_bpm_team_adjustment_follows_who_played_each_game():
     assert rows[14]["bpm_approx"] - rows[15]["bpm_approx"] == pytest.approx((20 + 2 * 0.175 * 8) / 5, abs=0.11)
 
 
+def test_bpm_leaves_a_load_with_no_rated_season_empty():
+    import polars as pl
+
+    from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp, empty_bpm_vorp
+
+    # Teams A and B (from the round robin) only play each other, so their games
+    # can't separate offense from defense and the season is not rated.
+    player_games, team_games = _bpm_round_robin()
+    team_games = team_games.filter(pl.col("game_id") == "g1")
+    player_games = player_games.filter(pl.col("game_id") == "g1")
+
+    result = build_bpm_vorp(player_games=player_games, team_games=team_games)
+
+    # player_season_stats left-joins this, so these players get NULL BPM and VORP.
+    assert result.is_empty()
+    assert result.schema == empty_bpm_vorp().schema
+
+
 def test_bpm_gives_a_traded_player_one_row_weighted_by_minutes():
     import polars as pl
 

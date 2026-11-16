@@ -367,7 +367,7 @@ def _center_on_team(stints: pl.DataFrame, raw: str, out: str) -> pl.DataFrame:
     constant, from 1 to 5 over [1 - max raw, 5 - min raw], so bisection to
     float precision finds it.
     """
-    parts = []
+    parts = [stints.clear().with_columns(pl.lit(None, dtype=pl.Float64).alias(out))]  # no rated teams: no rows
     for team in stints.partition_by(["team_id", "season"], maintain_order=True):
         values = team[raw].to_numpy()
         weights = team["minutes"].to_numpy()
