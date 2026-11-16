@@ -5,10 +5,11 @@ import logging
 from datetime import datetime, timezone
 
 from nba_duckdb.competitions import competition_for_league_id
-from nba_duckdb.db import get_conn, read_table, upsert_rows
+from nba_duckdb.db import get_conn, upsert_rows
 from nba_duckdb.defaults import get_team_ids
 from nba_duckdb.ingestion_state import (
     eligible_items,
+    ensure_items,
     make_item,
     mark_item_failed,
     mark_item_running,
@@ -18,10 +19,7 @@ from nba_duckdb.ingestion_state import (
     summarize_source,
 )
 from nba_duckdb.orchestration import heartbeat_current_task
-from nba_duckdb.season_utils import (
-    filter_frame_to_competitions,
-    requested_or_default_seasons,
-)
+from nba_duckdb.season_utils import completed_games_in_scope, requested_or_default_seasons
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.shot_charts")
@@ -42,25 +40,21 @@ def _season_type_for_game_id(game_id: str) -> str:
         return "Playoffs"
     if prefix == "005":
         return "PlayIn"
-    if prefix == "003":
-        return "All Star"
     if prefix == "006":
-        return "Regular Season"
+        # The NBA Cup final; ShotChartDetail returns nothing for it as Regular Season.
+        return "IST"
     return "Regular Season"
+
+
+def _shot_count(raw: dict) -> int:
+    result_sets = raw.get("resultSets") or []
+    return len(result_sets[0].get("rowSet") or []) if result_sets else 0
 
 
 def _season_type_for_game(game_id: str, league_id: str) -> str:
     if str(league_id) != "00":
         return competition_for_league_id(league_id).season_type
     return _season_type_for_game_id(game_id)
-
-
-def _item_season(game_id: str, game_seasons: dict[str, str], target_seasons: list[str]) -> str:
-    if game_id in game_seasons:
-        return game_seasons[game_id]
-    if len(target_seasons) == 1:
-        return target_seasons[0]
-    return ""
 
 
 def _flush_batch(batch: list[dict], batch_items: list[dict]) -> int:
@@ -80,28 +74,10 @@ def run(**kwargs):
     )
     target_competitions = kwargs.get("competitions")
     team_ids = get_team_ids()
-    schedule = read_table("bronze", "schedule", "game_status = 3")
+    schedule = completed_games_in_scope(kwargs)
     if schedule.is_empty():
         logger.info("No completed games found in schedule")
-        return {"rows_written": 0}
-
-    if target_seasons:
-        import polars as pl
-
-        if "season" in schedule.columns:
-            schedule = schedule.filter(pl.col("season").is_in(target_seasons))
-        schedule = filter_frame_to_competitions(schedule, target_competitions)
-        if schedule.is_empty():
-            logger.info("No completed games found in schedule for requested seasons")
-            return {"rows_written": 0, "seasons": target_seasons}
-
-    if requested_game_ids:
-        import polars as pl
-
-        schedule = schedule.filter(pl.col("game_id").is_in(requested_game_ids))
-        if schedule.is_empty():
-            logger.info("No matching completed games found in schedule for requested shot refresh")
-            return {"rows_written": 0}
+        return {"rows_written": 0, "seasons": target_seasons}
 
     # Build list of game-team targets for home and away teams.
     items = []
@@ -109,33 +85,36 @@ def run(**kwargs):
     game_league_ids = {}
     for row in schedule.iter_rows(named=True):
         game_id = str(row["game_id"])
-        if row.get("season"):
-            game_seasons[game_id] = str(row["season"])
+        if game_id.startswith("003"):
+            # All-Star weekend: the mini-games have no shot charts and nothing reads them.
+            continue
+        game_seasons[game_id] = str(row["season"])
         game_league_ids[game_id] = str(row.get("league_id") or "00")
         for team_id in (row["home_team_id"], row["away_team_id"]):
             if team_id and (team_ids is None or int(team_id) in team_ids):
-                items.append(
-                    make_item(
-                        game_id,
-                        _item_season(game_id, game_seasons, target_seasons),
-                        int(team_id),
-                    )
-                )
+                items.append(make_item(game_id, game_seasons[game_id], int(team_id)))
 
     mark_running_items_interrupted(SOURCE, target_seasons[0] if len(target_seasons) == 1 else None)
 
-    # Skip pairs already ingested
+    # Skip pairs already ingested with shots; stored empty charts are fetched again.
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT game_id, team_id FROM bronze.shot_charts")
-            already_fetched = {(str(r["game_id"]), int(r["team_id"])) for r in cur.fetchall()}
+            cur.execute(
+                """
+                SELECT game_id, team_id,
+                       COALESCE(json_array_length(shot_chart_json, '$.resultSets[0].rowSet'), 0) > 0 AS has_shots
+                FROM bronze.shot_charts
+                """
+            )
+            stored = {(str(r["game_id"]), int(r["team_id"])): bool(r["has_shots"]) for r in cur.fetchall()}
 
+    ensure_items(SOURCE, items)
+    for item in items:
+        if stored.get((item["game_id"], int(item["team_id"]))) is False:
+            mark_item_failed(SOURCE, item, "stored shot chart is empty")
     mark_items_success(
         SOURCE,
-        [
-            item for item in items
-            if (item["game_id"], int(item["team_id"])) in already_fetched
-        ],
+        [item for item in items if stored.get((item["game_id"], int(item["team_id"])))],
         rows_written=1,
     )
     todo_items = eligible_items(SOURCE, items)
@@ -196,6 +175,8 @@ def run(**kwargs):
                 ),
                 max_retries=max_retries,
             )
+            if not _shot_count(raw):
+                raise ValueError("shot chart came back empty for a finished game")
             for item in game_items:
                 batch.append({
                     "game_id": game_id,

@@ -4,9 +4,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from nba_duckdb.db import upsert_rows
 from nba_duckdb.defaults import get_seasons
 from nba_duckdb.season_utils import normalize_requested_seasons
+from nba_duckdb.tasks.bronze._season_payloads import upsert_then_fail_on_holes
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.defense")
@@ -22,13 +22,11 @@ def run(**kwargs):
     seasons = normalize_requested_seasons(kwargs.get("seasons")) or ([season] if season else get_seasons())
     all_rows = []
     failures = []
-    attempts = 0
 
     for season in seasons:
         for play_type in PLAY_TYPES:
             for grouping in ["offensive", "defensive"]:
                 for pt in ["P", "T"]:  # Player and Team level
-                    attempts += 1
                     try:
                         raw = nba_client.get_synergy_play_types(
                             season=season,
@@ -49,23 +47,11 @@ def run(**kwargs):
                         failures.append(f"{season}/{play_type}/{grouping}/{pt}: {e}")
                         continue
 
-    if attempts and not all_rows:
-        sample = "; ".join(failures[:5])
-        raise RuntimeError(
-            f"Failed to fetch all {attempts} Synergy play-type combinations. "
-            f"First failures: {sample}"
-        )
-    if failures:
-        logger.warning(
-            "Fetched %d/%d Synergy play-type combinations; first failures: %s",
-            len(all_rows),
-            attempts,
-            "; ".join(failures[:5]),
-        )
-
-    count = upsert_rows(
-        "bronze", "defense", all_rows,
+    count = upsert_then_fail_on_holes(
+        "defense",
+        all_rows,
         conflict_cols=["season", "play_type", "type_grouping", "player_or_team"],
+        failures=failures,
     )
     logger.info("Upserted %d play type combinations across %d seasons", count, len(seasons))
     return {"rows_written": count}

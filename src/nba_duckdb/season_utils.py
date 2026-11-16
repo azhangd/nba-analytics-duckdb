@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import polars as pl
 
 from nba_duckdb.competitions import NBA, normalize_competition_slugs
 from nba_duckdb.db import read_table
-from nba_duckdb.defaults import get_default_season, sort_seasons
+from nba_duckdb.defaults import get_default_season, get_team_ids, sort_seasons
 
 
 def normalize_requested_seasons(seasons: list[str] | tuple[str, ...] | None) -> list[str]:
@@ -107,3 +109,43 @@ def filter_frame_to_competitions(
     if "competition" not in frame.columns:
         return frame if requested == [NBA.slug] else frame.head(0)
     return frame.filter(pl.col("competition").is_in(requested))
+
+
+class GamesNotInScopeError(ValueError):
+    """Requested game ids that aren't finished games in the run's seasons and filters."""
+
+
+def completed_games_in_scope(scope: dict) -> pl.DataFrame:
+    """Finished games (bronze.schedule rows) for a per-game ingest task.
+
+    Applies the run's seasons, competitions, team ids (NBA_DUCKDB_TEAM_IDS), game
+    ids and inclusive start/end dates (YYYY-MM-DD). A requested game id that isn't
+    a finished game in that scope raises instead of being skipped.
+    """
+    seasons = requested_or_default_seasons(season=scope.get("season"), seasons=scope.get("seasons"))
+    schedule = read_table("bronze", "schedule", "game_status = 3")
+    if not schedule.is_empty():
+        schedule = schedule.filter(pl.col("season").is_in(seasons))
+        schedule = filter_frame_to_competitions(schedule, scope.get("competitions"))
+    if not schedule.is_empty() and (team_ids := get_team_ids()) is not None:
+        schedule = schedule.filter(
+            pl.col("home_team_id").is_in(team_ids) | pl.col("away_team_id").is_in(team_ids)
+        )
+    if not schedule.is_empty() and (scope.get("start_date") or scope.get("end_date")):
+        played_on = pl.col("game_date").str.strptime(pl.Date, "%m/%d/%Y %H:%M:%S")
+        if scope.get("start_date"):
+            schedule = schedule.filter(played_on >= date.fromisoformat(str(scope["start_date"])))
+        if scope.get("end_date"):
+            schedule = schedule.filter(played_on <= date.fromisoformat(str(scope["end_date"])))
+
+    requested = [str(game_id) for game_id in scope.get("game_ids") or []]
+    if requested:
+        schedule = schedule.filter(pl.col("game_id").is_in(requested)) if not schedule.is_empty() else schedule
+        found = set(schedule["game_id"].to_list()) if not schedule.is_empty() else set()
+        missing = [game_id for game_id in requested if game_id not in found]
+        if missing:
+            raise GamesNotInScopeError(
+                f"Not finished games in seasons {', '.join(seasons)} with this run's filters: "
+                f"{', '.join(missing[:10])}"
+            )
+    return schedule.unique(subset=["game_id"]) if not schedule.is_empty() else schedule

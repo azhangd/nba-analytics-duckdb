@@ -4,9 +4,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from nba_duckdb.db import upsert_rows
 from nba_duckdb.defaults import get_seasons
 from nba_duckdb.season_utils import normalize_requested_seasons
+from nba_duckdb.tasks.bronze._season_payloads import upsert_then_fail_on_holes
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.hustle")
@@ -17,6 +17,7 @@ def run(**kwargs):
     seasons = normalize_requested_seasons(kwargs.get("seasons")) or ([season] if season else get_seasons())
     now = datetime.now(timezone.utc).isoformat()
     rows = []
+    failures = []
 
     for season in seasons:
         logger.info("Fetching player hustle stats for %s", season)
@@ -30,6 +31,7 @@ def run(**kwargs):
             })
         except Exception as e:
             logger.warning("Failed to fetch player hustle for %s: %s", season, e)
+            failures.append(f"{season}/player: {e}")
 
         logger.info("Fetching team hustle stats for %s", season)
         try:
@@ -42,11 +44,9 @@ def run(**kwargs):
             })
         except Exception as e:
             logger.warning("Failed to fetch team hustle for %s: %s", season, e)
+            failures.append(f"{season}/team: {e}")
 
-    if seasons and not rows:
-        raise RuntimeError(f"Failed to fetch hustle stats for every requested season: {seasons}")
-
-    count = upsert_rows("bronze", "hustle", rows, conflict_cols=["season", "level"])
+    count = upsert_then_fail_on_holes("hustle", rows, conflict_cols=["season", "level"], failures=failures)
     logger.info("Upserted %d hustle stat records across %d seasons", count, len(seasons))
     return {"rows_written": count}
 

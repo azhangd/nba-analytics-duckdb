@@ -5,8 +5,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from nba_duckdb.db import get_conn, read_table, upsert_rows
-from nba_duckdb.defaults import get_team_ids
+from nba_duckdb.db import get_conn, upsert_rows
 from nba_duckdb.exceptions import LiveEndpointUnavailableError
 from nba_duckdb.ingestion_state import (
     eligible_items,
@@ -20,10 +19,7 @@ from nba_duckdb.ingestion_state import (
     summarize_items,
 )
 from nba_duckdb.orchestration import heartbeat_current_task
-from nba_duckdb.season_utils import (
-    filter_frame_to_competitions,
-    requested_or_default_seasons,
-)
+from nba_duckdb.season_utils import completed_games_in_scope, requested_or_default_seasons
 from nba_duckdb.utils import nba_client
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.play_by_play")
@@ -33,14 +29,6 @@ FAILURE_BACKOFF_AFTER = 10
 FAILURE_BACKOFF_SECONDS = 120
 ABORT_AFTER_FAILURES = 30
 SOURCE = "play-by-play"
-
-
-def _item_season(game_id: str, game_seasons: dict[str, str], target_seasons: list[str]) -> str:
-    if game_id in game_seasons:
-        return game_seasons[game_id]
-    if len(target_seasons) == 1:
-        return target_seasons[0]
-    return ""
 
 
 def _flush_batch(batch: list[dict], batch_items: list[dict]) -> int:
@@ -70,45 +58,19 @@ def _assert_items_complete(items: list[dict]) -> dict:
 
 
 def run(**kwargs):
-    requested_game_ids = [str(game_id) for game_id in kwargs.get("game_ids", []) or []]
     target_seasons = requested_or_default_seasons(
         season=kwargs.get("season"),
         seasons=kwargs.get("seasons"),
     )
     target_competitions = kwargs.get("competitions")
-    team_ids = get_team_ids()
+    games = completed_games_in_scope(kwargs)
+    if games.is_empty():
+        logger.info("No completed games found in schedule")
+        return {"rows_written": 0}
+    game_ids = [str(game_id) for game_id in games["game_id"].to_list()]
+    game_seasons = {str(row["game_id"]): str(row["season"]) for row in games.iter_rows(named=True)}
 
-    schedule = read_table("bronze", "schedule", "game_status = 3")
-    game_seasons: dict[str, str] = {}
-    if not schedule.is_empty():
-        import polars as pl
-
-        if target_seasons and "season" in schedule.columns:
-            schedule = schedule.filter(pl.col("season").is_in(target_seasons))
-        schedule = filter_frame_to_competitions(schedule, target_competitions)
-
-        team_games = schedule
-        if team_ids is not None:
-            team_games = schedule.filter(
-                pl.col("home_team_id").is_in(team_ids)
-                | pl.col("away_team_id").is_in(team_ids)
-            )
-        if requested_game_ids:
-            team_games = team_games.filter(pl.col("game_id").is_in(requested_game_ids))
-        game_ids = [str(game_id) for game_id in team_games["game_id"].unique().to_list()]
-        for row in team_games.iter_rows(named=True):
-            if row.get("season"):
-                game_seasons[str(row["game_id"])] = str(row["season"])
-    else:
-        if not requested_game_ids:
-            logger.info("No completed games found in schedule")
-            return {"rows_written": 0}
-        game_ids = requested_game_ids
-
-    items = [
-        make_item(game_id, _item_season(game_id, game_seasons, target_seasons))
-        for game_id in game_ids
-    ]
+    items = [make_item(game_id, game_seasons[game_id]) for game_id in game_ids]
     mark_running_items_interrupted(SOURCE, target_seasons[0] if len(target_seasons) == 1 else None)
 
     with get_conn() as conn:
