@@ -16,6 +16,8 @@ def _init_tmp_db(tmp_path, monkeypatch):
         )
         """
     )
+    # fct_play_by_play matches substitutions against the box score roster; these games have none.
+    db.execute("CREATE TABLE silver.fct_boxscores (game_id TEXT, team_id BIGINT, player_id BIGINT, player_name TEXT)")
     db.insert_rows(
         "silver",
         "fct_games",

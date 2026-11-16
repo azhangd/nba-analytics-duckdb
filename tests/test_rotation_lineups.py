@@ -130,3 +130,54 @@ def test_build_lineups_from_rotation_splits_cross_period_intervals():
     assert second["start_clock_seconds"] == 720.0
     assert second["end_clock_seconds"] == 660.0
     assert second["duration_seconds"] == 60.0
+
+
+def _one_period_game(home_rotation_rows: list[list]) -> tuple:
+    """A 12-minute, one-period game: home 101-105 (+106 off the bench), away 201-205."""
+    import json
+
+    game_id = "0022500463"
+    away_rows = [[game_id, 2, "", "", pid, "", "", 0.0, 7200.0, 0, 0, 0] for pid in range(201, 206)]
+    detail_rows = [{"game_id": game_id, "detail_json": json.dumps({"rotation": _rotation_payload(home_rotation_rows, away_rows)})}]
+    pbp = _pbp(
+        [
+            {"action_type": "2pt", "team_id": 1, "player_id": 101, "player_name": "P101", "description": "",
+             "clock_seconds_remaining": 600.0, "score_home": "2", "score_away": "0"},
+            {"action_type": "2pt", "team_id": 2, "player_id": 201, "player_name": "P201", "description": "",
+             "clock_seconds_remaining": 300.0, "score_home": "2", "score_away": "2"},
+            {"action_type": "period", "team_id": None, "player_id": None, "player_name": "", "description": "End",
+             "clock_seconds_remaining": 0.0, "score_home": "2", "score_away": "2"},
+        ]
+    )
+    games = pl.DataFrame([{"game_id": game_id, "home_team_id": 1, "away_team_id": 2}])
+    boxscores = pl.DataFrame(
+        [
+            {"game_id": game_id, "team_id": team, "player_id": pid, "player_name": f"P{pid}", "started": True, "minutes": 12.0}
+            for team, pids in ((1, range(101, 106)), (2, range(201, 206)))
+            for pid in pids
+        ]
+    )
+    return pbp, games, boxscores, detail_rows
+
+
+def test_broken_rotation_falls_back_to_substitutions():
+    from nba_duckdb.transforms.silver.lineups import build_fct_lineup_rows
+
+    # The home rotation only ever has four players on court, like the NBA's broken rotations.
+    home = [["0022500463", 1, "", "", pid, "", "", 0.0, 7200.0, 0, 0, 0] for pid in range(101, 105)]
+    rows = pl.DataFrame(build_fct_lineup_rows(*_one_period_game(home)))
+
+    minutes = dict(rows.group_by("team_id").agg(pl.col("duration_seconds").sum() / 60).rows())
+    assert minutes == {1: 12.0, 2: 12.0}
+    assert set(rows.filter(pl.col("team_id") == 1)["player_ids_str"]) == {"101,102,103,104,105"}
+
+
+def test_complete_rotation_is_still_used():
+    from nba_duckdb.transforms.silver.lineups import build_fct_lineup_rows
+
+    # 106 replaces 105 after two minutes; only the rotation knows, the play-by-play has no substitution.
+    home = [["0022500463", 1, "", "", pid, "", "", 0.0, 7200.0, 0, 0, 0] for pid in range(101, 105)]
+    home += [["0022500463", 1, "", "", 105, "", "", 0.0, 1200.0, 0, 0, 0], ["0022500463", 1, "", "", 106, "", "", 1200.0, 7200.0, 0, 0, 0]]
+    rows = pl.DataFrame(build_fct_lineup_rows(*_one_period_game(home)))
+
+    assert set(rows.filter(pl.col("team_id") == 1)["player_ids_str"]) == {"101,102,103,104,105", "101,102,103,104,106"}

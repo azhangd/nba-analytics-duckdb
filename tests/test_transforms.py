@@ -42,13 +42,13 @@ def test_build_fct_play_by_play_rows_preserves_source_coordinate_semantics():
     ])
 
     assert len(rows) == 9
-    assert rows[0]["action_id"] == 1
+    assert rows[0]["action_id"] == 10  # stats_v3 action ids are scaled by 10
     assert rows[0]["pbp_source"] == "stats_v3"
     assert rows[0]["loc_x"] is None
     assert rows[0]["loc_y"] is None
 
 
-def test_build_fct_play_by_play_uses_source_action_id_for_paired_events():
+def test_build_fct_play_by_play_orders_paired_events_by_source_action_id():
     rows = build_fct_play_by_play_rows([
         {
             "game_id": GAME_ID,
@@ -65,7 +65,7 @@ def test_build_fct_play_by_play_uses_source_action_id_for_paired_events():
     ])
 
     assert [row["action_number"] for row in rows] == [9, 9]
-    assert [row["action_id"] for row in rows] == [10, 11]
+    assert [row["action_id"] for row in rows] == [100, 110]
 
 
 def test_stats_v3_play_by_play_uses_live_vocabulary_and_carries_score():
@@ -95,15 +95,15 @@ def test_stats_v3_play_by_play_uses_live_vocabulary_and_carries_score():
     ])
 
     by_id = {row["action_id"]: row for row in rows}
-    assert [row["action_id"] for row in rows] == [1, 3, 4, 5, 6, 7, 8]
-    assert by_id[3]["action_type"] == "3pt"
-    assert by_id[4]["action_type"] == "2pt"
-    assert (by_id[5]["team_id"], by_id[5]["player_id"]) == (1610612737, None)
-    assert [(by_id[i]["action_type"], by_id[i]["sub_type"], by_id[i]["shot_result"]) for i in (6, 7)] == [
+    assert [row["action_id"] for row in rows] == [10, 30, 40, 50, 60, 70, 80]
+    assert by_id[30]["action_type"] == "3pt"
+    assert by_id[40]["action_type"] == "2pt"
+    assert (by_id[50]["team_id"], by_id[50]["player_id"]) == (1610612737, None)
+    assert [(by_id[i]["action_type"], by_id[i]["sub_type"], by_id[i]["shot_result"]) for i in (60, 70)] == [
         ("freethrow", "1 of 2", "Missed"),
         ("freethrow", "2 of 2", "Made"),
     ]
-    assert by_id[8]["action_type"] == "steal"
+    assert by_id[80]["action_type"] == "steal"
     assert [(row["score_home"], row["score_away"]) for row in rows] == [
         ("0", "0"), ("3", "0"), ("3", "0"), ("3", "0"), ("3", "0"), ("4", "0"), ("4", "0"),
     ]
@@ -737,3 +737,30 @@ def test_shot_quality_reads_real_action_labels_and_game_clock():
     assert dunk == pytest.approx(jumper + 0.30)
     assert result["is_heave"].to_list() == [False, False, True]
     assert heave == 0.03
+
+
+def test_stats_v3_substitution_becomes_an_out_row_and_an_in_row():
+    def action(action_id, **fields):
+        return {"actionId": action_id, "actionNumber": action_id, "period": 1, "clock": "PT06M55.00S",
+                "teamId": 1610612737, "actionType": "Substitution", "subType": "", **fields}
+
+    rows = build_fct_play_by_play_rows(
+        [{
+            "game_id": GAME_ID,
+            "source": "stats_v3",
+            "pbp_json": json.dumps({"game": {"actions": [
+                action(50, personId=11, playerNameI="A. Starter", description="SUB: Bench FOR Starter"),
+                # Nobody on the roster is called "Unknown", so that player's id stays empty.
+                action(51, personId=12, playerNameI="B. Other", description="SUB: Unknown FOR Other"),
+            ]}}),
+        }],
+        {GAME_ID: {1610612737: {"bench": 31}}},
+    )
+
+    subs = [(row["action_id"], row["sub_type"], row["player_id"], row["description"]) for row in rows]
+    assert subs == [
+        (500, "out", 11, "SUB out: A. Starter"),
+        (501, "in", 31, "SUB in: Bench"),
+        (510, "out", 12, "SUB out: B. Other"),
+        (511, "in", None, "SUB in: Unknown"),
+    ]
