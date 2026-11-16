@@ -671,7 +671,7 @@ def test_full_refresh_task_reads_all_upstream_and_removes_stale_rows(tmp_db):
     ]
 
 
-def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
+def test_adjusted_stats_uses_opponent_defense_and_league_average_from_the_same_season():
     from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
 
     games = pl.DataFrame({
@@ -680,10 +680,11 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "away_team_id": [2, 2],
         "season": ["2025-26", "2026-27"],
     })
+    # League averages: 105 in 2025-26 and 115 in 2026-27 (110 if pooled).
     team_ratings = pl.DataFrame({
-        "team_id": [2, 2],
-        "season": ["2025-26", "2026-27"],
-        "def_rtg": [100.0, 120.0],
+        "team_id": [1, 2, 1, 2],
+        "season": ["2025-26", "2025-26", "2026-27", "2026-27"],
+        "def_rtg": [110.0, 100.0, 110.0, 120.0],
     })
     player_games = pl.DataFrame({
         "player_id": [7, 7],
@@ -697,13 +698,24 @@ def test_adjusted_stats_uses_opponent_defense_from_the_same_season():
         "net_rating": [0.0, 0.0],
     })
 
-    adjusted, league_avg = build_adjusted_stats(
-        player_games=player_games, team_ratings=team_ratings, fct_games=games
-    )
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
     by_season = dict(adjusted.select(["season", "adj_ppg"]).iter_rows())
-    assert by_season["2025-26"] == round(22.0 * league_avg / 100.0, 1)
-    assert by_season["2026-27"] == round(22.0 * league_avg / 120.0, 1)
+    assert by_season == {"2025-26": round(22.0 * 105 / 100, 1), "2026-27": round(22.0 * 115 / 120, 1)}
+
+
+def test_adjusted_stats_raises_when_an_opponent_has_no_defensive_rating():
+    from nba_duckdb.transforms.gold.adjusted_stats import build_adjusted_stats
+
+    games = pl.DataFrame({"game_id": ["g1"], "home_team_id": [1], "away_team_id": [3], "season": ["2025-26"]})
+    team_ratings = pl.DataFrame({"team_id": [1, 2], "season": ["2025-26"] * 2, "def_rtg": [110.0, 100.0]})
+    player_games = pl.DataFrame({
+        "player_id": [7], "game_id": ["g1"], "team_id": [1], "minutes": [30.0],
+        "pts": [20.0], "fga": [15], "fta": [4], "ts_pct": [0.6], "net_rating": [0.0],
+    })
+
+    with pytest.raises(ValueError, match="game g1, team 1, opponent 3"):
+        build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
 
 def test_adjusted_net_rating_weights_games_by_minutes():
@@ -717,7 +729,7 @@ def test_adjusted_net_rating_weights_games_by_minutes():
         "pts": [20.0, 0.0], "fga": [15, 0], "fta": [4, 0], "ts_pct": [0.6, None], "net_rating": [10.0, -50.0],
     })
 
-    adjusted, _ = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
+    adjusted = build_adjusted_stats(player_games=player_games, team_ratings=team_ratings, fct_games=games)
 
     assert adjusted["adj_net_rtg"][0] == round((10.0 * 30 - 50.0 * 2) / 32, 1)
     assert adjusted["adj_ts_pct"][0] == 0.6

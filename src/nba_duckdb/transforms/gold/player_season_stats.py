@@ -16,7 +16,7 @@ def build_player_season_stats_frame(
     four_factors: pl.DataFrame,
     team_games: pl.DataFrame,
 ) -> pl.DataFrame:
-    adjusted, _league_avg_def_rtg = build_adjusted_stats(
+    adjusted = build_adjusted_stats(
         player_games=player_games,
         team_ratings=four_factors,
         fct_games=games,

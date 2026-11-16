@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import polars as pl
 
-_LEAGUE_AVG_DEF_RTG = 112.0
-
 
 def empty_adjusted_stats() -> pl.DataFrame:
     return pl.DataFrame({
@@ -22,22 +20,21 @@ def build_adjusted_stats(
     player_games: pl.DataFrame,
     team_ratings: pl.DataFrame,
     fct_games: pl.DataFrame,
-) -> tuple[pl.DataFrame, float]:
-    """`team_ratings` has one row per team-season with its season `def_rtg`."""
+) -> pl.DataFrame:
+    """`team_ratings` has one row per team-season with its season `def_rtg`.
+
+    Points and TS% are scaled by the season's league average defensive rating
+    (the mean of that season's team def_rtg) over the opponent's def_rtg.
+    """
     if player_games.is_empty() or team_ratings.is_empty() or fct_games.is_empty():
-        return empty_adjusted_stats(), _LEAGUE_AVG_DEF_RTG
+        return empty_adjusted_stats()
 
-    valid_rtg = team_ratings.filter(pl.col("def_rtg").is_not_null() & (pl.col("def_rtg") > 80))
-    league_avg = valid_rtg["def_rtg"].mean() if not valid_rtg.is_empty() else _LEAGUE_AVG_DEF_RTG
-
+    ratings = team_ratings.select(["team_id", "season", "def_rtg"])
+    league_avg = ratings.group_by("season").agg(pl.col("def_rtg").mean().alias("league_avg_def_rtg"))
     games_slim = fct_games.select(["game_id", "home_team_id", "away_team_id", "season"])
-    team_def_rtg = (
-        team_ratings
-        .filter(pl.col("def_rtg").is_not_null())
-        .select(["team_id", "season", pl.col("def_rtg").alias("season_def_rtg")])
-    )
 
-    pgs = player_games.join(games_slim, on="game_id", how="left")
+    played = player_games.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
+    pgs = played.join(games_slim, on="game_id", how="left")
     pgs = pgs.with_columns(
         pl.when(pl.col("team_id") == pl.col("home_team_id"))
         .then(pl.col("away_team_id"))
@@ -45,22 +42,28 @@ def build_adjusted_stats(
         .alias("opp_team_id")
     )
     pgs = pgs.join(
-        team_def_rtg.rename({"team_id": "opp_team_id", "season_def_rtg": "opp_def_rtg"}),
+        ratings.rename({"team_id": "opp_team_id", "def_rtg": "opp_def_rtg"}),
         on=["opp_team_id", "season"],
         how="left",
-    )
-    pgs = pgs.with_columns(pl.col("opp_def_rtg").fill_null(league_avg))
+    ).join(league_avg, on="season", how="left")
+    missing = pgs.filter(pl.col("opp_def_rtg").is_null())
+    if not missing.is_empty():
+        first = missing.row(0, named=True)
+        raise ValueError(
+            f"{missing.height} player games have no opponent defensive rating; first: game {first['game_id']}, "
+            f"team {first['team_id']}, opponent {first['opp_team_id']}, season {first['season']}"
+        )
+    scale = pl.col("league_avg_def_rtg") / pl.col("opp_def_rtg")
     pgs = pgs.with_columns([
-        (pl.col("pts") * (league_avg / pl.col("opp_def_rtg"))).alias("adj_pts"),
+        (pl.col("pts") * scale).alias("adj_pts"),
         pl.when(pl.col("fga").is_not_null() & (pl.col("fga") > 0))
-        .then(pl.col("ts_pct") * (league_avg / pl.col("opp_def_rtg")))
+        .then(pl.col("ts_pct") * scale)
         .otherwise(None)
         .alias("adj_ts_pct_raw"),
     ])
 
     adjusted = (
-        pgs.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
-        .with_columns((pl.col("fga") + 0.44 * pl.col("fta")).alias("tsa"))
+        pgs.with_columns((pl.col("fga") + 0.44 * pl.col("fta")).alias("tsa"))
         .group_by(["player_id", "season"])
         .agg([
             pl.col("adj_pts").mean().alias("adj_ppg"),
@@ -81,4 +84,4 @@ def build_adjusted_stats(
             pl.col("adj_net_rtg").cast(pl.Float64, strict=False).round(1),
         ])
     )
-    return adjusted, float(league_avg)
+    return adjusted
