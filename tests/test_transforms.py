@@ -1003,3 +1003,39 @@ def test_stats_v3_substitution_finds_the_incoming_player_by_full_surname():
         ("SUB in: Fa. Moss", 32),
         ("SUB in: Jackson", 41),
     ]
+
+
+def test_stats_v3_substitution_finds_players_the_roster_spells_differently():
+    """The roster may drop a suffix the play-by-play uses ("KJ Martin" for "Martin Jr.") or spell
+    umlauts out ("Jakob Poeltl" for "Pöltl"); a dropped suffix that fits two players stays unresolved."""
+    def action(action_id, description):
+        return {"actionId": action_id, "actionNumber": action_id, "period": 1, "clock": "PT06M55.00S",
+                "teamId": 1610612737, "actionType": "Substitution", "subType": "", "personId": 11,
+                "playerNameI": "A. Starter", "description": description}
+
+    roster = build_roster_name_map(pl.DataFrame({
+        "team_id": [1610612737] * 6,
+        "player_id": [11, 21, 22, 23, 31, 32],
+        "player_name": ["Al Starter", "KJ Martin", "Jakob Poeltl", "Dennis Schröder", "Ed Moss", "Fay Moss"],
+    }))
+    rows = build_fct_play_by_play_rows(
+        [{
+            "game_id": GAME_ID,
+            "source": "stats_v3",
+            "pbp_json": json.dumps({"game": {"actions": [
+                action(50, "SUB: Martin Jr. FOR Starter"),
+                action(51, "SUB: Pöltl FOR Starter"),
+                action(52, "SUB: Schroeder FOR Starter"),
+                action(53, "SUB: Moss Jr. FOR Starter"),
+            ]}}),
+        }],
+        {GAME_ID: roster},
+    )
+
+    incoming = [(row["description"], row["player_id"]) for row in rows if row["sub_type"] == "in"]
+    assert incoming == [
+        ("SUB in: Martin Jr.", 21),
+        ("SUB in: Pöltl", 22),
+        ("SUB in: Schroeder", 23),
+        ("SUB in: Moss Jr.", None),
+    ]

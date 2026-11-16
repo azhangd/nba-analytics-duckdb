@@ -6,7 +6,7 @@ import logging
 
 import polars as pl
 
-from nba_duckdb.analytics.lineup_tracker import _period_length, track_lineups
+from nba_duckdb.analytics.lineup_tracker import _PERIOD_MARKERS, _period_length, track_lineups
 from nba_duckdb.analytics.rotation_lineups import (
     build_lineup_stints_from_rotation,
     has_rotation_data,
@@ -94,8 +94,10 @@ def _covers_game(stints: pl.DataFrame, game_pbp: pl.DataFrame, team_ids: tuple[i
     """Whether each team's stints add up to the full game, give or take ROTATION_SHORTFALL_SECONDS."""
     if stints.is_empty():
         return False
-    # Count the periods that were played: the All-Star tournament plays one 12-minute period.
-    game_seconds = sum(_period_length(int(period)) for period in game_pbp["period"].unique().to_list())
+    # Count the periods that were played: the All-Star tournament plays one 12-minute period, and a
+    # period holding only a "Game End" marker after a game decided in regulation wasn't played.
+    played = game_pbp.filter(~pl.col("action_type").str.to_lowercase().is_in(list(_PERIOD_MARKERS)))
+    game_seconds = sum(_period_length(int(period)) for period in played["period"].unique().to_list())
     covered = dict(stints.group_by("team_id").agg(pl.col("duration_seconds").sum()).rows())
     return all(covered.get(team_id, 0.0) >= game_seconds - ROTATION_SHORTFALL_SECONDS for team_id in team_ids)
 

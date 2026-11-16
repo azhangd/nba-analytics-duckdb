@@ -186,3 +186,67 @@ def test_substitutions_before_the_period_start_row_do_not_create_phantom_stints(
 
     seconds = dict(stints.group_by("period").agg(pl.col("duration_seconds").sum()).iter_rows())
     assert seconds == {1: 720.0, 2: 720.0}
+
+
+def _sub(period, clock, player_id, direction):
+    return {"period": period, "clock_seconds_remaining": clock, "action_type": "substitution", "team_id": 1,
+            "player_id": player_id, "description": f"SUB {direction}: P{player_id}"}
+
+
+def _play(period, clock, player_id, action_type="2pt", sub_type=""):
+    return {"period": period, "clock_seconds_remaining": clock, "action_type": action_type, "sub_type": sub_type,
+            "team_id": 1, "player_id": player_id}
+
+
+def _lineups(stints, period):
+    rows = stints.filter(pl.col("period") == period).sort("start_clock_seconds", descending=True)
+    return [(row["start_clock_seconds"], row["end_clock_seconds"], row["player_ids_str"]) for row in rows.iter_rows(named=True)]
+
+
+def test_period_starts_with_the_players_who_play_when_the_feed_skips_break_substitutions():
+    # stats_v3 has no rows for substitutions made between periods: 104 and 106 sat down at the
+    # break and 107 and 108 came on. They show up by playing, or by being taken out.
+    pbp = _make_pbp([
+        _play(1, 700.0, 101),
+        _sub(1, 300.0, 105, "out"),
+        _sub(1, 300.0, 106, "in"),
+        _play(2, 700.0, 107),
+        _play(2, 680.0, 102, "3pt"),
+        _play(2, 650.0, 101, "rebound"),
+        _play(2, 620.0, 103, "turnover"),
+        _sub(2, 500.0, 108, "out"),
+        _sub(2, 500.0, 105, "in"),
+    ])
+
+    stints = track_lineups(pbp, "0022500463", home_team_id=1, starters_by_team={1: {101, 102, 103, 104, 105}})
+
+    assert _lineups(stints, 2) == [
+        (720.0, 500.0, "101,102,103,107,108"),
+        (500.0, 0.0, "101,102,103,105,107"),
+    ]
+
+
+def test_a_bench_technical_does_not_put_the_player_on_the_floor():
+    pbp = _make_pbp([
+        _play(1, 600.0, 109, "foul", "technical"),
+        _sub(1, 500.0, 101, "out"),
+        _sub(1, 500.0, 106, "in"),
+    ])
+
+    stints = track_lineups(pbp, "0022500463", home_team_id=1, starters_by_team={1: {101, 102, 103, 104, 105}})
+
+    assert _lineups(stints, 1) == [(720.0, 500.0, "101,102,103,104,105"), (500.0, 0.0, "102,103,104,105,106")]
+
+
+def test_a_substitution_that_does_not_fit_the_lineup_stops_the_period_with_a_warning(caplog):
+    # 110 is taken out but was never on the floor, so who is on after 400 isn't known.
+    pbp = _make_pbp([
+        _play(1, 600.0, 101),
+        _sub(1, 400.0, 110, "out"),
+        _sub(1, 400.0, 106, "in"),
+    ])
+
+    stints = track_lineups(pbp, "0022500463", home_team_id=1, starters_by_team={1: {101, 102, 103, 104, 105}})
+
+    assert _lineups(stints, 1) == [(720.0, 400.0, "101,102,103,104,105")]
+    assert "period 1 of game 0022500463" in caplog.text
