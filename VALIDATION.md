@@ -1,20 +1,31 @@
 # How much to trust the numbers
 
 Short version: the box-score stats are just arithmetic on what you loaded, and
-the fancier metrics are home-made approximations. Apart from season usage,
-nothing here has been checked against Basketball-Reference, the NBA's own
-advanced stats, or any betting or tracking system.
+the fancier metrics are home-made approximations. Season usage and team pace,
+ratings and turnovers have been checked against Basketball-Reference; nothing
+else has been checked against it, the NBA's own advanced stats, or any betting
+or tracking system.
 
 ## What's what
 
 - **Plain summaries.** Player and team game stats, four factors, clutch,
   starters vs. bench, opponent scouting, timeouts and after-timeout plays.
-  These just add up the games in your database. Season ratings are weighted
-  by minutes, so a two-minute stint doesn't count as much as a full game.
-  Season usage comes from season totals with Basketball-Reference's formula;
-  on 2024-25 and 2025-26 it is within 0.5 points of theirs for 99% of
+  These just add up the games in your database. Player season ratings are
+  weighted by minutes, so a two-minute stint doesn't count as much as a full
+  game. Season usage comes from season totals with Basketball-Reference's
+  formula; on 2024-25 and 2025-26 it is within 0.5 points of theirs for 99% of
   players with 500+ minutes. A coach's challenge is charged as a timeout but
   isn't counted as one.
+  - Team possessions, pace and ratings use Basketball-Reference's formulas:
+    possessions are the average of both teams' estimates, pace is possessions
+    per 48 minutes (so overtime counts), and season figures come from season
+    totals, not an average of games. Team turnovers include the ones charged
+    to no player (shot clock, 8 seconds and so on), counted from the
+    play-by-play. For all 30 teams in 2024-25 and 2025-26, pace, offensive and
+    defensive rating and TOV% are within 0.1 of Basketball-Reference, and
+    season turnovers within 1.
+  - Starter and bench points are per team game, so they add up to the team's
+    points per game, give or take 0.1 of rounding.
 - **Simple formulas.** Elo ratings, and `bpm_approx` and `vorp_approx`.
   - Elo follows FiveThirtyEight's NBA method, with the home edge set to 50
     points instead of their 100. 50 predicted 2025-26 best; the comment in
