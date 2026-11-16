@@ -248,11 +248,11 @@ def test_run_smoke_cli_ignores_dotenv_live_warehouse_after_env_load(
             os.environ.pop(key, None)
 
 
-def _assert_run_live_refuses_current_warehouse(monkeypatch, capsys, expected_table=None):
+def _assert_run_live_refuses_current_warehouse(monkeypatch, capsys, expected_table=None, command=("run-live",)):
     from nba_duckdb import cli
 
     monkeypatch.setattr(cli, "require_optional_groups", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "run-live", "--season", "2025-26"])
+    monkeypatch.setattr(sys, "argv", ["nba-duckdb", *command, "--season", "2025-26"])
 
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
@@ -421,3 +421,38 @@ def test_duckdb_lock_timeout_is_bounded(tmp_path, monkeypatch):
 
     with pytest.raises(db.DuckDBLockTimeoutError, match="warehouse is locked"):
         db.get_conn()
+
+
+def test_backfill_source_refuses_synthetic_rows(tmp_path, monkeypatch, capsys):
+    from nba_duckdb import db
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "polluted.duckdb"))
+    monkeypatch.delenv("NBA_DUCKDB_SMOKE_PATH", raising=False)
+    db.init_schema()
+    db.insert_rows("bronze", "schedule", [{"game_id": "002SYN0001", "season": "2025-26"}])
+
+    _assert_run_live_refuses_current_warehouse(monkeypatch, capsys, command=("backfill-source", "shots"))
+
+
+def test_resume_latest_resumes_the_run_for_the_same_graph(tmp_db):
+    from nba_duckdb.orchestration import prepare_run
+
+    shots = prepare_run(command="backfill-source", graph="shots", scope={"source": "shots"})
+    prepare_run(command="backfill-source", graph="pbp", scope={"source": "pbp"})
+
+    resumed = prepare_run(command="backfill-source", graph="shots", scope={"source": "shots"}, resume_latest=True)
+
+    assert resumed.run_id == shots.run_id
+    with pytest.raises(RuntimeError, match="No incomplete backfill-source run of hustle"):
+        prepare_run(command="backfill-source", graph="hustle", scope={}, resume_latest=True)
+
+
+def test_insert_rows_writes_all_batches_or_none(tmp_db):
+    rows = [{"game_id": "0029900001", "season": "2099-00"}, {"game_id": None, "season": "2099-00"}]
+
+    import duckdb
+
+    with pytest.raises(duckdb.ConstraintException):
+        tmp_db.insert_rows("bronze", "schedule", rows, batch_size=1)
+
+    assert tmp_db.count_rows("bronze", "schedule") == 0

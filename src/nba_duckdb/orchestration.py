@@ -58,17 +58,20 @@ def _json_loads(value: Any) -> dict[str, Any]:
     return json.loads(str(value))
 
 
-def _latest_incomplete_run(command: str) -> dict[str, Any] | None:
+def _latest_incomplete_run(command: str, graph: str) -> dict[str, Any] | None:
+    # Graph too: backfill-source runs differ only by graph (the source), and
+    # run-live by default vs quick.
     rows = db.execute(
         """
         SELECT *
         FROM ops.pipeline_runs
         WHERE command = ?
+          AND graph = ?
           AND status IN ('running', 'failed', 'interrupted')
         ORDER BY updated_at DESC, started_at DESC
         LIMIT 1
         """,
-        [command],
+        [command, graph],
     )
     return rows[0] if rows else None
 
@@ -177,9 +180,9 @@ def prepare_run(
     existing: dict[str, Any] | None = None
     resume = resume_latest
     if resume_latest:
-        existing = _latest_incomplete_run(command)
+        existing = _latest_incomplete_run(command, graph)
         if existing is None:
-            raise RuntimeError(f"No incomplete {command} run found to resume")
+            raise RuntimeError(f"No incomplete {command} run of {graph} found to resume")
     elif run_id:
         existing = _get_pipeline_run(run_id)
         resume = existing is not None
