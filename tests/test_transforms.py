@@ -437,7 +437,8 @@ def _create_team_box_inputs(db, games):
     """One box-score row per team and game, play-by-play turnovers, and the games.
 
     `games` maps game_id to (minutes, {team_id: stats}); stats carry `player_tov`
-    (credited to players) and `team_tov` (no player, e.g. shot clock).
+    (credited to players) and `team_tov` (no player, e.g. shot clock). The
+    turnovers all sit at the opening tip with the score 0-0; team 10 is at home.
     """
     db.execute(
         """
@@ -448,8 +449,17 @@ def _create_team_box_inputs(db, games):
         )
         """
     )
-    db.execute("CREATE TABLE silver.fct_play_by_play (game_id TEXT, team_id INTEGER, player_id INTEGER, action_type TEXT)")
-    db.execute("CREATE TABLE silver.fct_games (game_id TEXT, season TEXT, game_date TEXT, game_type TEXT)")
+    db.execute(
+        """
+        CREATE TABLE silver.fct_play_by_play (
+            game_id TEXT, action_id BIGINT, period INTEGER, clock_seconds_remaining DOUBLE,
+            team_id INTEGER, player_id INTEGER, action_type TEXT, score_home TEXT, score_away TEXT
+        )
+        """
+    )
+    db.execute(
+        "CREATE TABLE silver.fct_games (game_id TEXT, season TEXT, game_date TEXT, game_type TEXT, home_team_id INTEGER)"
+    )
     db.execute("CREATE TABLE silver.dim_teams (team_id INTEGER, abbreviation TEXT)")
     box_rows, play_rows = [], []
     for game_id, (minutes, teams) in games.items():
@@ -459,16 +469,18 @@ def _create_team_box_inputs(db, games):
                 {"game_id": game_id, "team_id": team_id, "minutes": minutes, "fg3m": 0, "ftm": 0,
                  "tov": stats["player_tov"], "pace": 1000.0, **box_stats}
             )
-            turnover = {"game_id": game_id, "team_id": team_id, "action_type": "turnover"}
+            turnover = {"game_id": game_id, "team_id": team_id, "action_type": "turnover", "period": 1,
+                        "clock_seconds_remaining": 720.0, "score_home": "0", "score_away": "0"}
             play_rows += [{**turnover, "player_id": 1}] * stats["player_tov"]
             play_rows += [{**turnover, "player_id": None}] * stats["team_tov"]
     db.insert_rows("silver", "fct_boxscores", box_rows)
-    db.insert_rows("silver", "fct_play_by_play", play_rows)
+    db.insert_rows("silver", "fct_play_by_play", [{**row, "action_id": i} for i, row in enumerate(play_rows)])
     db.insert_rows(
         "silver",
         "fct_games",
         [
-            {"game_id": game_id, "season": "2099-00", "game_date": "01/01/2100", "game_type": "regular_season"}
+            {"game_id": game_id, "season": "2099-00", "game_date": "01/01/2100", "game_type": "regular_season",
+             "home_team_id": 10}
             for game_id in games
         ],
     )
@@ -533,6 +545,31 @@ def test_sql_team_game_stats_computes_ratings_and_margins(tmp_db):
             "net_rtg": -11.4,
         },
     ]
+
+
+def test_team_game_average_lead_weights_each_margin_by_game_time(tmp_db):
+    from nba_duckdb import dbt_runner
+
+    db = tmp_db
+    _create_team_box_inputs(db, {"002SYN0001": _REGULATION_GAME})
+    # Home team 10 goes up 6-0 halfway through the first quarter and stays there:
+    # 0 for 360 of 2880 seconds, then +6, so an average lead of 6 * 2520 / 2880.
+    scoring = [(1, 720.0, "0", "0"), (1, 360.0, "6", "0"), (3, 720.0, "6", "0"), (4, 0.0, "6", "0")]
+    db.insert_rows(
+        "silver",
+        "fct_play_by_play",
+        [
+            {"game_id": "002SYN0001", "action_id": 1000 + i, "period": period, "clock_seconds_remaining": clock,
+             "action_type": "2pt", "score_home": home, "score_away": away}
+            for i, (period, clock, home, away) in enumerate(scoring)
+        ],
+    )
+
+    dbt_runner.run_model(model="team_game_stats")
+    rows = db.execute_sql("SELECT team_id, avg_lead FROM gold.team_game_stats")
+    leads = {row["team_id"]: row["avg_lead"] for row in rows}
+
+    assert leads == {10: pytest.approx(5.25), 20: pytest.approx(-5.25)}
 
 
 def test_four_factors_use_season_possessions_team_minutes_and_team_turnovers(tmp_db):

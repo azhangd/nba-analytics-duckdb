@@ -1034,138 +1034,111 @@ def test_team_elo_empty_scoped_refresh_deletes_stale_rows(tmp_db):
     assert stale_rows == 0
 
 
-def test_bpm_vorp_transform_computes_approx_columns(tmp_db):
-    db = tmp_db
+def test_raw_bpm_reproduces_the_published_worked_example():
+    import polars as pl
+
+    from nba_duckdb.transforms.gold.bpm_vorp import (
+        _BPM_COEFFICIENTS,
+        _BPM_POSITION_CONSTANT,
+        _BPM_ROLE_CONSTANT,
+        _raw_bpm,
+    )
+
+    # Basketball-Reference's BPM 2.0 page works through a 2017 season: position
+    # 2.3, offensive role 1.0, and this per-100 line (points already adjusted
+    # for team shooting). It gets 18.7 from the box score and -0.3 and -2.8 from
+    # the position and role constants: raw BPM 15.6. Its inputs are rounded to
+    # 0.1, hence the tolerance.
+    line = {
+        "position": 2.3, "role": 1.0, "pts_100": 30.4, "fg3m_100": 2.2, "ast_100": 11.5, "tov_100": 5.4,
+        "oreb_100": 1.7, "dreb_100": 9.7, "stl_100": 1.6, "blk_100": 0.8, "pf_100": 2.4, "fga_100": 24.0,
+        "fta_100": 9.5,
+    }
+
+    raw = pl.DataFrame([line]).select(
+        _raw_bpm(_BPM_COEFFICIENTS, _BPM_POSITION_CONSTANT, _BPM_ROLE_CONSTANT)
+    ).item()
+
+    assert raw == pytest.approx(15.6, abs=0.15)
+
+
+def _bpm_round_robin():
+    """Three teams play each other once, 100 possessions a game, five players
+    each playing all 48 minutes. Scores (home first) and the home team's
+    average lead: A 110-100 B (+4), B 105-100 C (+2), C 100-100 A (0)."""
+    import polars as pl
+
+    games = [("g1", "A", "B", 110, 100, 4.0), ("g2", "B", "C", 105, 100, 2.0), ("g3", "C", "A", 100, 100, 0.0)]
+    team_ids = {"A": 1, "B": 2, "C": 3}
+    # Points and attempts split unevenly so players differ in position, role and BPM.
+    shares = [0.30, 0.25, 0.20, 0.15, 0.10]
+    team_rows, player_rows = [], []
+    for game_id, home, away, home_pts, away_pts, home_lead in games:
+        for team, pts, opp_pts, lead in ((home, home_pts, away_pts, home_lead), (away, away_pts, home_pts, -home_lead)):
+            team_rows.append({"game_id": game_id, "team_id": team_ids[team], "season": "2099-00", "pts": pts,
+                              "opp_pts": opp_pts, "possessions": 100.0, "avg_lead": lead})
+            for slot, share in enumerate(shares):
+                player_rows.append({
+                    "game_id": game_id, "player_id": 10 * team_ids[team] + slot, "team_id": team_ids[team],
+                    "minutes": 48.0, "pts": round(pts * share), "fga": round(85 * share), "fta": round(22 * share),
+                    "fg3m": slot % 3, "oreb": slot, "dreb": 2 + slot, "reb": 2 + 2 * slot, "ast": 5 - slot,
+                    "stl": 1 + slot % 2, "blk": slot // 2, "tov": 3 - slot // 2, "pf": 2,
+                })
+    return pl.DataFrame(player_rows), pl.DataFrame(team_rows)
+
+
+def test_bpm_team_sums_hit_net_rating_adjusted_for_schedule_and_lead():
     from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
 
-    _create_fct_games(db)
-    _create_player_game_stats(db)
-    _create_player_season_stats(db)
-    db.insert_rows(
-        "silver",
-        "fct_games",
-        [{"game_id": "0029900001", "season": "2099-00"}],
-    )
-    _create_team_season_four_factors(db)
-    _create_player_dbt_mart_inputs(db)
-    db.insert_rows(
-        "gold",
-        "team_season_four_factors",
-        [{"team_id": 1610612737, "season": "2099-00", "pace": 100.0}],
-    )
-    db.insert_rows(
-        "gold",
-        "player_game_stats",
-        [
-            {
-                "game_id": "0029900001",
-                "player_id": 990001,
-                "team_id": 1610612737,
-                "player_name": "Synthetic Guard",
-                "minutes": 32.0,
-                "pts": 24,
-                "reb": 6,
-                "oreb": 1,
-                "dreb": 5,
-                "ast": 7,
-                "stl": 2,
-                "blk": 1,
-                "tov": 3,
-                "fga": 18,
-                "fg3a": 7,
-                "pf": 2,
-            }
-        ],
-    )
-    db.insert_rows(
-        "gold",
-        "player_season_stats",
-        [
-            {
-                "player_id": 990001,
-                "season": "2099-00",
-                "player_name": "Synthetic Guard",
-                "avg_usg_pct": 0.27,
-                "games_played": 1,
-            }
-        ],
-    )
+    player_games, team_games = _bpm_round_robin()
 
-    result, league_avg_pace = build_bpm_vorp(
-        player_games=db.read_table("gold", "player_game_stats"),
-        fct_games=db.read_table("silver", "fct_games"),
-        season_stats=db.read_table("gold", "player_season_stats"),
-        four_factors=db.read_table("gold", "team_season_four_factors"),
-    )
-    row = result.row(0, named=True)
+    result = build_bpm_vorp(player_games=player_games, team_games=team_games)
 
-    assert result.height == 1
-    assert league_avg_pace == 100.0
-    assert row["player_id"] == 990001
-    assert row["obpm"] is not None
-    assert row["dbpm"] is not None
-    assert row["bpm_approx"] is not None
-    assert row["vorp_approx"] is not None
+    # Plain net ratings are A +5, B -2.5, C -2.5. Adjusted for schedule (each
+    # team's offense and defense credited with its opponents' average):
+    # offense A +5/3, B +5/3, C -10/3; net A +10/3, B -5/3, C -5/3. Average leads
+    # are A +2, B -1, C -1; BPM adds 0.175 x lead, OBPM half that.
+    targets = {
+        1: (10 / 3 + 0.175 * 2, 5 / 3 + 0.0875 * 2),
+        2: (-5 / 3 - 0.175, 5 / 3 - 0.0875),
+        3: (-5 / 3 - 0.175, -10 / 3 - 0.0875),
+    }
+    rows = result.sort("player_id").rows_by_key("player_id", named=True, unique=True)
+    for team_id, (bpm_target, obpm_target) in targets.items():
+        team = [rows[10 * team_id + slot] for slot in range(5)]
+        # Every player has a 100% share of minutes; BPM, OBPM and DBPM are rounded to 0.1.
+        assert sum(row["bpm_approx"] for row in team) == pytest.approx(bpm_target, abs=0.25)
+        assert sum(row["obpm"] for row in team) == pytest.approx(obpm_target, abs=0.25)
+        for row in team:
+            assert row["dbpm"] == pytest.approx(row["bpm_approx"] - row["obpm"], abs=0.11)
+            assert row["vorp_approx"] == pytest.approx((row["bpm_approx"] + 2) * 96 / (48 * 82), abs=0.01)
+    assert len({row["bpm_approx"] for row in rows.values()}) > 5
 
 
-def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
+def test_bpm_gives_a_traded_player_one_row_weighted_by_minutes():
     import polars as pl
 
     from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
 
-    player_games = pl.DataFrame(
-        {
-            "game_id": ["0029900001", "0029900002"],
-            "player_id": [990001, 990001],
-            "team_id": [1610612737, 1610612738],
-            "minutes": [30.0, 34.0],
-            "pts": [20, 24],
-            "reb": [5, 7],
-            "oreb": [1, 2],
-            "dreb": [4, 5],
-            "ast": [6, 8],
-            "stl": [1, 2],
-            "blk": [0, 1],
-            "tov": [2, 3],
-            "fga": [15, 18],
-            "fg3a": [6, 7],
-            "pf": [2, 3],
-        }
-    )
-    games = pl.DataFrame(
-        {
-            "game_id": ["0029900001", "0029900002"],
-            "season": ["2099-00", "2099-00"],
-        }
-    )
-    season_stats = pl.DataFrame(
-        {
-            "player_id": [990001],
-            "season": ["2099-00"],
-            "avg_usg_pct": [0.25],
-        }
-    )
-    four_factors = pl.DataFrame(
-        {
-            "team_id": [1610612737, 1610612738],
-            "season": ["2099-00", "2099-00"],
-            "pace": [96.0, 104.0],
-            "ppg": [110.0, 112.0],
-            "opp_ppg": [108.0, 114.0],
-        }
+    player_games, team_games = _bpm_round_robin()
+    # Player 99 replaces player 14 (team A) in game 1 and player 34 (team C) in game 3.
+    player_games = player_games.with_columns(
+        pl.when(
+            ((pl.col("game_id") == "g1") & (pl.col("player_id") == 14))
+            | ((pl.col("game_id") == "g3") & (pl.col("player_id") == 34))
+        )
+        .then(99)
+        .otherwise(pl.col("player_id"))
+        .alias("player_id")
     )
 
-    result, league_avg_pace = build_bpm_vorp(
-        player_games=player_games,
-        fct_games=games,
-        season_stats=season_stats,
-        four_factors=four_factors,
-    )
+    result = build_bpm_vorp(player_games=player_games, team_games=team_games)
+    traded = result.filter(pl.col("player_id") == 99)
 
-    assert result.height == 1
-    assert result.row(0, named=True)["player_id"] == 990001
-    assert result.row(0, named=True)["season"] == "2099-00"
-    assert league_avg_pace == 100.0
+    assert traded.height == 1
+    assert traded["vorp_approx"].item() == pytest.approx(
+        (traded["bpm_approx"].item() + 2) * 96 / (48 * 82), abs=0.01
+    )
 
 
 def test_library_gold_consumers_resolve_bpm_approx_columns(tmp_db):
@@ -1646,33 +1619,3 @@ def test_overtime_ato_is_clutch_only_within_five_points(tmp_db):
 
     row = tmp_db.execute("SELECT offensive_ato_possessions, clutch_ato_possessions FROM gold.team_season_ato_stats")[0]
     assert (row["offensive_ato_possessions"], row["clutch_ato_possessions"]) == (2, 1)
-
-
-def test_bpm_is_centered_on_each_teams_rating():
-    import polars as pl
-
-    from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
-
-    def game_line(game_id, player_id, team_id, minutes, pts, ast):
-        return {"game_id": game_id, "player_id": player_id, "team_id": team_id, "minutes": minutes, "pts": pts,
-                "reb": 5, "oreb": 1, "dreb": 4, "ast": ast, "stl": 1, "blk": 0, "tov": 2, "fga": 12, "fg3a": 4, "pf": 2}
-
-    player_games = pl.DataFrame([
-        game_line("g1", 1, 10, 36.0, 30, 8), game_line("g1", 2, 10, 12.0, 4, 1),
-        game_line("g1", 3, 20, 30.0, 18, 4), game_line("g1", 4, 20, 18.0, 10, 2),
-    ])
-    games = pl.DataFrame({"game_id": ["g1"], "season": ["2099-00"]})
-    season_stats = pl.DataFrame({"player_id": [1, 2, 3, 4], "season": ["2099-00"] * 4, "avg_usg_pct": [0.3, 0.15, 0.22, 0.18]})
-    # Team 10 is +8 per 100 possessions, team 20 is -8.
-    four_factors = pl.DataFrame({
-        "team_id": [10, 20], "season": ["2099-00"] * 2, "pace": [100.0, 100.0],
-        "ppg": [112.0, 104.0], "opp_ppg": [104.0, 112.0],
-    })
-
-    result, _ = build_bpm_vorp(
-        player_games=player_games, fct_games=games, season_stats=season_stats, four_factors=four_factors
-    )
-    bpm = dict(result.select(["player_id", "bpm_approx"]).iter_rows())
-
-    assert 5 * (bpm[1] * 36 + bpm[2] * 12) / 48 == pytest.approx(8.0, abs=0.3)
-    assert 5 * (bpm[3] * 30 + bpm[4] * 18) / 48 == pytest.approx(-8.0, abs=0.3)

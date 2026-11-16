@@ -1,25 +1,103 @@
-"""Pure transforms for BPM/VORP-style approximations."""
+"""Box Plus/Minus 2.0 and VORP, following Basketball-Reference.
+
+The method and every coefficient below come from Daniel Myers, "About Box
+Plus/Minus (BPM)", https://www.basketball-reference.com/about/bpm2.html
+(fetched 2026-11-16). For each player-team stint in a season:
+
+1. Box score stats are put per 100 team possessions played.
+2. Position (1 = PG, 5 = C) and offensive role (1 = creator, 5 = receiver)
+   are estimated from the player's share of team stats while on the floor,
+   then shifted per team so the minutes-weighted average is 3.0, clamped to
+   1..5 (page appendix).
+3. Coefficients are interpolated between their position-1 and position-5
+   values (FGA and FTA by offensive role instead), plus the position and role
+   constants.
+4. Points are adjusted for team shooting context: every player on a team gets
+   the same points per true shot attempt shift, from the team's rate to 1.00.
+   The page doesn't print the 1.00 baseline. Its 2017 worked example (34.9
+   points on 28.2 TSA adjusted to 30.4) puts it 0.16 below that team's rate,
+   and on 2022-23 to 2025-26 1.00 matches Basketball-Reference best (mean gap
+   0.19-0.24 against 0.27-0.34 for 0.95 or 1.05).
+5. A team adjustment is added so the team's players, weighted by share of
+   minutes, sum to the team's net rating per 100 possessions, adjusted for
+   strength of schedule and for playing with a lead: teams play about 0.35
+   points per 100 worse per point of lead, and half of that is credited back
+   to the team (+0.175 x average lead). OBPM does the same with the team's
+   offensive rating and half of the lead correction. DBPM is BPM - OBPM.
+
+   There is no 1.2 multiplier on the team rating (BPM 1.0 had one; the 2.0
+   page doesn't). Checked on 2022-23 to 2025-26: Basketball-Reference's own
+   BPMs, minutes-weighted per team, come to 1.01-1.04 x this target.
+
+Differences from Basketball-Reference's published numbers: they sum
+game-level BPM from 1985 on (this is the season-level version, which the page
+says is within about 0.5), and they blend in 50 minutes of the player's listed
+position, which the NBA's G/F/C listings can't supply, so the position
+estimate comes from the box score alone. A traded player's BPM is the
+minutes-weighted average of his stints. A season with any game lacking
+possessions or an average lead (no play-by-play) gives its players no BPM, as
+does a partial load whose games can't separate each team's offense from its
+defense (for example two teams that only play each other).
+"""
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 
-_OBPM_PTS = 0.123
-_OBPM_NET_REB = 0.179
-_OBPM_AST = 0.267
-_OBPM_TOV = -0.194
-_OBPM_FGA = -0.186
-_OBPM_3PA = 0.172
+# Coefficient per 100 team possessions: (position 1, position 5). FGA and FTA
+# are (role 1 creator, role 5 receiver). Single values are the same for both.
+_BPM_COEFFICIENTS = {
+    "pts": (0.860, 0.860),
+    "fg3m": (0.389, 0.389),
+    "ast": (0.580, 1.034),
+    "tov": (-0.964, -0.964),
+    "oreb": (0.613, 0.181),
+    "dreb": (0.116, 0.181),
+    "stl": (1.369, 1.008),
+    "blk": (1.327, 0.703),
+    "pf": (-0.367, -0.367),
+    "fga": (-0.560, -0.780),
+    "fta": (-0.246, -0.343),
+}
+_OBPM_COEFFICIENTS = {
+    "pts": (0.605, 0.605),
+    "fg3m": (0.477, 0.477),
+    "ast": (0.476, 0.476),
+    "tov": (-0.579, -0.882),
+    "oreb": (0.606, 0.422),
+    "dreb": (-0.112, 0.103),
+    "stl": (0.177, 0.294),
+    "blk": (0.725, 0.097),
+    "pf": (-0.439, -0.439),
+    "fga": (-0.330, -0.472),
+    "fta": (-0.145, -0.208),
+}
+_ROLE_COEFFICIENTS = ("fga", "fta")
+# Position constant at position 1, rising linearly to 0 at position 3 and
+# staying 0 above; offensive role constant at role 1, linear through 0 at 3.
+_BPM_POSITION_CONSTANT = -0.818
+_BPM_ROLE_CONSTANT = -2.774
+_OBPM_POSITION_CONSTANT = -1.698
+_OBPM_ROLE_CONSTANT = -0.860
 
-_DBPM_STL = 0.200
-_DBPM_BLK = 0.178
-_DBPM_PF = -0.029
-_DBPM_DRB = 0.124
-_DBPM_AST = 0.046
-_DBPM_OPP3PA_CONST = -0.48
+# Position and offensive role regressions on % of team stats while on court.
+_POSITION_INTERCEPT = 2.130
+_POSITION_WEIGHTS = {"reb": 8.668, "stl": -2.486, "pf": 0.992, "ast": -3.536, "blk": 1.667}
+_ROLE_INTERCEPT = 6.00
+_ROLE_AST = -6.642
+_ROLE_THRESHOLD_PTS = -8.544
+_ROLE_THRESHOLD_BELOW_TEAM = 0.33  # points per TSA below the team's rate
+_ROLE_PRIOR_MINUTES = 50.0
+_ROLE_PRIOR = 4.0
 
-_LEAGUE_AVG_PACE = 98.0
-_AVG_USG = 0.20
+_TSA_FTA_WEIGHT = 0.44
+_BASELINE_PTS_PER_TSA = 1.00
+_LEAD_CORRECTION = 0.35 / 2  # points per 100 per point of average lead
+_REPLACEMENT_BPM = -2.0
+_SEASON_MINUTES = 48.0 * 82.0
+
+_STATS = ["pts", "fga", "fta", "fg3m", "oreb", "dreb", "reb", "ast", "stl", "blk", "tov", "pf"]
 
 
 def empty_bpm_vorp() -> pl.DataFrame:
@@ -33,171 +111,198 @@ def empty_bpm_vorp() -> pl.DataFrame:
     })
 
 
-def build_bpm_vorp(
-    *,
-    player_games: pl.DataFrame,
-    fct_games: pl.DataFrame,
-    season_stats: pl.DataFrame,
-    four_factors: pl.DataFrame,
-) -> tuple[pl.DataFrame, float]:
-    if player_games.is_empty() or fct_games.is_empty() or season_stats.is_empty():
-        return empty_bpm_vorp(), _LEAGUE_AVG_PACE
+def build_bpm_vorp(*, player_games: pl.DataFrame, team_games: pl.DataFrame) -> pl.DataFrame:
+    """BPM 2.0, OBPM, DBPM and VORP per player-season.
 
-    if not four_factors.is_empty() and "pace" in four_factors.columns:
-        valid_pace = four_factors.filter(pl.col("pace").is_not_null() & (pl.col("pace") > 0))
-        league_avg_pace = float(valid_pace["pace"].mean()) if not valid_pace.is_empty() else _LEAGUE_AVG_PACE
-        team_pace_columns = ["team_id", "pace"]
-        if "season" in four_factors.columns:
-            team_pace_columns.insert(1, "season")
-        team_pace = four_factors.select(team_pace_columns).unique(
-            subset=[column for column in team_pace_columns if column != "pace"],
-            keep="last",
-        )
-    else:
-        league_avg_pace = _LEAGUE_AVG_PACE
-        team_pace = pl.DataFrame({"team_id": pl.Series([], dtype=pl.Int64), "pace": pl.Series([], dtype=pl.Float64)})
-
-    games_slim = fct_games.select(["game_id", "season"])
-    pgs = player_games.join(games_slim, on="game_id", how="left")
-    pgs = pgs.filter(pl.col("minutes").is_not_null() & (pl.col("minutes") > 0))
-
-    if not team_pace.is_empty():
-        pace_join_keys = ["team_id", "season"] if "season" in team_pace.columns else ["team_id"]
-        pgs = pgs.join(
-            team_pace.rename({"pace": "team_pace"}),
-            on=pace_join_keys,
-            how="left",
-        )
-        pgs = pgs.with_columns(pl.col("team_pace").fill_null(league_avg_pace))
-    else:
-        pgs = pgs.with_columns(pl.lit(league_avg_pace).alias("team_pace"))
-
-    agg = (
-        pgs.group_by(["player_id", "season"])
-        .agg([
-            pl.col("minutes").mean().alias("mpg"),
-            pl.col("pts").mean().alias("ppg"),
-            pl.col("reb").mean().alias("rpg"),
-            pl.col("oreb").mean().alias("orpg"),
-            pl.col("dreb").mean().alias("drpg"),
-            pl.col("ast").mean().alias("apg"),
-            pl.col("stl").mean().alias("spg"),
-            pl.col("blk").mean().alias("bpg"),
-            pl.col("tov").mean().alias("topg"),
-            pl.col("fga").mean().alias("fga_pg"),
-            pl.col("fg3a").mean().alias("fg3a_pg"),
-            pl.col("pf").mean().alias("pfpg"),
-            pl.col("game_id").count().alias("gp"),
-            pl.col("team_pace").mean().alias("team_pace"),
-        ])
-        .filter(pl.col("mpg") > 0)
-    )
-
-    usg = (
-        season_stats.select(["player_id", "season", "avg_usg_pct"])
-        .filter(pl.col("avg_usg_pct").is_not_null())
-        .group_by(["player_id", "season"])
-        .agg(pl.col("avg_usg_pct").mean())
-    )
-    agg = agg.join(usg, on=["player_id", "season"], how="left")
-    agg = agg.with_columns(pl.col("avg_usg_pct").fill_null(_AVG_USG))
-
-    scale = 4800.0 / (pl.col("mpg") * pl.col("team_pace"))
-    agg = agg.with_columns([
-        (pl.col("ppg") * scale).alias("pts100"),
-        (pl.col("rpg") * scale).alias("reb100"),
-        (pl.col("orpg") * scale).alias("oreb100"),
-        (pl.col("drpg") * scale).alias("dreb100"),
-        (pl.col("apg") * scale).alias("ast100"),
-        (pl.col("spg") * scale).alias("stl100"),
-        (pl.col("bpg") * scale).alias("blk100"),
-        (pl.col("topg") * scale).alias("tov100"),
-        (pl.col("fga_pg") * scale).alias("fga100"),
-        (pl.col("fg3a_pg") * scale).alias("fg3a100"),
-        (pl.col("pfpg") * scale).alias("pf100"),
-    ])
-    agg = agg.with_columns((2.5 * (pl.col("avg_usg_pct") - _AVG_USG)).alias("role_adj"))
-    agg = agg.with_columns(
-        (
-            _OBPM_PTS * pl.col("pts100")
-            + _OBPM_NET_REB * (pl.col("reb100") - 0.26 * pl.col("oreb100"))
-            + _OBPM_AST * pl.col("ast100")
-            + _OBPM_TOV * pl.col("tov100")
-            + _OBPM_FGA * pl.col("fga100")
-            + _OBPM_3PA * pl.col("fg3a100")
-            + pl.col("role_adj")
-        ).alias("raw_obpm")
-    )
-    agg = agg.with_columns(
-        (
-            _DBPM_STL * pl.col("stl100")
-            + _DBPM_BLK * pl.col("blk100")
-            + _DBPM_PF * pl.col("pf100")
-            + _DBPM_DRB * pl.col("dreb100")
-            + _DBPM_AST * pl.col("ast100")
-            + _DBPM_OPP3PA_CONST
-            + pl.col("role_adj") * 0.5
-        ).alias("raw_dbpm")
-    )
-    agg = agg.join(
-        _team_adjustments(pgs, agg, four_factors), on=["player_id", "season"], how="left"
-    ).with_columns([
-        (pl.col("raw_obpm") + pl.col("obpm_adj")).round(1).alias("obpm"),
-        (pl.col("raw_dbpm") + pl.col("dbpm_adj")).round(1).alias("dbpm"),
-    ])
-    agg = agg.with_columns([
-        (pl.col("obpm") + pl.col("dbpm")).round(1).alias("bpm_approx"),
-        (
-            (pl.col("obpm") + pl.col("dbpm") + 2.0)
-            * (pl.col("gp") / 82.0)
-            * (pl.col("mpg") / 48.0)
-        ).round(2).alias("vorp_approx"),
-    ])
-    return agg.select(["player_id", "season", "obpm", "dbpm", "bpm_approx", "vorp_approx"]), float(league_avg_pace)
-
-
-def _team_adjustments(pgs: pl.DataFrame, raw: pl.DataFrame, four_factors: pl.DataFrame) -> pl.DataFrame:
-    """Per player-season shifts that center BPM on how each team actually played.
-
-    As in Basketball-Reference's BPM, each team's players get one offensive and one
-    defensive constant so that 5 x their minutes-weighted OBPM equals the team's
-    offensive rating per 100 possessions relative to the league, and likewise for
-    defense. A traded player gets the minutes-weighted average of his teams' shifts.
-    A team without four factors gives its players no BPM.
+    `player_games` is gold.player_game_stats and `team_games` is
+    gold.team_game_stats (regular-season games with possessions). Player games
+    outside `team_games` are ignored.
     """
-    ratings = four_factors.filter(pl.col("pace") > 0).with_columns([
-        (pl.col("ppg") * 100 / pl.col("pace")).alias("ortg"),
-        (pl.col("opp_ppg") * 100 / pl.col("pace")).alias("drtg"),
-    ])
-    ratings = ratings.with_columns([
-        (pl.col("ortg") - pl.col("ortg").mean().over("season")).alias("rel_off"),
-        (pl.col("drtg").mean().over("season") - pl.col("drtg")).alias("rel_def"),
-    ]).select(["team_id", "season", "rel_off", "rel_def"])
+    if player_games.is_empty() or team_games.is_empty():
+        return empty_bpm_vorp()
 
-    stints = (
-        pgs.group_by(["player_id", "season", "team_id"])
-        .agg(pl.col("minutes").sum().alias("team_minutes"))
-        .join(raw.select(["player_id", "season", "raw_obpm", "raw_dbpm"]), on=["player_id", "season"], how="inner")
+    games = team_games.select(["game_id", "team_id", "season", "pts", "opp_pts", "possessions", "avg_lead"]).with_columns(
+        pl.col("team_id").cast(pl.Int64)
     )
-    team_constants = (
-        stints.group_by(["team_id", "season"])
-        .agg([
-            ((pl.col("raw_obpm") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("team_obpm"),
-            ((pl.col("raw_dbpm") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("team_dbpm"),
-        ])
-        .join(ratings, on=["team_id", "season"], how="inner")
-        .select([
-            "team_id",
-            "season",
-            (pl.col("rel_off") / 5 - pl.col("team_obpm")).alias("off_const"),
-            (pl.col("rel_def") / 5 - pl.col("team_dbpm")).alias("def_const"),
-        ])
+    pgs = player_games.filter(pl.col("minutes") > 0).join(
+        games.select(["game_id", "team_id", "season"]), on=["game_id", "team_id"], how="inner"
     )
-    return (
-        stints.join(team_constants, on=["team_id", "season"], how="inner")
-        .group_by(["player_id", "season"])
-        .agg([
-            ((pl.col("off_const") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("obpm_adj"),
-            ((pl.col("def_const") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("dbpm_adj"),
-        ])
+    stints = pgs.group_by(["player_id", "season", "team_id"]).agg(
+        [pl.col("minutes").sum()] + [pl.col(stat).sum().cast(pl.Float64) for stat in _STATS]
     )
+    teams = stints.group_by(["team_id", "season"]).agg(
+        [pl.col("minutes").sum().alias("team_minutes")]
+        + [pl.col(stat).sum().alias(f"team_{stat}") for stat in _STATS]
+    ).join(_team_targets(games), on=["team_id", "season"], how="inner")
+
+    stints = stints.join(teams, on=["team_id", "season"], how="inner")
+    share = pl.col("minutes") / (pl.col("team_minutes") / 5)
+    team_pts_per_tsa = pl.col("team_pts") / (pl.col("team_fga") + _TSA_FTA_WEIGHT * pl.col("team_fta"))
+    tsa = pl.col("fga") + _TSA_FTA_WEIGHT * pl.col("fta")
+    stints = stints.with_columns(
+        share.alias("share"),
+        (pl.col("pts") + (_BASELINE_PTS_PER_TSA - team_pts_per_tsa) * tsa).alias("pts_adj"),
+        (pl.col("pts") - (team_pts_per_tsa - _ROLE_THRESHOLD_BELOW_TEAM) * tsa).alias("threshold_pts"),
+        (_ROLE_THRESHOLD_BELOW_TEAM * (pl.col("team_fga") + _TSA_FTA_WEIGHT * pl.col("team_fta"))).alias(
+            "team_threshold_pts"
+        ),
+    )
+
+    def team_share(stat: str, team_stat: str) -> pl.Expr:
+        # A team total of 0 (possible only in tiny samples) means every player had 0% of it.
+        return (
+            pl.when(pl.col(team_stat) == 0)
+            .then(0.0)
+            .otherwise(pl.col(stat) / (pl.col("share") * pl.col(team_stat)))
+        )
+
+    position_raw = pl.lit(_POSITION_INTERCEPT)
+    for stat, weight in _POSITION_WEIGHTS.items():
+        position_raw = position_raw + weight * team_share(stat, f"team_{stat}")
+    role_fit = (
+        _ROLE_INTERCEPT
+        + _ROLE_AST * team_share("ast", "team_ast")
+        + _ROLE_THRESHOLD_PTS * team_share("threshold_pts", "team_threshold_pts")
+    )
+    role_raw = (role_fit * pl.col("minutes") + _ROLE_PRIOR * _ROLE_PRIOR_MINUTES) / (
+        pl.col("minutes") + _ROLE_PRIOR_MINUTES
+    )
+    stints = stints.with_columns(position_raw.alias("position_raw"), role_raw.alias("role_raw"))
+    stints = _center_on_team(stints, "position_raw", "position")
+    stints = _center_on_team(stints, "role_raw", "role")
+
+    per_100 = 100 / (pl.col("share") * pl.col("team_possessions"))
+    stints = stints.with_columns(
+        [(pl.col("pts_adj") * per_100).alias("pts_100")]
+        + [(pl.col(stat) * per_100).alias(f"{stat}_100") for stat in ["fg3m", "ast", "tov", "oreb", "dreb", "stl", "blk", "pf", "fga", "fta"]]
+    )
+    stints = stints.with_columns(
+        _raw_bpm(_BPM_COEFFICIENTS, _BPM_POSITION_CONSTANT, _BPM_ROLE_CONSTANT).alias("raw_bpm"),
+        _raw_bpm(_OBPM_COEFFICIENTS, _OBPM_POSITION_CONSTANT, _OBPM_ROLE_CONSTANT).alias("raw_obpm"),
+    )
+    # Team adjustment: one constant per team so that sum(share x BPM), where the
+    # shares add up to 5, equals the team's target.
+    stints = stints.with_columns(
+        (
+            pl.col(f"raw_{metric}")
+            + (pl.col(f"{metric}_target") - (pl.col("share") * pl.col(f"raw_{metric}")).sum().over(["team_id", "season"]))
+            / 5
+        ).alias(metric)
+        for metric in ("bpm", "obpm")
+    )
+
+    players = stints.group_by(["player_id", "season"]).agg(
+        ((pl.col("bpm") * pl.col("minutes")).sum() / pl.col("minutes").sum()).alias("bpm"),
+        ((pl.col("obpm") * pl.col("minutes")).sum() / pl.col("minutes").sum()).alias("obpm"),
+        pl.col("minutes").sum().alias("total_minutes"),
+    )
+    return players.select(
+        "player_id",
+        "season",
+        pl.col("obpm").round(1),
+        (pl.col("bpm") - pl.col("obpm")).round(1).alias("dbpm"),
+        pl.col("bpm").round(1).alias("bpm_approx"),
+        ((pl.col("bpm") - _REPLACEMENT_BPM) * pl.col("total_minutes") / _SEASON_MINUTES).round(2).alias(
+            "vorp_approx"
+        ),
+    )
+
+
+def _raw_bpm(coefficients: dict[str, tuple[float, float]], position_constant: float, role_constant: float) -> pl.Expr:
+    position_t = (pl.col("position") - 1) / 4
+    role_t = (pl.col("role") - 1) / 4
+    total = pl.lit(0.0)
+    for stat, (at_1, at_5) in coefficients.items():
+        t = role_t if stat in _ROLE_COEFFICIENTS else position_t
+        total = total + (at_1 + (at_5 - at_1) * t) * pl.col(f"{stat}_100")
+    position_adj = pl.when(pl.col("position") < 3).then(position_constant * (3 - pl.col("position")) / 2).otherwise(0.0)
+    role_adj = role_constant * (3 - pl.col("role")) / 2
+    return total + position_adj + role_adj
+
+
+def _center_on_team(stints: pl.DataFrame, raw: str, out: str) -> pl.DataFrame:
+    """Add one constant per team to `raw`, then clamp to 1..5, so the team's
+    minutes-weighted average is exactly 3.0.
+
+    The weighted average of the clamped values rises monotonically with the
+    constant, from 1 to 5 over [1 - max raw, 5 - min raw], so bisection to
+    float precision finds it.
+    """
+    parts = []
+    for team in stints.partition_by(["team_id", "season"], maintain_order=True):
+        values = team[raw].to_numpy()
+        weights = team["minutes"].to_numpy()
+        low, high = 1.0 - values.max(), 5.0 - values.min()
+        while True:
+            mid = (low + high) / 2
+            if mid in (low, high):
+                break
+            if np.average(np.clip(values + mid, 1.0, 5.0), weights=weights) < 3.0:
+                low = mid
+            else:
+                high = mid
+        parts.append(team.with_columns(pl.Series(out, np.clip(values + mid, 1.0, 5.0))))
+    return pl.concat(parts)
+
+
+def _team_targets(games: pl.DataFrame) -> pl.DataFrame:
+    """What each team's players sum to: net rating (BPM) and offensive rating
+    (OBPM) per 100 possessions relative to the league, adjusted for strength
+    of schedule and average lead.
+
+    Each team's adjusted offense o and defense d (points per 100 kept off the
+    board, above league) satisfy, over its games against opponents j:
+        o_i = (ORtg_i - league) + mean_j d_j
+        d_i = (league - DRtg_i) + mean_j o_j
+    with league-average adjusted offense fixed at 0. A season with any game
+    lacking possessions or average lead, or whose games don't pin down every
+    team's offense and defense, is left out.
+    """
+    rows = []
+    for season_games in games.partition_by("season"):
+        if season_games["possessions"].null_count() or season_games["avg_lead"].null_count():
+            continue
+        season = season_games["season"][0]
+        opponents = season_games.join(
+            season_games.select("game_id", pl.col("team_id").alias("opp_id")), on="game_id"
+        ).filter(pl.col("team_id") != pl.col("opp_id"))
+        totals = season_games.group_by("team_id").agg(
+            pl.col("pts").sum(), pl.col("opp_pts").sum(), pl.col("possessions").sum(), pl.col("avg_lead").mean(),
+            pl.len().alias("games"),
+        ).sort("team_id")
+        team_ids = totals["team_id"].to_list()
+        index = {team_id: i for i, team_id in enumerate(team_ids)}
+        n = len(team_ids)
+        league = 100 * totals["pts"].sum() / totals["possessions"].sum()
+        off_rel = (100 * totals["pts"] / totals["possessions"] - league).to_numpy()
+        def_rel = (league - 100 * totals["opp_pts"] / totals["possessions"]).to_numpy()
+        schedule = np.zeros((n, n))
+        for team_id, opp_id in opponents.select("team_id", "opp_id").iter_rows():
+            schedule[index[team_id], index[opp_id]] += 1
+        schedule /= totals["games"].to_numpy()[:, None]
+        identity = np.eye(n)
+        system = np.block([[identity, -schedule], [-schedule, identity], [np.ones((1, n)), np.zeros((1, n))]])
+        target = np.concatenate([off_rel, def_rel, [0.0]])
+        solution, _, rank, _ = np.linalg.lstsq(system, target, rcond=None)
+        if rank < 2 * n:
+            # Only with a few loaded teams (say two that only play each other):
+            # their games can't separate offense from defense.
+            continue
+        rows.append(
+            pl.DataFrame({
+                "team_id": team_ids,
+                "season": [season] * n,
+                "obpm_target": solution[:n] + _LEAD_CORRECTION / 2 * totals["avg_lead"].to_numpy(),
+                "bpm_target": solution[:n] + solution[n:] + _LEAD_CORRECTION * totals["avg_lead"].to_numpy(),
+                "team_possessions": totals["possessions"],
+            })
+        )
+    if not rows:
+        return pl.DataFrame(schema={
+            "team_id": pl.Int64,
+            "season": pl.Utf8,
+            "obpm_target": pl.Float64,
+            "bpm_target": pl.Float64,
+            "team_possessions": pl.Float64,
+        })
+    return pl.concat(rows)
