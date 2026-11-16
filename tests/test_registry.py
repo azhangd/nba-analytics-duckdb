@@ -44,13 +44,7 @@ def test_default_live_graph_builds_full_warehouse():
     assert "ingest_shot_charts" in names
     assert "ingest_tracking_stats" in names
     assert "ingest_injuries" in names
-    assert "dbt_build_warehouse" in names
-    assert "compute_player_embeddings" in names
-    assert "dbt_build_feature_matrices" in names
-    assert names.index("ingest_shot_charts") < names.index("dbt_build_warehouse")
-    assert names.index("dbt_build_warehouse") < names.index("compute_player_embeddings")
-    assert names.index("compute_player_embeddings") < names.index("dbt_build_feature_matrices")
-    assert names.index("compute_rapm") < names.index("dbt_build_feature_matrices")
+    assert names[-1] == "dbt_build_warehouse"
 
 
 def test_quick_graph_is_explicitly_smaller_than_default():
@@ -114,7 +108,6 @@ def test_dbt_registration_is_graph_scoped():
 
     assert [task.name for task in dbt_tasks] == [
         "dbt_build_warehouse",
-        "dbt_build_feature_matrices",
         "dbt_build_summer_league",
     ]
     default_outputs = {
@@ -136,22 +129,10 @@ def test_registry_does_not_import_task_modules_when_cli_imports(monkeypatch):
     for module_name in list(sys.modules):
         if module_name == "nba_duckdb.cli" or module_name.startswith("nba_duckdb.tasks."):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
-    monkeypatch.delitem(sys.modules, "sklearn", raising=False)
 
     importlib.import_module("nba_duckdb.cli")
 
-    assert "sklearn" not in sys.modules
-    assert not any(module_name.startswith("nba_duckdb.tasks.gold.") for module_name in sys.modules)
-
-
-def test_win_probability_runtime_import_does_not_require_sklearn(monkeypatch):
-    for module_name in list(sys.modules):
-        if module_name.startswith("sklearn") or module_name == "nba_duckdb.modeling.win_probability":
-            monkeypatch.delitem(sys.modules, module_name, raising=False)
-
-    importlib.import_module("nba_duckdb.modeling.win_probability")
-
-    assert "sklearn" not in sys.modules
+    assert not any(module_name.startswith("nba_duckdb.tasks.") for module_name in sys.modules)
 
 
 def test_all_schema_tables_have_registered_default_producers():
@@ -199,7 +180,7 @@ def test_every_warehouse_table_has_a_producing_task():
 
     assert {tuple(dataset.split(".", 1)) for dataset in owners} == _warehouse_tables()
     assert owners["gold.player_season_stats"] == "dbt_build_warehouse"
-    assert owners["gold.player_season_feature_matrix"] == "dbt_build_feature_matrices"
+    assert owners["gold.player_season_feature_matrix"] == "dbt_build_warehouse"
     assert owners["gold.team_season_feature_matrix"] == "dbt_build_warehouse"
 
 

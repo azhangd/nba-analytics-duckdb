@@ -21,7 +21,6 @@ def test_schema_init_creates_expected_tables(tmp_path, monkeypatch):
     expected = {
         ("bronze", "schedule"),
         ("bronze", "boxscores"),
-        ("gold", "model_artifacts"),
         ("ops", "pipeline_runs"),
         ("ops", "task_runs"),
         ("ops", "ingestion_items"),

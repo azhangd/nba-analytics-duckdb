@@ -8,7 +8,7 @@ it through.
 ## Setting up
 
     make install          # enough for most changes
-    make install-full     # if you touch the full graph or the ML tables
+    make install-live     # if you touch the NBA API collectors
     make install-airflow  # if you touch the DAGs
 
 ## Before you open a PR
@@ -18,8 +18,7 @@ it through.
     make smoke-quick
     make check-artifacts
 
-If you changed the full graph or the ML tables, also run `make smoke` and
-`make quality`. If you changed the DAGs, task metadata or dbt selection, run
+If you changed the gold tables, also run `make smoke` and `make quality`. If you changed the DAGs, task metadata or dbt selection, run
 `make airflow-check` and `make airflow-smoke`.
 
 ## Adding a table
@@ -31,7 +30,7 @@ joins and aggregates. If you need a Python model, keep the model file thin
 and put the logic in `src/nba_duckdb/transforms/`.
 
 Use a Python task in `src/nba_duckdb/tasks/` instead when the table needs the
-NBA API, resumable per-game state, or ML training. Add a `TASK_DEF` to the
+NBA API or resumable per-game state. Add a `TASK_DEF` to the
 module so the CLI and Airflow pick it up, put its DDL in
 `src/nba_duckdb/sql/schema/`, and list it in `dbt/models/sources.yml`.
 

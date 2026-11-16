@@ -4,14 +4,11 @@ from pathlib import Path
 from nba_duckdb import registry
 from nba_duckdb.dbt_models import (
     DBT_CORE_MODEL_NAMES,
-    DBT_FEATURE_MODEL_NAMES,
-    DBT_FEATURE_SELECTOR,
     DBT_GOLD_MODEL_NAMES,
     DBT_MODEL_DATASETS,
     DBT_MODEL_NAMES,
     DBT_SUMMER_LEAGUE_MODEL_NAMES,
     DBT_SUMMER_LEAGUE_SELECTOR,
-    DBT_TRANSFORM_EXCLUDE,
     DBT_TRANSFORM_SELECTOR,
 )
 from nba_duckdb.sql.schema import schema_sql_text
@@ -54,13 +51,10 @@ def _registered_gold_producers() -> dict[str, list[registry.TaskDef]]:
     return producers
 
 
-def _dbt_ls_model_names(*, selector: str, exclude: str | None = None) -> set[str]:
+def _dbt_ls_model_names(*, selector: str) -> set[str]:
     from nba_duckdb import dbt_runner
 
-    args = ["ls", "--select", selector]
-    if exclude:
-        args.extend(["--exclude", exclude])
-    args.extend(["--resource-type", "model", "--output", "name"])
+    args = ["ls", "--select", selector, "--resource-type", "model", "--output", "name"]
     result = dbt_runner.run_dbt_command(args)
     model_names = set(DBT_MODEL_NAMES)
     return {
@@ -73,30 +67,14 @@ def test_dbt_model_files_are_registered():
     assert _dbt_model_file_names() == set(DBT_MODEL_NAMES)
 
 
-def test_models_reading_runtime_tables_run_in_the_second_dbt_phase():
-    runtime_models = {
-        path.stem
-        for path in _dbt_model_files()
-        if re.search(r"source\(\s*['\"]gold_runtime['\"]", path.read_text())
-    }
-    assert runtime_models == set(DBT_FEATURE_MODEL_NAMES)
-
-
 def test_dbt_tag_selectors_partition_registered_models():
-    core_models = _dbt_ls_model_names(
-        selector=DBT_TRANSFORM_SELECTOR,
-        exclude=DBT_TRANSFORM_EXCLUDE,
-    )
-    feature_models = _dbt_ls_model_names(selector=DBT_FEATURE_SELECTOR)
+    core_models = _dbt_ls_model_names(selector=DBT_TRANSFORM_SELECTOR)
     summer_league_models = _dbt_ls_model_names(selector=DBT_SUMMER_LEAGUE_SELECTOR)
 
     assert core_models == set(DBT_CORE_MODEL_NAMES)
-    assert feature_models == set(DBT_FEATURE_MODEL_NAMES)
     assert summer_league_models == set(DBT_SUMMER_LEAGUE_MODEL_NAMES)
-    assert core_models.isdisjoint(feature_models)
     assert core_models.isdisjoint(summer_league_models)
-    assert feature_models.isdisjoint(summer_league_models)
-    assert core_models | feature_models | summer_league_models == set(DBT_MODEL_NAMES)
+    assert core_models | summer_league_models == set(DBT_MODEL_NAMES)
 
 
 def test_gold_schema_tables_have_one_declared_registry_producer():

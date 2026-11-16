@@ -8,8 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from nba_duckdb.orchestration import TaskSpec
-
 
 def _flatten_step_names(steps):
     return [step.name for step in steps]
@@ -45,16 +43,10 @@ def test_run_live_default_builds_full_warehouse_graph():
         "ingest_game_detail",
         "ingest_injuries",
         "dbt_build_warehouse",
-        "compute_rapm",
-        "compute_win_prob_model",
-        "compute_shot_quality_trained",
-        "compute_player_embeddings",
-        "dbt_build_feature_matrices",
     ]
     assert {step.task_type for step in cli._live_steps("default", _scope())} == {
         "bronze",
         "dbt",
-        "gold",
     }
 
 
@@ -101,73 +93,6 @@ def _hide_optional_modules(monkeypatch, missing_modules):
         return real_find_spec(module_name)
 
     monkeypatch.setattr(dependencies, "find_spec", fake_find_spec)
-
-
-def test_run_smoke_default_missing_full_extras_fails_before_writing_warehouse(
-    tmp_path,
-    monkeypatch,
-    capsys,
-):
-    from nba_duckdb import cli
-
-    smoke_path = tmp_path / "smoke.duckdb"
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.setenv("NBA_DUCKDB_SMOKE_PATH", str(smoke_path))
-    _hide_optional_modules(
-        monkeypatch,
-        {
-            "sklearn",
-            "scipy",
-            "xgboost",
-            "joblib",
-        },
-    )
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "run-smoke"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    payload = json.loads(capsys.readouterr().err)
-    assert exc_info.value.code == 1
-    assert payload["status"] == "missing_optional_dependency"
-    assert payload["groups"] == ["ml"]
-    assert "sklearn" in payload["missing_modules"]
-    assert "dbt" not in payload["missing_modules"]
-    assert payload["install_command"] == "uv sync --extra dev --extra full"
-    assert payload["pip_install_command"] == 'python -m pip install -e ".[dev,full]"'
-    assert payload["quick_command"] == "uv run nba-duckdb run-smoke --quick"
-    assert not smoke_path.exists()
-
-
-def test_run_smoke_quick_does_not_require_ml(tmp_path, monkeypatch, capsys):
-    from nba_duckdb import cli
-
-    smoke_path = tmp_path / "smoke.duckdb"
-    quick_smoke_path = tmp_path / "smoke-quick.duckdb"
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("NBA_DUCKDB_PATH", raising=False)
-    monkeypatch.setenv("NBA_DUCKDB_SMOKE_PATH", str(smoke_path))
-    monkeypatch.setenv("NBA_DUCKDB_QUICK_SMOKE_PATH", str(quick_smoke_path))
-    _hide_optional_modules(
-        monkeypatch,
-        {
-            "sklearn",
-            "scipy",
-            "xgboost",
-            "joblib",
-        },
-    )
-    monkeypatch.setattr(cli, "_offline_smoke_steps", lambda **_kwargs: [])
-    monkeypatch.setattr(cli, "run_steps", lambda *_args, **_kwargs: {"status": "ok"})
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "run-smoke", "--quick"])
-
-    cli.main()
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload == {"status": "ok"}
-    assert quick_smoke_path.exists()
-    assert not smoke_path.exists()
 
 
 def test_run_live_quick_missing_live_extra_fails_before_init(
@@ -227,66 +152,6 @@ def test_backfill_source_missing_live_extra_fails_before_init(
     assert payload["pip_install_command"] == 'python -m pip install -e ".[dev,live]"'
     assert "quick_command" not in payload
     assert not db_path.exists()
-
-
-def test_run_live_default_with_live_extra_missing_ml_reports_ml_only(
-    tmp_path,
-    monkeypatch,
-    capsys,
-):
-    pytest.importorskip("nba_api")
-    pytest.importorskip("pdfplumber")
-    from nba_duckdb import cli
-
-    db_path = tmp_path / "live.duckdb"
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    _hide_optional_modules(
-        monkeypatch,
-        {
-            "sklearn",
-            "scipy",
-            "xgboost",
-            "joblib",
-        },
-    )
-    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "run-live", "--season", "2025-26"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    payload = json.loads(capsys.readouterr().err)
-    assert exc_info.value.code == 1
-    assert payload["status"] == "missing_optional_dependency"
-    assert payload["groups"] == ["ml"]
-    assert payload["install_command"] == "uv sync --extra dev --extra full"
-    assert payload["pip_install_command"] == 'python -m pip install -e ".[dev,full]"'
-    assert "quick_command" not in payload
-    assert not db_path.exists()
-
-
-def test_run_live_quick_with_live_extra_does_not_require_ml(
-    tmp_path,
-    monkeypatch,
-    capsys,
-):
-    pytest.importorskip("nba_api")
-    pytest.importorskip("pdfplumber")
-    from nba_duckdb import cli
-
-    db_path = tmp_path / "live.duckdb"
-    monkeypatch.setenv("NBA_DUCKDB_PATH", str(db_path))
-    _hide_optional_modules(monkeypatch, {"sklearn", "scipy", "xgboost", "joblib"})
-    monkeypatch.setattr(cli, "run_steps", lambda *_args, **_kwargs: {"status": "ok"})
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["nba-duckdb", "run-live", "--quick", "--season", "2025-26"],
-    )
-
-    cli.main()
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload == {"status": "ok"}
 
 
 def test_run_smoke_defaults_to_separate_smoke_warehouse(tmp_path, monkeypatch):
@@ -488,31 +353,13 @@ def test_task_graph_modules_import():
     from nba_duckdb import registry
     from nba_duckdb.dependencies import missing_modules_for_groups
 
-    if missing := missing_modules_for_groups("live", "ml"):
-        pytest.skip(f"full live graph import test requires full extras: {', '.join(missing)}")
+    if missing := missing_modules_for_groups("live"):
+        pytest.skip(f"live graph import test requires the live extra: {', '.join(missing)}")
 
     module_paths = [task.module_path for task in registry.TASK_DEFS if task.module_path]
 
     for module_path in sorted(set(module_paths)):
         importlib.import_module(module_path)
-
-
-def test_default_live_gold_tasks_are_recorded_as_gold():
-    from nba_duckdb import cli
-
-    steps = cli._live_steps("default", _scope())
-    task_types = {step.name: step.task_type for step in steps if isinstance(step, TaskSpec)}
-
-    assert {
-        task_name for task_name, task_type in task_types.items() if task_type == "gold"
-    } == {
-        "compute_rapm",
-        "compute_win_prob_model",
-        "compute_shot_quality_trained",
-        "compute_player_embeddings",
-    }
-    assert task_types["dbt_build_warehouse"] == "dbt"
-    assert task_types["dbt_build_feature_matrices"] == "dbt"
 
 
 @pytest.mark.parametrize(

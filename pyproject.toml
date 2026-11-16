@@ -22,18 +22,10 @@ airflow = [
   "apache-airflow==3.4.0",
   "astronomer-cosmos==1.16.0",
 ]
-ml = [
-  "joblib>=1.4",
-  "numpy>=2.0",
-  "scikit-learn>=1.5",
-  "scipy>=1.13",
-  "xgboost>=2.1",
-]
 live = [
   "nba-api>=1.11",
   "pdfplumber>=0.11.9",
 ]
-full = ["nba-analytics-duckdb[ml,live]"]
 dev = [
   "pytest>=8.0.0",
   "ruff>=0.8.0",

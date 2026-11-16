@@ -3,13 +3,6 @@
 from importlib.util import find_spec
 
 OPTIONAL_GROUPS = {
-    "ml": {
-        "joblib": "joblib",
-        "numpy": "numpy",
-        "scipy": "scipy",
-        "sklearn": "scikit-learn",
-        "xgboost": "xgboost",
-    },
     "live": {
         "nba_api": "nba-api",
         "pdfplumber": "pdfplumber",

@@ -8,8 +8,6 @@ SCHEMA_FILES = (
     "schemas.sql",
     "ops.sql",
     "bronze.sql",
-    "gold_player.sql",
-    "gold_models.sql",
 )
 
 

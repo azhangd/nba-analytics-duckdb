@@ -32,8 +32,6 @@ def _run_dbt_task(task: registry.TaskDef, *, scope: dict[str, Any]) -> dict[str,
         raise ValueError(f"Task {task.name} does not declare a dbt selector")
 
     args = ["build", "--select", task.dbt_selector]
-    if task.dbt_exclude:
-        args.extend(["--exclude", task.dbt_exclude])
     if scope.get("full_refresh"):
         args.append("--full-refresh")
 
@@ -41,7 +39,6 @@ def _run_dbt_task(task: registry.TaskDef, *, scope: dict[str, Any]) -> dict[str,
     return {
         "status": "success",
         "dbt_selector": task.dbt_selector,
-        "dbt_exclude": task.dbt_exclude,
         "models_built": len(task.dbt_models),
     }
 

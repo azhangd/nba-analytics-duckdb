@@ -86,16 +86,6 @@ models:
         data_tests:
           - not_null
 
-  - name: player_season_archetypes
-    description: Offensive role, such as creator or stretch shooter
-    columns:
-      - name: player_id
-        data_tests:
-          - not_null
-      - name: season
-        data_tests:
-          - not_null
-
   - name: player_season_on_off_stats
     description: Net rating with the player on and off the court
     columns:
@@ -153,13 +143,6 @@ models:
         data_tests:
           - not_null
       - name: season
-        data_tests:
-          - not_null
-
-  - name: game_flow_snapshots
-    description: Score and home win probability through each game
-    columns:
-      - name: game_id
         data_tests:
           - not_null
 

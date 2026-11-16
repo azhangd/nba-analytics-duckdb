@@ -29,17 +29,11 @@ def smoke_args(*, quick: bool = False):
 @pytest.fixture(scope="session")
 def _smoke_template(tmp_path_factory):
     """Build the full offline smoke warehouse once per test session."""
-    from nba_duckdb.dependencies import missing_modules_for_groups
-
-    if missing := missing_modules_for_groups("ml"):
-        pytest.skip(f"full smoke needs the ml extra: {', '.join(missing)}")
-
     from nba_duckdb.cli import run_offline_smoke
 
     root = tmp_path_factory.mktemp("smoke-template")
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("NBA_DUCKDB_PATH", str(root / "smoke.duckdb"))
-        mp.setenv("NBA_DUCKDB_ARTIFACT_ROOT", str(root / "artifacts"))
         mp.setenv("NBA_DUCKDB_FIXTURES_DIR", str(root / "fixtures"))
         result = run_offline_smoke(smoke_args())
     assert result["status"] == "success"
@@ -54,9 +48,7 @@ def smoke_db(_smoke_template, tmp_path, monkeypatch):
     from nba_duckdb import db
 
     shutil.copy(_smoke_template / "smoke.duckdb", tmp_path / "smoke.duckdb")
-    shutil.copytree(_smoke_template / "artifacts", tmp_path / "artifacts")
     monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "smoke.duckdb"))
-    monkeypatch.setenv("NBA_DUCKDB_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     monkeypatch.setenv("NBA_DUCKDB_FIXTURES_DIR", str(_smoke_template / "fixtures"))
     return db
 

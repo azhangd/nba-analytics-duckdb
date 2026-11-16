@@ -53,9 +53,6 @@ def _warehouse_path(*, mode: str, quick: bool) -> Path:
 def _warehouse_env(*, mode: str, quick: bool) -> dict[str, str]:
     env = {
         "NBA_DUCKDB_PATH": str(_warehouse_path(mode=mode, quick=quick)),
-        "NBA_DUCKDB_ARTIFACT_ROOT": str(
-            _project_path(config.artifact_root()).resolve(strict=False)
-        ),
     }
     if mode == registry.FIXTURE_MODE:
         env["NBA_DUCKDB_OFFLINE_SMOKE"] = "1"
@@ -289,7 +286,6 @@ def _cosmos_group(
         )
 
     group_id = {
-        "dbt_build_feature_matrices": "dbt_feature_matrices",
         "dbt_build_summer_league": "dbt_summer_league",
     }.get(task.name, "dbt_warehouse")
     operator_args = {
@@ -325,7 +321,6 @@ def _cosmos_group(
         render_config=RenderConfig(
             load_method=LoadMode.DBT_MANIFEST,
             select=task.dbt_selector.split(),
-            exclude=task.dbt_exclude.split() if task.dbt_exclude else [],
             test_behavior=TestBehavior.BUILD,
             emit_datasets=True,
             should_detach_multiple_parents_tests=True,

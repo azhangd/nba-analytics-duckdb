@@ -180,12 +180,7 @@ def test_quality_allows_empty_injury_report(smoke_db):
 
 def test_quality_allows_empty_min_games_tables_only_before_20_games(smoke_db):
     db = smoke_db
-    for qualified_table in (
-        "gold.player_season_mvp_ladder",
-        "gold.player_season_embeddings",
-        "gold.player_season_similarity",
-    ):
-        db.execute(f"DELETE FROM {qualified_table}")
+    db.execute("DELETE FROM gold.player_season_mvp_ladder")
 
     from nba_duckdb import quality
 
