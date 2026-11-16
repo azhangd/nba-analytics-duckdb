@@ -30,13 +30,13 @@ The client sends about one request/sec per run to NBA endpoints (set `NBA_DUCKDB
 
 To load only part of a season:
 
-    # One or more teams' games (team ids, e.g. Lakers and Spurs)
+    # One or more teams' games (team ids, e.g. LAL and SAS)
     uv run nba-duckdb run-live --season 2026-27 --team-ids 1610612747 1610612759
 
     # A date range, inclusive (YYYY-MM-DD)
     uv run nba-duckdb run-live --season 2026-27 --start-date 2026-11-01 --end-date 2026-11-15
 
-    # Specific games, e.g. Lakers at Suns and Spurs at Jazz (finished games only; anything else is an error)
+    # Specific games, e.g. LAL at PHX and SAS at UTA (finished games only; anything else is an error)
     uv run nba-duckdb run-live --season 2026-27 --game-ids 0022600237 0022600239
 
     # Just the core: schedule, rosters, box scores and play-by-play
