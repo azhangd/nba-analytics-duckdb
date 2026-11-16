@@ -91,7 +91,9 @@ def parse_possessions(
     score_home = 0
     score_away = 0
 
-    def open_possession(period: int, clock: float, offense: int | None, start_type: str, prev_end: str | None) -> dict:
+    def open_possession(
+        period: int, clock: float, offense: int | None, start_type: str, prev_end: str | None, margin: int
+    ) -> dict:
         nonlocal possession_number
         possession_number += 1
         return {
@@ -102,7 +104,7 @@ def parse_possessions(
             "start_clock_seconds": clock,
             "start_type": start_type,
             "possession_context": "transition" if prev_end in ("defensive_rebound", "turnover") else "half_court",
-            "raw_margin_at_start": score_home - score_away,
+            "raw_margin_at_start": margin,
             "events": [],
             "points_scored": 0,
             "has_offense_action": False,
@@ -133,6 +135,8 @@ def parse_possessions(
         made = _norm(row.get("shot_result")) == "made"
         parsed_home = _parse_score(row.get("score_home"))
         parsed_away = _parse_score(row.get("score_away"))
+        # A row's score includes its own points.
+        margin_before_row = score_home - score_away
         if parsed_home is not None and parsed_away is not None:
             score_home, score_away = parsed_home, parsed_away
 
@@ -144,7 +148,7 @@ def parse_possessions(
             current = None
             continue
         if current is None:
-            current = open_possession(period, clock, None, "dead_ball", None)
+            current = open_possession(period, clock, None, "dead_ball", None, score_home - score_away)
         if description:
             current["events"].append(description)
 
@@ -173,9 +177,10 @@ def parse_possessions(
             if current["offense_team_id"] is None or not current["has_offense_action"]:
                 current["offense_team_id"] = team_id
             elif team_id != current["offense_team_id"]:
-                # The other team acted without a recorded change of possession.
+                # The other team acted without a recorded change of possession. Its
+                # possession starts before this row, so before this row's points.
                 close_possession(current, clock, "change")
-                current = open_possession(period, clock, team_id, "dead_ball", "change")
+                current = open_possession(period, clock, team_id, "dead_ball", "change", margin_before_row)
             current["has_offense_action"] = True
 
         end_type = None
@@ -195,7 +200,9 @@ def parse_possessions(
             offense = current["offense_team_id"]
             close_possession(current, clock, end_type)
             start_type = "live_ball" if end_type in ("defensive_rebound", "made_2", "made_3") else "dead_ball"
-            current = open_possession(period, clock, other_team.get(offense), start_type, end_type)
+            current = open_possession(
+                period, clock, other_team.get(offense), start_type, end_type, score_home - score_away
+            )
 
     if current is not None and current["events"]:
         close_possession(current, 0.0, "end_period")
