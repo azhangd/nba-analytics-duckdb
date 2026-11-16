@@ -435,6 +435,7 @@ def test_backfill_source_refuses_synthetic_rows(tmp_path, monkeypatch, capsys):
 
 
 def test_resume_latest_resumes_the_run_for_the_same_graph(tmp_db):
+    from nba_duckdb.exceptions import NoRunToResumeError
     from nba_duckdb.orchestration import prepare_run
 
     shots = prepare_run(command="backfill-source", graph="shots", scope={"source": "shots"})
@@ -443,7 +444,7 @@ def test_resume_latest_resumes_the_run_for_the_same_graph(tmp_db):
     resumed = prepare_run(command="backfill-source", graph="shots", scope={"source": "shots"}, resume_latest=True)
 
     assert resumed.run_id == shots.run_id
-    with pytest.raises(RuntimeError, match="No incomplete backfill-source run of hustle"):
+    with pytest.raises(NoRunToResumeError, match="No incomplete backfill-source run of hustle"):
         prepare_run(command="backfill-source", graph="hustle", scope={}, resume_latest=True)
 
 
@@ -456,3 +457,18 @@ def test_insert_rows_writes_all_batches_or_none(tmp_db):
         tmp_db.insert_rows("bronze", "schedule", rows, batch_size=1)
 
     assert tmp_db.count_rows("bronze", "schedule") == 0
+
+
+def test_resume_latest_without_a_run_reports_json(tmp_path, monkeypatch, capsys):
+    from nba_duckdb import cli, db
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "live.duckdb"))
+    db.init_schema()
+    monkeypatch.setattr(cli, "require_optional_groups", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["nba-duckdb", "backfill-source", "shots", "--season", "2025-26", "--resume-latest"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    assert json.loads(capsys.readouterr().err)["status"] == "no_run_to_resume"

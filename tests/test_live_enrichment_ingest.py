@@ -350,3 +350,18 @@ def test_game_detail_full_refresh_fails_when_rotation_stays_unavailable(tmp_db, 
 
     with pytest.raises(RuntimeError, match=r"left holes for 1 game\(s\): 0029900001\(rotation\)"):
         ingest_game_detail.run(season="2099-00", full_refresh=True)
+
+
+def test_injury_report_that_parses_to_nothing_keeps_the_stored_snapshot(tmp_db, monkeypatch):
+    from datetime import date
+
+    from nba_duckdb.tasks.bronze import ingest_injuries
+
+    stored = {"rows": [{"player": "Kept"}]}
+    tmp_db.insert_rows("bronze", "injuries", [{"fetched_date": date.today().isoformat(), "injuries_json": json.dumps(stored)}])
+    monkeypatch.setattr(ingest_injuries, "_find_latest_pdf", lambda _client: ("https://example.invalid/report.pdf", b"%PDF"))
+    monkeypatch.setattr(ingest_injuries, "_parse_pdf", lambda _bytes: [])
+
+    with pytest.raises(ValueError, match="Parsed no injury entries"):
+        ingest_injuries.run()
+    assert json.loads(tmp_db.execute("SELECT injuries_json FROM bronze.injuries")[0]["injuries_json"]) == stored

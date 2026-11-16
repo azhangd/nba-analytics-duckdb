@@ -237,3 +237,39 @@ def test_empty_schedule_payload_falls_back_to_scoreboards_and_fails_on_missed_da
     with pytest.raises(RuntimeError, match=r"wrote 1 games but missed 1 date\(s\): 2099-10-02"):
         _ingest_season("2099-00", is_current=False)
     assert db.count_rows("bronze", "schedule") == 1
+
+
+def test_recent_status_refresh_rechecks_games_left_unfinished_on_the_latest_final_date(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from conftest import schedule_row
+
+    from nba_duckdb import db
+    from nba_duckdb.tasks.bronze import ingest_schedule
+
+    monkeypatch.setenv("NBA_DUCKDB_PATH", str(tmp_path / "schedule.duckdb"))
+    db.init_schema()
+    yesterday = date.today() - timedelta(days=1)
+    game_date = f"{yesterday.strftime('%m/%d/%Y')} 00:00:00"
+    db.insert_rows(
+        "bronze",
+        "schedule",
+        [
+            schedule_row(game_id="0029900001", game_date=game_date, season="2099-00", game_status=3),
+            schedule_row(game_id="0029900002", game_date=game_date, season="2099-00", game_status=2),
+        ],
+    )
+    late_game = {
+        "gameId": "0029900002", "gameStatus": 3, "gameStatusText": "Final",
+        "homeTeam": {"teamId": 1610612739, "teamTricode": "CLE"}, "awayTeam": {"teamId": 1610612740, "teamTricode": "NOP"},
+    }
+    monkeypatch.setattr(
+        ingest_schedule.nba_client,
+        "get_scoreboard_for_date",
+        lambda iso_date, **_kwargs: {"scoreboard": {"games": [late_game] if iso_date == yesterday.isoformat() else []}},
+    )
+
+    ingest_schedule._refresh_recent_statuses("2099-00")
+
+    status = db.execute("SELECT game_status FROM bronze.schedule WHERE game_id = '0029900002'")[0]["game_status"]
+    assert status == 3

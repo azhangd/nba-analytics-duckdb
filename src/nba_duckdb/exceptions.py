@@ -9,6 +9,10 @@ class LiveEndpointUnavailableError(RuntimeError):
     """Raised when a required live collection source is unavailable."""
 
 
+class NoRunToResumeError(RuntimeError):
+    """--resume-latest found no incomplete run for the command and graph."""
+
+
 class PipelineStateNotInitializedError(RuntimeError):
     """Raised when read-only run-state commands are used before schema init."""
 

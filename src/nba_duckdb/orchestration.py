@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nba_duckdb import config, db
-from nba_duckdb.exceptions import LiveEndpointUnavailableError
+from nba_duckdb.exceptions import LiveEndpointUnavailableError, NoRunToResumeError
 from nba_duckdb.ingestion_state import summarize_sources
 
 logger = logging.getLogger("nba_duckdb.orchestration")
@@ -182,7 +182,7 @@ def prepare_run(
     if resume_latest:
         existing = _latest_incomplete_run(command, graph)
         if existing is None:
-            raise RuntimeError(f"No incomplete {command} run of {graph} found to resume")
+            raise NoRunToResumeError(f"No incomplete {command} run of {graph} found to resume")
     elif run_id:
         existing = _get_pipeline_run(run_id)
         resume = existing is not None

@@ -229,6 +229,10 @@ def run(**kwargs):
 
     rows_parsed = _parse_pdf(pdf_bytes)
     logger.info("Parsed %d injury entries from %s", len(rows_parsed), url)
+    if not rows_parsed:
+        # A published report always lists players; nothing parsed means the layout
+        # changed. Keep the stored snapshot instead of replacing it with an empty one.
+        raise ValueError(f"Parsed no injury entries from {url}; the PDF layout may have changed")
 
     today = date.today().isoformat()
     bronze_rows = [{
