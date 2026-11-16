@@ -99,10 +99,18 @@ def _schedule_game(index: int) -> dict:
 
 
 SCHEDULE = [_schedule_game(index) for index in range(GAME_COUNT)]
+# Every fifth game the away team also has a team turnover (no player), which the
+# box score leaves out.
+TEAM_TURNOVER_EVERY = 5
+TURNOVER_SUB_TYPES = ["bad pass", "lost ball", "traveling", "offensive foul"]
 
 
 def _team_players(team_id: int) -> list[dict]:
     return [player for player in PLAYERS if player["team_id"] == team_id]
+
+
+def _player_turnovers(roster_index: int) -> int:
+    return 1 + (roster_index % 3)
 
 
 def _boxscore_player(player: dict, *, roster_index: int, game_index: int, is_home: bool) -> dict:
@@ -138,7 +146,7 @@ def _boxscore_player(player: dict, *, roster_index: int, game_index: int, is_hom
             "assists": assists,
             "steals": 1 if roster_index % 3 == 0 else 0,
             "blocks": 1 if player["position"] == "C" else 0,
-            "turnovers": 1 + (roster_index % 3),
+            "turnovers": _player_turnovers(roster_index),
             "foulsPersonal": 2,
             "points": points,
             "plusMinusPoints": 4 if is_home else -4,
@@ -208,7 +216,6 @@ BOXSCORES = [_boxscore_game(index, game) for index, game in enumerate(SCHEDULE)]
 
 def _action(
     *,
-    number: int,
     period: int,
     clock: str,
     team_id: int | None,
@@ -224,8 +231,6 @@ def _action(
     y: int | None = None,
 ) -> dict:
     return {
-        "actionId": number,
-        "actionNumber": number,
         "period": period,
         "clock": clock,
         "teamId": team_id,
@@ -243,6 +248,22 @@ def _action(
     }
 
 
+def _turnover_order(players: list[dict], skip: dict | None = None) -> list[dict]:
+    """Each player once per round until they reach their box-score turnovers, less `skip` once."""
+    remaining = [_player_turnovers(i) - (player is skip) for i, player in enumerate(players)]
+    order = []
+    while any(remaining):
+        for i, player in enumerate(players):
+            if remaining[i]:
+                order.append(player)
+                remaining[i] -= 1
+    return order
+
+
+def _clock(seconds: int) -> str:
+    return f"PT{seconds // 60:02d}M{seconds % 60:02d}.00S"
+
+
 def _pbp_game(index: int, game: dict) -> dict:
     home_team_id = game["homeTeam"]["teamId"]
     away_team_id = game["awayTeam"]["teamId"]
@@ -250,134 +271,190 @@ def _pbp_game(index: int, game: dict) -> dict:
     away_players = _team_players(away_team_id)
     home_base = int(game["homeTeam"]["score"]) - 9
     away_base = int(game["awayTeam"]["score"]) - 7
-    return {
-        "game": {
-            "gameId": game["gameId"],
-            "actions": [
-                _action(
-                    number=1,
-                    period=1,
-                    clock="PT12M00.00S",
-                    team_id=None,
-                    player=None,
-                    action_type="period",
-                    sub_type="start",
-                    description="Period Start",
-                    score_home=0,
-                    score_away=0,
-                ),
-                _action(
-                    number=2,
-                    period=1,
-                    clock="PT11M30.00S",
-                    team_id=home_team_id,
-                    player=home_players[0],
-                    action_type="2pt",
-                    sub_type="Jump Shot",
-                    description=f"{home_players[0]['full_name']} makes jumper",
-                    score_home=2,
-                    score_away=0,
-                    shot_result="Made",
-                    is_field_goal=1,
-                    x=8,
-                    y=12,
-                ),
-                _action(
-                    number=3,
-                    period=1,
-                    clock="PT11M00.00S",
-                    team_id=away_team_id,
-                    player=away_players[1],
-                    action_type="3pt",
-                    sub_type="Jump Shot",
-                    description=f"{away_players[1]['full_name']} misses three",
-                    score_home=2,
-                    score_away=0,
-                    shot_result="Missed",
-                    is_field_goal=1,
-                    x=22,
-                    y=24,
-                ),
-                _action(
-                    number=4,
-                    period=1,
-                    clock="PT10M58.00S",
-                    team_id=home_team_id,
-                    player=home_players[4],
-                    action_type="rebound",
-                    sub_type="Defensive",
-                    description=f"{home_players[4]['full_name']} defensive rebound",
-                    score_home=2,
-                    score_away=0,
-                ),
-                _action(
-                    number=5,
-                    period=4,
-                    clock="PT04M30.00S",
-                    team_id=home_team_id,
-                    player=None,
-                    action_type="timeout",
-                    sub_type="regular",
-                    description="Synthetic timeout",
-                    score_home=home_base,
-                    score_away=away_base,
-                ),
-                _action(
-                    number=6,
-                    period=4,
-                    clock="PT04M15.00S",
-                    team_id=home_team_id,
-                    player=home_players[0],
-                    action_type="2pt",
-                    sub_type="Jump Shot",
-                    description=f"{home_players[0]['full_name']} makes jumper",
-                    score_home=home_base + 2,
-                    score_away=away_base,
-                    shot_result="Made",
-                    is_field_goal=1,
-                    x=9,
-                    y=14,
-                ),
-                _action(
-                    number=7,
-                    period=4,
-                    clock="PT04M00.00S",
-                    team_id=away_team_id,
-                    player=away_players[2],
-                    action_type="turnover",
-                    sub_type="bad pass",
-                    description=f"{away_players[2]['full_name']} turnover",
-                    score_home=home_base + 2,
-                    score_away=away_base,
-                ),
-                _action(
-                    number=8,
-                    period=4,
-                    clock="PT03M45.00S",
-                    team_id=home_team_id,
-                    player=home_players[0],
-                    action_type="freethrow",
-                    sub_type="Free Throw 1 of 1",
-                    description=f"{home_players[0]['full_name']} makes free throw",
-                    score_home=home_base + 3,
-                    score_away=away_base,
-                    shot_result="Made",
-                ),
-                _action(
-                    number=9,
-                    period=4,
-                    clock="PT00M00.00S",
-                    team_id=None,
-                    player=None,
-                    action_type="period",
-                    sub_type="end",
-                    description="Period End",
-                    score_home=int(game["homeTeam"]["score"]),
-                    score_away=int(game["awayTeam"]["score"]),
-                ),
-            ],
-        }
-    }
+    opening = [
+        _action(
+            period=1,
+            clock="PT12M00.00S",
+            team_id=None,
+            player=None,
+            action_type="period",
+            sub_type="start",
+            description="Period Start",
+            score_home=0,
+            score_away=0,
+        ),
+        _action(
+            period=1,
+            clock="PT11M30.00S",
+            team_id=home_team_id,
+            player=home_players[0],
+            action_type="2pt",
+            sub_type="Jump Shot",
+            description=f"{home_players[0]['full_name']} makes jumper",
+            score_home=2,
+            score_away=0,
+            shot_result="Made",
+            is_field_goal=1,
+            x=8,
+            y=12,
+        ),
+        _action(
+            period=1,
+            clock="PT11M00.00S",
+            team_id=away_team_id,
+            player=away_players[1],
+            action_type="3pt",
+            sub_type="Jump Shot",
+            description=f"{away_players[1]['full_name']} misses three",
+            score_home=2,
+            score_away=0,
+            shot_result="Missed",
+            is_field_goal=1,
+            x=22,
+            y=24,
+        ),
+        _action(
+            period=1,
+            clock="PT10M58.00S",
+            team_id=home_team_id,
+            player=home_players[4],
+            action_type="rebound",
+            sub_type="Defensive",
+            description=f"{home_players[4]['full_name']} defensive rebound",
+            score_home=2,
+            score_away=0,
+        ),
+    ]
+    # The home team has the ball after the defensive rebound. The teams trade
+    # turnovers for the rest of the first period, so each team's play-by-play
+    # turnovers match its box score (the away team's last one comes in the 4th).
+    # That leaves the away team with the ball, and it gives it back with a team
+    # turnover or a missed shot.
+    home_turnovers = _turnover_order(home_players)
+    away_turnovers = _turnover_order(away_players, skip=away_players[2])
+    sequence = [(home_team_id, player) for player in home_turnovers]
+    for position, player in enumerate(away_turnovers):
+        sequence.insert(2 * position + 1, (away_team_id, player))
+    if index % TEAM_TURNOVER_EVERY == TEAM_TURNOVER_EVERY - 1:
+        sequence.append((away_team_id, None))
+    clock = 640
+    exchange = []
+    for position, (team_id, player) in enumerate(sequence):
+        if player is None:
+            sub_type, description = "shot clock", "Team shot clock turnover"
+        else:
+            sub_type = TURNOVER_SUB_TYPES[position % len(TURNOVER_SUB_TYPES)]
+            description = f"{player['full_name']} {sub_type} turnover"
+        exchange.append(
+            _action(
+                period=1,
+                clock=_clock(clock),
+                team_id=team_id,
+                player=player,
+                action_type="turnover",
+                sub_type=sub_type,
+                description=description,
+                score_home=2,
+                score_away=0,
+            )
+        )
+        clock -= 20
+    if sequence[-1][0] == home_team_id:
+        exchange += [
+            _action(
+                period=1,
+                clock=_clock(clock),
+                team_id=away_team_id,
+                player=away_players[3],
+                action_type="2pt",
+                sub_type="Jump Shot",
+                description=f"{away_players[3]['full_name']} misses jumper",
+                score_home=2,
+                score_away=0,
+                shot_result="Missed",
+                is_field_goal=1,
+                x=-10,
+                y=15,
+            ),
+            _action(
+                period=1,
+                clock=_clock(clock - 2),
+                team_id=home_team_id,
+                player=home_players[4],
+                action_type="rebound",
+                sub_type="Defensive",
+                description=f"{home_players[4]['full_name']} defensive rebound",
+                score_home=2,
+                score_away=0,
+            ),
+        ]
+
+    late = [
+        _action(
+            period=4,
+            clock="PT04M30.00S",
+            team_id=home_team_id,
+            player=None,
+            action_type="timeout",
+            sub_type="regular",
+            description="Synthetic timeout",
+            score_home=home_base,
+            score_away=away_base,
+        ),
+        _action(
+            period=4,
+            clock="PT04M15.00S",
+            team_id=home_team_id,
+            player=home_players[0],
+            action_type="2pt",
+            sub_type="Jump Shot",
+            description=f"{home_players[0]['full_name']} makes jumper",
+            score_home=home_base + 2,
+            score_away=away_base,
+            shot_result="Made",
+            is_field_goal=1,
+            x=9,
+            y=14,
+        ),
+        _action(
+            period=4,
+            clock="PT04M00.00S",
+            team_id=away_team_id,
+            player=away_players[2],
+            action_type="turnover",
+            sub_type="bad pass",
+            description=f"{away_players[2]['full_name']} turnover",
+            score_home=home_base + 2,
+            score_away=away_base,
+        ),
+        _action(
+            period=4,
+            clock="PT03M45.00S",
+            team_id=home_team_id,
+            player=home_players[0],
+            action_type="freethrow",
+            sub_type="Free Throw 1 of 1",
+            description=f"{home_players[0]['full_name']} makes free throw",
+            score_home=home_base + 3,
+            score_away=away_base,
+            shot_result="Made",
+        ),
+        _action(
+            period=4,
+            clock="PT00M00.00S",
+            team_id=None,
+            player=None,
+            action_type="period",
+            sub_type="end",
+            description="Period End",
+            score_home=int(game["homeTeam"]["score"]),
+            score_away=int(game["awayTeam"]["score"]),
+        ),
+    ]
+    actions = opening + exchange + late
+    for number, action in enumerate(actions, start=1):
+        action["actionId"] = action["actionNumber"] = number
+    return {"game": {"gameId": game["gameId"], "actions": actions}}
 
 
 PLAY_BY_PLAY = [_pbp_game(index, game) for index, game in enumerate(SCHEDULE)]

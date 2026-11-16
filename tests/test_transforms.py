@@ -42,7 +42,7 @@ def test_build_fct_play_by_play_rows_preserves_source_coordinate_semantics():
         }
     ])
 
-    assert len(rows) == 9
+    assert len(rows) == 40
     assert rows[0]["action_id"] == 10  # stats_v3 action ids are scaled by 10
     assert rows[0]["pbp_source"] == "stats_v3"
     assert rows[0]["loc_x"] is None
