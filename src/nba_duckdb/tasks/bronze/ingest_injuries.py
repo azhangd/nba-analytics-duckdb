@@ -19,6 +19,8 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 
 from nba_duckdb.db import upsert_rows
+from nba_duckdb.season_utils import requested_or_default_seasons
+from nba_duckdb.transforms.silver.shots import season_from_game_date
 
 logger = logging.getLogger("nba_duckdb.tasks.bronze.injuries")
 
@@ -219,6 +221,13 @@ def _parse_pdf(pdf_bytes: bytes) -> list[dict]:
 def run(**kwargs):
     if os.environ.get("NBA_DUCKDB_OFFLINE_SMOKE") == "1":
         raise RuntimeError("Live injury-report HTTP calls are disabled during offline smoke runs")
+
+    # The NBA only publishes today's injury report, so it belongs to the current season alone.
+    current = season_from_game_date(date.today().isoformat())
+    requested = requested_or_default_seasons(season=kwargs.get("season"), seasons=kwargs.get("seasons"))
+    if current not in requested:
+        logger.info("Skipping the injury report: it only covers today (%s), not %s", current, ", ".join(requested))
+        return {"rows_written": 0}
 
     with httpx.Client(follow_redirects=True) as client:
         url, pdf_bytes = _find_latest_pdf(client)
