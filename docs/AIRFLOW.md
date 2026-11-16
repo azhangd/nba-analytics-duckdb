@@ -1,8 +1,6 @@
 # Running it with Airflow
 
-You don't need Airflow to use this project; `nba-duckdb run-live` does the same
-work from the command line. Airflow is for when you want it to run on a
-schedule, with retries and a UI showing what happened.
+You don't need Airflow to use this project. `nba-duckdb run-live` does the same work from the command line. Airflow is for running it on a schedule, with retries and a UI showing what happened.
 
 ## Setup
 
@@ -26,7 +24,7 @@ To check the DAGs without starting the UI:
 
 | DAG | What it does |
 | --- | --- |
-| `nba_warehouse_live` | The full live build, models included, then the quality checks |
+| `nba_warehouse_live` | The full live build with every dbt model, then the quality checks |
 | `nba_warehouse_live_quick` | Just schedule, rosters, box scores and play-by-play |
 | `nba_summer_league` | Summer League games for the three events |
 | `nba_source_backfill` | Resume play-by-play or shot chart collection |
@@ -41,8 +39,7 @@ scheduler's environment and unpause the DAG:
     NBA_DUCKDB_AIRFLOW_LIVE_SCHEDULE="30 11 * * 1"
     NBA_DUCKDB_AIRFLOW_SUMMER_SCHEDULE="30 12 * * *"
 
-When you trigger a DAG by hand you can set the season, team IDs, game IDs,
-dates and whether to do a full refresh.
+When you trigger a DAG by hand you can set the season, team IDs, game IDs, dates and whether to do a full refresh. They work like the `run-live` flags in the [README](../README.md).
 
 ## How it fits together
 
@@ -80,13 +77,13 @@ one task slot, that task sits in the slot waiting and nothing else runs.
 
 ## Running it for real
 
-This repo gives you the DAGs, not a hosted Airflow. On a server you'll want to:
+This repo gives you the DAGs, not a hosted Airflow. On a server you need to:
 
 - run Airflow on Linux, with PostgreSQL or MySQL instead of SQLite
 - build `dbt/target/manifest.json` into whatever you deploy
-- install the `airflow` and `full` extras everywhere Airflow runs
-- use the same absolute paths for the project, profiles, fixtures, artifacts
-  and the DuckDB file on every component
+- install the `airflow` and `live` extras everywhere Airflow runs
+- use the same absolute paths for the project, dbt profiles and the DuckDB file
+  on every component
 - create the one-slot `nba_pipeline` pool before unpausing anything
 - set `AIRFLOW__COSMOS__ENABLE_DATASET_AIRFLOW3_URI=True`
 
