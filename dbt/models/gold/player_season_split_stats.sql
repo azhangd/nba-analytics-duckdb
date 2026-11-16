@@ -28,6 +28,7 @@ WITH base AS (
         games.away_team_id,
         games.home_score,
         games.away_score,
+        games.is_neutral,
         games.game_date AS game_date_parsed
     FROM {{ ref('player_game_stats') }} AS stats
     JOIN {{ ref('fct_games') }} AS games
@@ -38,7 +39,12 @@ WITH base AS (
 with_context AS (
     SELECT
         *,
-        CASE WHEN team_id = home_team_id THEN 'Home' ELSE 'Away' END AS home_away,
+        -- A neutral-site game is neither home nor away, so it's left out of this split only.
+        CASE
+            WHEN is_neutral THEN NULL
+            WHEN team_id = home_team_id THEN 'Home'
+            ELSE 'Away'
+        END AS home_away,
         CASE
             WHEN (
                 (team_id = home_team_id AND home_score > away_score)

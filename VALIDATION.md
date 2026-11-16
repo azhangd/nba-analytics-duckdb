@@ -30,6 +30,12 @@ or tracking system.
   - Elo follows FiveThirtyEight's NBA method, with the home edge set to 50
     points instead of their 100. 50 predicted 2025-26 best; the comment in
     `src/nba_duckdb/analytics/elo.py` has the numbers.
+  - Neutral-site games, such as the NBA Cup semifinals in Las Vegas and games
+    abroad, give neither team the home edge. The NBA marks them in the
+    schedule, and `fct_games.is_neutral` carries the flag.
+  - Projected records cover all 82 games. Games that aren't on the schedule
+    yet, like NBA Cup knockout and makeup games, count as half a win each;
+    `team_season_elo.unscheduled_games` says how many there are.
   - BPM is a box-score estimate, shifted per team as Basketball-Reference
     does, so each team's players add up to how the team actually played.
     It still hasn't been checked against Basketball-Reference's numbers, and

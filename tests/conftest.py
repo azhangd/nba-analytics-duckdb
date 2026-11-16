@@ -63,7 +63,7 @@ SCHEDULE_DEFAULTS = {
     "game_status": 3,
     "game_status_text": "Final",
     "season": "2099-00",
-    "raw_json": "{}",
+    "raw_json": '{"isNeutral": false}',
 }
 
 

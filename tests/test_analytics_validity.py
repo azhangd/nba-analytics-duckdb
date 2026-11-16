@@ -47,7 +47,8 @@ def _create_fct_games(db):
             away_team_id INTEGER,
             home_score INTEGER,
             away_score INTEGER,
-            status TEXT
+            status TEXT,
+            is_neutral BOOLEAN NOT NULL DEFAULT false
         )
         """
     )
@@ -478,6 +479,45 @@ def test_player_season_split_stats_grain_and_source_reconciliation(tmp_db):
         (row["split_type"], row["split_value"])
         for row in rows
     } >= {("home_away", "Home"), ("home_away", "Away"), ("rest_days", "B2B")}
+
+
+def test_neutral_site_games_are_left_out_of_the_home_away_split_only(tmp_db):
+    db = tmp_db
+    from nba_duckdb import dbt_runner
+
+    _create_fct_games(db)
+    _create_player_game_stats(db)
+    db.insert_rows(
+        "silver",
+        "fct_games",
+        [
+            {
+                "game_id": "0029900001",
+                "season": "2099-00",
+                "game_date": "2100-01-01",
+                "home_team_id": 100,
+                "away_team_id": 200,
+                "home_score": 102,
+                "away_score": 99,
+                "status": "Final",
+                "is_neutral": True,
+            }
+        ],
+    )
+    db.insert_rows(
+        "gold",
+        "player_game_stats",
+        [{"game_id": "0029900001", "player_id": 1, "team_id": 100, "player_name": "Synthetic Guard", "minutes": 30.0}],
+    )
+
+    dbt_runner.run_model(model="player_season_split_stats")
+    splits = {
+        (row["split_type"], row["split_value"]): row["games"]
+        for row in db.execute("SELECT split_type, split_value, games FROM gold.player_season_split_stats")
+    }
+
+    assert "home_away" not in {split_type for split_type, _ in splits}
+    assert splits[("win_loss", "Win")] == 1
 
 
 def test_lineup_season_stats_grain_and_minutes_reconciliation(tmp_db):

@@ -33,6 +33,8 @@ models:
       - name: season
         data_tests:
           - not_null
+      - name: unscheduled_games
+        description: Games of the 82 not on the schedule yet, such as NBA Cup knockout and makeup games. Each counts as half a win in the projection.
 
   - name: team_game_elo_history
     description: Elo before and after each game
@@ -46,6 +48,8 @@ models:
       - name: game_id
         data_tests:
           - not_null
+      - name: is_home
+        description: NULL for a neutral-site game, which gives neither team the home edge.
 
   - name: player_season_stats
     description: Season averages, percentiles, BPM and VORP

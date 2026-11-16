@@ -12,6 +12,9 @@ SELECT
     away_team_abbr,
     COALESCE(TRY_CAST(json_extract_string(raw_json, '$.homeTeam.score') AS INTEGER), 0) AS home_score,
     COALESCE(TRY_CAST(json_extract_string(raw_json, '$.awayTeam.score') AS INTEGER), 0) AS away_score,
+    -- True for games away from both teams' arenas, such as NBA Cup games in Las
+    -- Vegas and games abroad. A missing flag gives NULL, which fails the not_null test.
+    CAST(json_extract_string(raw_json, '$.isNeutral') AS BOOLEAN) AS is_neutral,
     CASE
         WHEN game_status = 3 THEN 'Final'
         WHEN game_status = 2 THEN 'In Progress'

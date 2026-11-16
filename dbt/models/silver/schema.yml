@@ -65,6 +65,10 @@ models:
         description: preseason, regular_season, all_star, playoffs, play_in or nba_cup, from the game id.
         data_tests:
           - not_null
+      - name: is_neutral
+        description: True when neither team is at home, such as NBA Cup games in Las Vegas and games abroad.
+        data_tests:
+          - not_null
 
   - name: fct_boxscores
     description: Traditional and advanced stats per player per game
