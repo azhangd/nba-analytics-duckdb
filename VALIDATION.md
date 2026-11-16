@@ -44,24 +44,39 @@ advanced stats, or any betting or tracking system.
     add up to the team's net rating adjusted for schedule and for playing with
     a lead. OBPM is done the same way with offense, and DBPM is BPM - OBPM.
     VORP is (BPM + 2) x minutes / (48 x 82).
-  - Basketball-Reference adds up BPM game by game; this works from season
-    totals, so a player who missed a lot of games or played mostly when the
-    team was short-handed can be off by a point or so. They also blend in 50
-    minutes of each player's listed position, which the NBA's G/F/C listings
-    can't supply. That's why the columns keep `_approx`.
-  - For players with 500+ minutes in 2022-23 to 2025-26 (360 to 379 a
-    season), against Basketball-Reference:
+  - Like Basketball-Reference, the published BPM is rated game by game: each
+    game's box score gets its own team adjustment, so the team's players add
+    up to a target built from who actually played (their season BPMs) and
+    the game's margin and average lead. A player's BPM is his game BPMs
+    averaged by minutes, so a team's players, weighted by minutes, now add up
+    to the average of its game targets rather than its season net rating.
+  - Basketball-Reference also blends 50 minutes of each player's listed
+    position (PG to C) into the position estimate. The NBA only lists G, F
+    or C; mapping those to numbers didn't change the match, so it's left out.
+    That's why the columns keep `_approx`.
+  - Against Basketball-Reference in 2022-23 to 2025-26, players with 500+
+    minutes (360 to 379 a season):
 
     | Season  | BPM r | BPM slope | BPM median / 90th pct gap | OBPM median / 90th | DBPM median / 90th | VORP median / 90th |
     |---------|-------|-----------|---------------------------|--------------------|--------------------|--------------------|
-    | 2022-23 | 0.996 | 0.97      | 0.1 / 0.4                 | 0.1 / 0.2          | 0.1 / 0.3          | 0.06 / 0.15        |
-    | 2023-24 | 0.995 | 0.98      | 0.2 / 0.4                 | 0.1 / 0.2          | 0.1 / 0.3          | 0.06 / 0.15        |
-    | 2024-25 | 0.994 | 0.97      | 0.2 / 0.5                 | 0.1 / 0.3          | 0.1 / 0.3          | 0.06 / 0.16        |
-    | 2025-26 | 0.994 | 0.96      | 0.2 / 0.5                 | 0.1 / 0.3          | 0.1 / 0.3          | 0.06 / 0.16        |
+    | 2022-23 | 1.000 | 1.00      | 0.0 / 0.1                 | 0.0 / 0.1          | 0.0 / 0.1          | 0.03 / 0.07        |
+    | 2023-24 | 1.000 | 1.00      | 0.0 / 0.1                 | 0.0 / 0.1          | 0.0 / 0.1          | 0.03 / 0.07        |
+    | 2024-25 | 1.000 | 1.00      | 0.0 / 0.1                 | 0.0 / 0.1          | 0.0 / 0.1          | 0.03 / 0.06        |
+    | 2025-26 | 1.000 | 1.00      | 0.0 / 0.1                 | 0.0 / 0.1          | 0.0 / 0.1          | 0.03 / 0.06        |
 
-    The biggest BPM gaps are 1 to 1.7 points, all players with a partial
-    season or few minutes. Before this, BPM had a slope of 0.40-0.47 and a
-    median gap of 1.1-1.2, so stars came out at half their value.
+    and players with 250 to 500 minutes (49 to 70 a season):
+
+    | Season  | BPM r | BPM slope | BPM median / 90th pct gap | OBPM median / 90th | DBPM median / 90th | VORP median / 90th |
+    |---------|-------|-----------|---------------------------|--------------------|--------------------|--------------------|
+    | 2022-23 | 0.999 | 0.98      | 0.0 / 0.2                 | 0.0 / 0.1          | 0.1 / 0.1          | 0.02 / 0.05        |
+    | 2023-24 | 0.999 | 1.01      | 0.1 / 0.2                 | 0.05 / 0.2         | 0.1 / 0.1          | 0.03 / 0.05        |
+    | 2024-25 | 0.999 | 1.01      | 0.1 / 0.2                 | 0.1 / 0.1          | 0.0 / 0.1          | 0.03 / 0.05        |
+    | 2025-26 | 0.999 | 1.00      | 0.0 / 0.1                 | 0.0 / 0.1          | 0.0 / 0.1          | 0.02 / 0.04        |
+
+    The biggest BPM gap among players with 250+ minutes is 0.3. Rated from
+    season totals instead, players with 500+ minutes had a slope of 0.96-0.98
+    and a 90th percentile gap of 0.4-0.5, and partial-season players were off
+    by up to 1.7 (Jahmai Mashack 2025-26: -5.3 against -7.0, now -7.0).
 - **Rule-based.** Play-type labels and the heuristic shot quality columns
   (`expected_fg_pct_heuristic`, `quality_delta_heuristic`), which come from
   hard-coded baselines.
