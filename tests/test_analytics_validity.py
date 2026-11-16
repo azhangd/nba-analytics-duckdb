@@ -1107,6 +1107,8 @@ def test_bpm_vorp_transform_keeps_traded_player_at_player_season_grain():
             "team_id": [1610612737, 1610612738],
             "season": ["2099-00", "2099-00"],
             "pace": [96.0, 104.0],
+            "ppg": [110.0, 112.0],
+            "opp_ppg": [108.0, 114.0],
         }
     )
 
@@ -1380,3 +1382,33 @@ def test_timeout_stats_skip_coach_challenges(tmp_db):
     dbt_runner.run_model(model="team_season_timeout_stats")
 
     assert tmp_db.execute("SELECT total_timeouts FROM gold.team_season_timeout_stats")[0]["total_timeouts"] == 2
+
+
+def test_bpm_is_centered_on_each_teams_rating():
+    import polars as pl
+
+    from nba_duckdb.transforms.gold.bpm_vorp import build_bpm_vorp
+
+    def game_line(game_id, player_id, team_id, minutes, pts, ast):
+        return {"game_id": game_id, "player_id": player_id, "team_id": team_id, "minutes": minutes, "pts": pts,
+                "reb": 5, "oreb": 1, "dreb": 4, "ast": ast, "stl": 1, "blk": 0, "tov": 2, "fga": 12, "fg3a": 4, "pf": 2}
+
+    player_games = pl.DataFrame([
+        game_line("g1", 1, 10, 36.0, 30, 8), game_line("g1", 2, 10, 12.0, 4, 1),
+        game_line("g1", 3, 20, 30.0, 18, 4), game_line("g1", 4, 20, 18.0, 10, 2),
+    ])
+    games = pl.DataFrame({"game_id": ["g1"], "season": ["2099-00"]})
+    season_stats = pl.DataFrame({"player_id": [1, 2, 3, 4], "season": ["2099-00"] * 4, "avg_usg_pct": [0.3, 0.15, 0.22, 0.18]})
+    # Team 10 is +8 per 100 possessions, team 20 is -8.
+    four_factors = pl.DataFrame({
+        "team_id": [10, 20], "season": ["2099-00"] * 2, "pace": [100.0, 100.0],
+        "ppg": [112.0, 104.0], "opp_ppg": [104.0, 112.0],
+    })
+
+    result, _ = build_bpm_vorp(
+        player_games=player_games, fct_games=games, season_stats=season_stats, four_factors=four_factors
+    )
+    bpm = dict(result.select(["player_id", "bpm_approx"]).iter_rows())
+
+    assert 5 * (bpm[1] * 36 + bpm[2] * 12) / 48 == pytest.approx(8.0, abs=0.3)
+    assert 5 * (bpm[3] * 30 + bpm[4] * 18) / 48 == pytest.approx(-8.0, abs=0.3)

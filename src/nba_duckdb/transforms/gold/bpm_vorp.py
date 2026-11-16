@@ -126,7 +126,7 @@ def build_bpm_vorp(
             + _OBPM_FGA * pl.col("fga100")
             + _OBPM_3PA * pl.col("fg3a100")
             + pl.col("role_adj")
-        ).round(1).alias("obpm")
+        ).alias("raw_obpm")
     )
     agg = agg.with_columns(
         (
@@ -137,8 +137,14 @@ def build_bpm_vorp(
             + _DBPM_AST * pl.col("ast100")
             + _DBPM_OPP3PA_CONST
             + pl.col("role_adj") * 0.5
-        ).round(1).alias("dbpm")
+        ).alias("raw_dbpm")
     )
+    agg = agg.join(
+        _team_adjustments(pgs, agg, four_factors), on=["player_id", "season"], how="left"
+    ).with_columns([
+        (pl.col("raw_obpm") + pl.col("obpm_adj")).round(1).alias("obpm"),
+        (pl.col("raw_dbpm") + pl.col("dbpm_adj")).round(1).alias("dbpm"),
+    ])
     agg = agg.with_columns([
         (pl.col("obpm") + pl.col("dbpm")).round(1).alias("bpm_approx"),
         (
@@ -148,3 +154,50 @@ def build_bpm_vorp(
         ).round(2).alias("vorp_approx"),
     ])
     return agg.select(["player_id", "season", "obpm", "dbpm", "bpm_approx", "vorp_approx"]), float(league_avg_pace)
+
+
+def _team_adjustments(pgs: pl.DataFrame, raw: pl.DataFrame, four_factors: pl.DataFrame) -> pl.DataFrame:
+    """Per player-season shifts that center BPM on how each team actually played.
+
+    As in Basketball-Reference's BPM, each team's players get one offensive and one
+    defensive constant so that 5 x their minutes-weighted OBPM equals the team's
+    offensive rating per 100 possessions relative to the league, and likewise for
+    defense. A traded player gets the minutes-weighted average of his teams' shifts.
+    A team without four factors gives its players no BPM.
+    """
+    ratings = four_factors.filter(pl.col("pace") > 0).with_columns([
+        (pl.col("ppg") * 100 / pl.col("pace")).alias("ortg"),
+        (pl.col("opp_ppg") * 100 / pl.col("pace")).alias("drtg"),
+    ])
+    ratings = ratings.with_columns([
+        (pl.col("ortg") - pl.col("ortg").mean().over("season")).alias("rel_off"),
+        (pl.col("drtg").mean().over("season") - pl.col("drtg")).alias("rel_def"),
+    ]).select(["team_id", "season", "rel_off", "rel_def"])
+
+    stints = (
+        pgs.group_by(["player_id", "season", "team_id"])
+        .agg(pl.col("minutes").sum().alias("team_minutes"))
+        .join(raw.select(["player_id", "season", "raw_obpm", "raw_dbpm"]), on=["player_id", "season"], how="inner")
+    )
+    team_constants = (
+        stints.group_by(["team_id", "season"])
+        .agg([
+            ((pl.col("raw_obpm") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("team_obpm"),
+            ((pl.col("raw_dbpm") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("team_dbpm"),
+        ])
+        .join(ratings, on=["team_id", "season"], how="inner")
+        .select([
+            "team_id",
+            "season",
+            (pl.col("rel_off") / 5 - pl.col("team_obpm")).alias("off_const"),
+            (pl.col("rel_def") / 5 - pl.col("team_dbpm")).alias("def_const"),
+        ])
+    )
+    return (
+        stints.join(team_constants, on=["team_id", "season"], how="inner")
+        .group_by(["player_id", "season"])
+        .agg([
+            ((pl.col("off_const") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("obpm_adj"),
+            ((pl.col("def_const") * pl.col("team_minutes")).sum() / pl.col("team_minutes").sum()).alias("dbpm_adj"),
+        ])
+    )
